@@ -31,7 +31,8 @@ const glassAPI: GlassAPI = {
     ipcRenderer.on('window:maximizedChanged', listener)
     return () => ipcRenderer.removeListener('window:maximizedChanged', listener)
   },
-  hasNativeWindowControls: process.platform === 'win32',
+  hasNativeWindowControls: process.platform === 'win32' || process.platform === 'darwin',
+  platform: process.platform,
   openDetachedChat: () => ipcRenderer.invoke('chat:openDetached'),
   toggleDetachedChat: () => ipcRenderer.invoke('chat:toggleDetached'),
   closeDetachedChat: () => ipcRenderer.invoke('chat:closeDetached'),

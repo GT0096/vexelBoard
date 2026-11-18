@@ -72,9 +72,17 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
   }
 
   const hasNativeControls = Boolean(window.glassAPI?.hasNativeWindowControls)
+  const platform = window.glassAPI?.platform
+  const topbarClasses = [
+    'topbar',
+    hasNativeControls && platform === 'win32' ? 'has-native-window-controls' : '',
+    platform === 'darwin' ? 'has-mac-traffic-lights' : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
-    <header className={`topbar ${hasNativeControls ? 'has-native-window-controls' : ''}`}>
+    <header className={topbarClasses}>
       <div className="topbar-left">
         <div className="brand">
           <BrandMark size={26} />

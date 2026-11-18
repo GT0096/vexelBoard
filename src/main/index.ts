@@ -7,6 +7,7 @@ import {
   globalShortcut,
   screen,
   dialog,
+  Menu,
   type Rectangle
 } from 'electron'
 import { join } from 'path'
@@ -145,6 +146,7 @@ function openDetachedChat(): boolean {
 
 function createWindow(): void {
   const isWin = process.platform === 'win32'
+  const isMac = process.platform === 'darwin'
   mainWindow = new BrowserWindow({
     ...MODE_A_SIZE,
     minWidth: 480,
@@ -164,9 +166,14 @@ function createWindow(): void {
             height: 52
           }
         }
-      : {
-          frame: false
-        }),
+      : isMac
+        ? {
+            titleBarStyle: 'hiddenInset' as const,
+            trafficLightPosition: { x: 14, y: 19 }
+          }
+        : {
+            frame: false
+          }),
     ...(process.platform !== 'darwin' ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -520,6 +527,22 @@ function registerIpc(): void {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.vexelboard.app')
+
+  if (process.platform === 'darwin') {
+    try {
+      app.dock?.setIcon(icon)
+    } catch {
+      /* ignore dock icon errors */
+    }
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([
+        { role: 'appMenu' },
+        { role: 'editMenu' },
+        { role: 'viewMenu' },
+        { role: 'windowMenu' }
+      ])
+    )
+  }
 
   // Auto-initialize local zero-setup database on launch
   try {
