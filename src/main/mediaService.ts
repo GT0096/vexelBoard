@@ -164,7 +164,7 @@ export async function fetchYouTubeInfo(url: string): Promise<YouTubeInfoResult> 
     ? transcriptItems.map((t) => t.text).join(' ')
     : `YouTube Video: "${title}" by ${author} (https://www.youtube.com/watch?v=${videoId}). Note: Captions were not available for this video.`
 
-  // 3. Group into ~800 char chunks with timestamp ranges for NotebookLM / RAG
+  // 3. Group into ~800 char chunks with timestamp ranges for Knowledge Studio / RAG
   const chunks: Array<{ text: string; start: number; end: number }> = []
   let currentWords: string[] = []
   let chunkStart = 0

@@ -76,7 +76,7 @@ import { TopBar } from './components/TopBar'
 import { HomeHub } from './components/HomeHub'
 import { RightPanel } from './components/RightPanel'
 import { CanvasElements } from './components/CanvasElements'
-import { NotebookLMHub } from './components/NotebookLMHub'
+import { KnowledgeHub } from './components/KnowledgeHub'
 import { SettingsModal } from './components/SettingsModal'
 import { Toasts } from './components/Toasts'
 
@@ -489,7 +489,7 @@ export default function App(): React.JSX.Element {
   // Modals & Panels
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false)
   const [isDetachedChat, setIsDetachedChat] = useState(false)
-  const [isNotebookLMOpen, setIsNotebookLMOpen] = useState(false)
+  const [isKnowledgeHubOpen, setIsKnowledgeHubOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTrigger, setSettingsTrigger] = useState(0)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -699,7 +699,7 @@ export default function App(): React.JSX.Element {
       setActiveSection(section)
       setActiveChatProjectId(targetProjectId)
       setSelectedIds([])
-      setIsNotebookLMOpen(false)
+      setIsKnowledgeHubOpen(false)
       if (opts?.openChat) {
         setIsRightPanelOpen(true)
       }
@@ -768,7 +768,7 @@ export default function App(): React.JSX.Element {
     chatLoadSeqRef.current++
     setSelectedIds([])
     setIsRightPanelOpen(false)
-    setIsNotebookLMOpen(false)
+    setIsKnowledgeHubOpen(false)
     setActiveSection(null)
     setActiveProject(null)
   }, [activeProject?.id, activeSection?.id, activeSection?.projectId, flushSave])
@@ -1736,8 +1736,8 @@ export default function App(): React.JSX.Element {
         handleInsertDiagram(action.text)
       } else if (action.type === 'settingsUpdated' && action.ai) {
         patchSettings({ ai: action.ai })
-      } else if (action.type === 'openNotebookLM') {
-        setIsNotebookLMOpen(true)
+      } else if (action.type === 'openKnowledgeHub') {
+        setIsKnowledgeHubOpen(true)
       } else if (action.type === 'generateTutorial') {
         handleGenerateTutorial(action.topic || 'Current Whiteboard Context')
       } else if (action.type === 'addYouTubeToCanvas') {
@@ -2544,8 +2544,8 @@ export default function App(): React.JSX.Element {
         rawTarget?.closest('.detached-window-root') ||
         pointEl?.closest('.canvas-video-card') ||
         rawTarget?.closest('.canvas-video-card') ||
-        pointEl?.closest('.notebooklm-modal') ||
-        rawTarget?.closest('.notebooklm-modal') ||
+        pointEl?.closest('.knowledge-hub-modal') ||
+        rawTarget?.closest('.knowledge-hub-modal') ||
         pointEl?.closest('.modal-backdrop') ||
         rawTarget?.closest('.modal-backdrop')
       ) {
@@ -2608,8 +2608,8 @@ export default function App(): React.JSX.Element {
         rawTarget?.closest('.detached-window-root') ||
         pointEl?.closest('.canvas-video-card') ||
         rawTarget?.closest('.canvas-video-card') ||
-        pointEl?.closest('.notebooklm-modal') ||
-        rawTarget?.closest('.notebooklm-modal') ||
+        pointEl?.closest('.knowledge-hub-modal') ||
+        rawTarget?.closest('.knowledge-hub-modal') ||
         pointEl?.closest('.right-panel') ||
         rawTarget?.closest('.right-panel') ||
         pointEl?.closest('.miro-left-dock') ||
@@ -3591,7 +3591,7 @@ export default function App(): React.JSX.Element {
             isBeautifying={isBeautifying}
             hasSelection={selectedIds.length > 0}
             onAddCodeNode={handleAddCodeNode}
-            onOpenNotebookLM={() => setIsNotebookLMOpen(true)}
+            onOpenKnowledgeHub={() => setIsKnowledgeHubOpen(true)}
             onAddYouTubeVideo={() => handleAddYouTubeToCanvas()}
             boardPalette={boardPalette}
             penColor={penColor}
@@ -3721,17 +3721,17 @@ export default function App(): React.JSX.Element {
             onChangeAI={(ai) => patchSettings({ ai })}
             onToast={addToast}
             openSettingsTrigger={settingsTrigger}
-            onOpenNotebookLM={() => setIsNotebookLMOpen(true)}
+            onOpenKnowledgeHub={() => setIsKnowledgeHubOpen(true)}
             onGenerateTutorial={(topic) => handleGenerateTutorial(topic)}
             onAddYouTubeToCanvas={handleAddYouTubeToCanvas}
           />
 
-          {/* NotebookLM Multi-Source Study Studio */}
-          <NotebookLMHub
-            isOpen={isNotebookLMOpen}
+          {/* Knowledge Studio Multi-Source Study Hub */}
+          <KnowledgeHub
+            isOpen={isKnowledgeHubOpen}
             boardId={activeSection.id}
             projectId={activeProjectId ?? undefined}
-            onClose={() => setIsNotebookLMOpen(false)}
+            onClose={() => setIsKnowledgeHubOpen(false)}
             onGenerateTutorial={handleGenerateTutorial}
             onAddYouTubeToCanvas={handleAddYouTubeToCanvas}
             getCurrentBoardSummary={summarizeCurrentBoard}

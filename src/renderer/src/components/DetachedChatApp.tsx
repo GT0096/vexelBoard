@@ -739,11 +739,11 @@ export const DetachedChatApp: React.FC = () => {
         <button
           type="button"
           className="chat-feature-pill notebook"
-          onClick={() => window.glassAPI?.sendDetachedAction?.({ type: 'openNotebookLM' })}
-          title="Open NotebookLM Knowledge Studio on main board"
+          onClick={() => window.glassAPI?.sendDetachedAction?.({ type: 'openKnowledgeHub' })}
+          title="Open Knowledge Studio on main board"
         >
           <BookOpen size={13} />
-          <span>NotebookLM Studio</span>
+          <span>Knowledge Studio</span>
         </button>
       </div>
 
@@ -993,8 +993,8 @@ export const DetachedChatApp: React.FC = () => {
             pinnedSources={knowledge.pinnedSources}
             onSelect={(src) => knowledge.applyAtMention(src, input, setInput)}
             onClose={knowledge.closeAtMention}
-            onOpenNotebookLM={() =>
-              window.glassAPI?.sendDetachedAction?.({ type: 'openNotebookLM' })
+            onOpenKnowledgeHub={() =>
+              window.glassAPI?.sendDetachedAction?.({ type: 'openKnowledgeHub' })
             }
           />
           <textarea
@@ -1043,8 +1043,8 @@ export const DetachedChatApp: React.FC = () => {
               <ChatSourceContextControls
                 state={knowledge}
                 hasProject={Boolean(activeProjectId)}
-                onOpenNotebookLM={() =>
-                  window.glassAPI?.sendDetachedAction?.({ type: 'openNotebookLM' })
+                onOpenKnowledgeHub={() =>
+                  window.glassAPI?.sendDetachedAction?.({ type: 'openKnowledgeHub' })
                 }
               />
             </div>

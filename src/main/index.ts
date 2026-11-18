@@ -347,7 +347,7 @@ function registerIpc(): void {
   ipcMain.on('chat:sendAction', (_e, action) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       if (
-        action?.type === 'openNotebookLM' ||
+        action?.type === 'openKnowledgeHub' ||
         action?.type === 'generateTutorial' ||
         action?.type === 'addYouTubeToCanvas'
       ) {

@@ -158,7 +158,7 @@ export const ChatPinnedSourcesBar: React.FC<{
         <div
           key={src.id}
           className="chat-attachment-chip chat-book-ref-chip"
-          title={`Grounded in NotebookLM source: ${src.title}`}
+          title={`Grounded in Knowledge Studio source: ${src.title}`}
         >
           <BookOpen size={12} style={{ color: '#f59e0b', flexShrink: 0 }} />
           <span className="chat-attachment-name">@{src.title}</span>
@@ -184,14 +184,14 @@ export const ChatAtMentionPopover: React.FC<{
   pinnedSources: KnowledgeSourceItem[]
   onSelect: (src: KnowledgeSourceItem) => void
   onClose: () => void
-  onOpenNotebookLM?: () => void
-}> = ({ atQuery, matches, pinnedSources, onSelect, onClose, onOpenNotebookLM }) => {
+  onOpenKnowledgeHub?: () => void
+}> = ({ atQuery, matches, pinnedSources, onSelect, onClose, onOpenKnowledgeHub }) => {
   if (atQuery === null) return null
   return (
     <div className="chat-source-popover chat-at-popover glass">
       <div className="chat-source-popover-hdr">
         <span>
-          <AtSign size={12} /> Reference NotebookLM Book / Note
+          <AtSign size={12} /> Reference Knowledge Book / Note
         </span>
         <button type="button" className="chat-source-popover-close" onClick={onClose} aria-label="Close">
           <X size={12} />
@@ -201,16 +201,16 @@ export const ChatAtMentionPopover: React.FC<{
         {matches.length === 0 ? (
           <div className="chat-source-empty">
             <span>No matching uploaded books or notes found.</span>
-            {onOpenNotebookLM && (
+            {onOpenKnowledgeHub && (
               <button
                 type="button"
                 className="chat-source-upload-link"
                 onClick={() => {
                   onClose()
-                  onOpenNotebookLM()
+                  onOpenKnowledgeHub()
                 }}
               >
-                Upload in NotebookLM Studio
+                Upload in Knowledge Studio
               </button>
             )}
           </div>
@@ -242,8 +242,8 @@ export const ChatAtMentionPopover: React.FC<{
 export const ChatSourceContextControls: React.FC<{
   state: ChatKnowledgeState
   hasProject: boolean
-  onOpenNotebookLM?: () => void
-}> = ({ state, hasProject, onOpenNotebookLM }) => {
+  onOpenKnowledgeHub?: () => void
+}> = ({ state, hasProject, onOpenKnowledgeHub }) => {
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -270,8 +270,8 @@ export const ChatSourceContextControls: React.FC<{
             state.setShowSourcesMenu(nextOpen)
             if (nextOpen) void state.refreshSources()
           }}
-          title="Select NotebookLM books or notes to specifically reference (or type @)"
-          aria-label="Reference NotebookLM Books"
+          title="Select Knowledge Studio books or notes to specifically reference (or type @)"
+          aria-label="Reference Knowledge Books"
         >
           <BookOpen size={13} />
           <span>
@@ -287,24 +287,24 @@ export const ChatSourceContextControls: React.FC<{
           <div className="chat-source-popover glass">
             <div className="chat-source-popover-hdr">
               <span>
-                <BookOpen size={12} /> Reference NotebookLM Books
+                <BookOpen size={12} /> Reference Knowledge Books
               </span>
               <span className="chat-source-popover-sub">or type @</span>
             </div>
             <div className="chat-source-popover-list">
               {state.availableSources.length === 0 ? (
                 <div className="chat-source-empty">
-                  <span>No books or notes uploaded to NotebookLM yet.</span>
-                  {onOpenNotebookLM && (
+                  <span>No books or notes uploaded to Knowledge Studio yet.</span>
+                  {onOpenKnowledgeHub && (
                     <button
                       type="button"
                       className="chat-source-upload-link"
                       onClick={() => {
                         state.setShowSourcesMenu(false)
-                        onOpenNotebookLM()
+                        onOpenKnowledgeHub()
                       }}
                     >
-                      Upload in NotebookLM Studio
+                      Upload in Knowledge Studio
                     </button>
                   )}
                 </div>

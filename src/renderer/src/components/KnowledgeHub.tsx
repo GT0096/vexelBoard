@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import type { KnowledgeSourceItem } from '@shared/ipc'
 
-interface NotebookLMHubProps {
+interface KnowledgeHubProps {
   isOpen: boolean
   boardId?: string
   projectId?: string
@@ -34,7 +34,7 @@ interface NotebookLMHubProps {
   ) => Promise<void>
 }
 
-export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
+export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
   isOpen,
   boardId,
   projectId,
@@ -246,7 +246,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card notebooklm-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-card knowledge-hub-modal" onClick={(e) => e.stopPropagation()}>
         <input
           ref={fileInputRef}
           type="file"
@@ -257,17 +257,17 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
         />
 
         {/* Header */}
-        <div className="modal-header notebooklm-header">
+        <div className="modal-header knowledge-hub-header">
           <div className="modal-title-wrap">
-            <div className="notebooklm-brand-icon">
+            <div className="knowledge-hub-brand-icon">
               <BookOpen size={20} />
             </div>
             <div>
-              <div className="notebooklm-title-row">
-                <h2>NotebookLM Knowledge Studio</h2>
-                <span className="notebooklm-badge">SQLite-Vec RAG</span>
+              <div className="knowledge-hub-title-row">
+                <h2>Knowledge Studio</h2>
+                <span className="knowledge-hub-badge">SQLite-Vec RAG</span>
               </div>
-              <p className="notebooklm-subtitle">
+              <p className="knowledge-hub-subtitle">
                 Upload multiple documents &amp; YouTube links to study, synthesize, and recall board concepts
               </p>
             </div>
@@ -279,10 +279,10 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
         </div>
 
         {/* Tab Bar */}
-        <div className="notebooklm-tabs">
+        <div className="knowledge-hub-tabs">
           <button
             type="button"
-            className={`notebooklm-tab-btn ${activeTab === 'sources' ? 'active' : ''}`}
+            className={`knowledge-hub-tab-btn ${activeTab === 'sources' ? 'active' : ''}`}
             onClick={() => setActiveTab('sources')}
           >
             <BookOpen size={14} />
@@ -291,16 +291,16 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
 
           <button
             type="button"
-            className={`notebooklm-tab-btn ${activeTab === 'synthesis' ? 'active' : ''}`}
+            className={`knowledge-hub-tab-btn ${activeTab === 'synthesis' ? 'active' : ''}`}
             onClick={() => setActiveTab('synthesis')}
           >
             <Sparkles size={14} />
-            <span>NotebookLM Synthesis</span>
+            <span>Knowledge Synthesis</span>
           </button>
 
           <button
             type="button"
-            className={`notebooklm-tab-btn ${activeTab === 'spatial' ? 'active' : ''}`}
+            className={`knowledge-hub-tab-btn ${activeTab === 'spatial' ? 'active' : ''}`}
             onClick={() => setActiveTab('spatial')}
           >
             <Compass size={14} />
@@ -309,18 +309,18 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
         </div>
 
         {/* Scrollable Body */}
-        <div className="notebooklm-body">
+        <div className="knowledge-hub-body">
           {activeTab === 'sources' && (
-            <div className="notebooklm-section">
-              <div className="notebooklm-toolbar">
-                <span className="notebooklm-hint">
+            <div className="knowledge-hub-section">
+              <div className="knowledge-hub-toolbar">
+                <span className="knowledge-hub-hint">
                   Checked sources ground your Study Guides, Tutorials, and Chat Q&amp;A.
                 </span>
 
-                <div className="notebooklm-toolbar-actions">
+                <div className="knowledge-hub-toolbar-actions">
                   <button
                     type="button"
-                    className="notebooklm-btn"
+                    className="knowledge-hub-btn"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={loading}
                   >
@@ -330,7 +330,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
 
                   <button
                     type="button"
-                    className="notebooklm-btn danger"
+                    className="knowledge-hub-btn danger"
                     onClick={() => setShowAddYoutube((v) => !v)}
                   >
                     <Video size={14} />
@@ -339,7 +339,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
 
                   <button
                     type="button"
-                    className="notebooklm-btn accent"
+                    className="knowledge-hub-btn accent"
                     onClick={handleAddWhiteboardAsSource}
                   >
                     <Layout size={14} />
@@ -349,7 +349,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
               </div>
 
               {showAddYoutube && (
-                <div className="notebooklm-yt-bar">
+                <div className="knowledge-hub-yt-bar">
                   <Video size={16} className="yt-icon" />
                   <input
                     type="text"
@@ -360,7 +360,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                   />
                   <button
                     type="button"
-                    className="notebooklm-btn solid-danger"
+                    className="knowledge-hub-btn solid-danger"
                     onClick={handleAddYouTubeSource}
                     disabled={loading || !youtubeUrl.trim()}
                   >
@@ -369,23 +369,23 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                 </div>
               )}
 
-              <div className="notebooklm-source-list">
+              <div className="knowledge-hub-source-list">
                 {sources.length === 0 ? (
-                  <div className="notebooklm-empty">
+                  <div className="knowledge-hub-empty">
                     <BookOpen size={34} />
                     <h4>No knowledge sources indexed yet</h4>
                     <p>
                       Upload PDFs, lecture notes, code files, or paste YouTube links to build your
-                      local NotebookLM study base.
+                      local Knowledge Studio library.
                     </p>
                   </div>
                 ) : (
                   sources.map((src) => (
                     <div
                       key={src.id}
-                      className={`notebooklm-source-card ${src.isActive ? '' : 'inactive'}`}
+                      className={`knowledge-hub-source-card ${src.isActive ? '' : 'inactive'}`}
                     >
-                      <div className="notebooklm-source-left">
+                      <div className="knowledge-hub-source-left">
                         <input
                           type="checkbox"
                           checked={Boolean(src.isActive)}
@@ -393,7 +393,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                           title="Toggle source in RAG context"
                         />
 
-                        <div className="notebooklm-source-icon">
+                        <div className="knowledge-hub-source-icon">
                           {src.sourceType === 'youtube' ? (
                             <Video size={16} style={{ color: '#f87171' }} />
                           ) : src.sourceType === 'pdf' ? (
@@ -405,9 +405,9 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                           )}
                         </div>
 
-                        <div className="notebooklm-source-meta">
-                          <div className="notebooklm-source-title">{src.title}</div>
-                          <div className="notebooklm-source-sub">
+                        <div className="knowledge-hub-source-meta">
+                          <div className="knowledge-hub-source-title">{src.title}</div>
+                          <div className="knowledge-hub-source-sub">
                             <span>{src.sourceType.toUpperCase()}</span>
                             <span>•</span>
                             <span>~{src.tokenCount || 0} tokens</span>
@@ -417,11 +417,11 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                         </div>
                       </div>
 
-                      <div className="notebooklm-source-actions">
+                      <div className="knowledge-hub-source-actions">
                         {src.sourceType === 'youtube' && src.sourceUrl && (
                           <button
                             type="button"
-                            className="notebooklm-btn danger"
+                            className="knowledge-hub-btn danger"
                             onClick={() => {
                               onAddYouTubeToCanvas(src.sourceUrl!, src.title)
                               onClose()
@@ -449,8 +449,8 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
           )}
 
           {activeTab === 'synthesis' && (
-            <div className="notebooklm-section">
-              <div className="notebooklm-section-hdr">
+            <div className="knowledge-hub-section">
+              <div className="knowledge-hub-section-hdr">
                 <h3>1-Click Synthesis Studio</h3>
                 <p>
                   Generate study materials grounded in your {activeSourceIds.length} active source
@@ -458,8 +458,8 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                 </p>
               </div>
 
-              <div className="notebooklm-grid">
-                <div className="notebooklm-action-card">
+              <div className="knowledge-hub-grid">
+                <div className="knowledge-hub-action-card">
                   <div className="action-card-top">
                     <div className="action-card-icon blue">
                       <BookOpen size={17} />
@@ -472,7 +472,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                   </div>
                   <button
                     type="button"
-                    className="notebooklm-action-btn blue"
+                    className="knowledge-hub-action-btn blue"
                     disabled={isAiBusy || (activeSourceIds.length === 0 && getCurrentBoardSummary() === 'Whiteboard is currently empty.')}
                     onClick={() => {
                       onRunAction('study_guide', undefined, activeSourceIds)
@@ -484,7 +484,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                   </button>
                 </div>
 
-                <div className="notebooklm-action-card">
+                <div className="knowledge-hub-action-card">
                   <div className="action-card-top">
                     <div className="action-card-icon purple">
                       <HelpCircle size={17} />
@@ -497,7 +497,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                   </div>
                   <button
                     type="button"
-                    className="notebooklm-action-btn purple"
+                    className="knowledge-hub-action-btn purple"
                     disabled={isAiBusy || (activeSourceIds.length === 0 && getCurrentBoardSummary() === 'Whiteboard is currently empty.')}
                     onClick={() => {
                       onRunAction('faq', undefined, activeSourceIds)
@@ -509,7 +509,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                   </button>
                 </div>
 
-                <div className="notebooklm-action-card">
+                <div className="knowledge-hub-action-card">
                   <div className="action-card-top">
                     <div className="action-card-icon emerald">
                       <Headphones size={17} />
@@ -522,7 +522,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                   </div>
                   <button
                     type="button"
-                    className="notebooklm-action-btn emerald"
+                    className="knowledge-hub-action-btn emerald"
                     disabled={isAiBusy || (activeSourceIds.length === 0 && getCurrentBoardSummary() === 'Whiteboard is currently empty.')}
                     onClick={() => {
                       onRunAction('podcast', undefined, activeSourceIds)
@@ -534,7 +534,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                   </button>
                 </div>
 
-                <div className="notebooklm-action-card highlighted">
+                <div className="knowledge-hub-action-card highlighted">
                   <div className="action-card-top">
                     <div className="action-card-icon sky">
                       <Layout size={17} />
@@ -546,7 +546,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                     </p>
                     <input
                       type="text"
-                      className="notebooklm-topic-input"
+                      className="knowledge-hub-topic-input"
                       value={tutorialTopicInput}
                       onChange={(e) => setTutorialTopicInput(e.target.value)}
                       placeholder="Enter topic (or leave blank for active sources)..."
@@ -560,7 +560,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                   </div>
                   <button
                     type="button"
-                    className="notebooklm-action-btn sky"
+                    className="knowledge-hub-action-btn sky"
                     disabled={isAiBusy}
                     onClick={() => {
                       onGenerateTutorial(tutorialTopicInput.trim() || 'Active Knowledge Sources')
@@ -576,8 +576,8 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
           )}
 
           {activeTab === 'spatial' && (
-            <div className="notebooklm-section">
-              <div className="notebooklm-section-hdr">
+            <div className="knowledge-hub-section">
+              <div className="knowledge-hub-section-hdr">
                 <h3>Board as Context &amp; Spatial Recall</h3>
                 <p>
                   Ask how you arrived at a section of your board, or let AI discover conceptual
@@ -585,7 +585,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                 </p>
               </div>
 
-              <div className="notebooklm-yt-bar" style={{ borderColor: 'rgba(56, 189, 248, 0.35)' }}>
+              <div className="knowledge-hub-yt-bar" style={{ borderColor: 'rgba(56, 189, 248, 0.35)' }}>
                 <Search size={16} style={{ color: '#38bdf8' }} />
                 <input
                   type="text"
@@ -601,7 +601,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                 />
                 <button
                   type="button"
-                  className="notebooklm-action-btn sky"
+                  className="knowledge-hub-action-btn sky"
                   style={{ width: 'auto', padding: '7px 14px' }}
                   disabled={isAiBusy || !customRecallQuery.trim()}
                   onClick={() => {
@@ -613,8 +613,8 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                 </button>
               </div>
 
-              <div className="notebooklm-grid">
-                <div className="notebooklm-action-card">
+              <div className="knowledge-hub-grid">
+                <div className="knowledge-hub-action-card">
                   <div className="action-card-top">
                     <div className="action-card-icon amber">
                       <Clock size={17} />
@@ -627,7 +627,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                   </div>
                   <button
                     type="button"
-                    className="notebooklm-action-btn amber"
+                    className="knowledge-hub-action-btn amber"
                     disabled={isAiBusy}
                     onClick={() => {
                       onRunAction('recall', undefined, activeSourceIds)
@@ -639,7 +639,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                   </button>
                 </div>
 
-                <div className="notebooklm-action-card">
+                <div className="knowledge-hub-action-card">
                   <div className="action-card-top">
                     <div className="action-card-icon teal">
                       <Sparkles size={17} />
@@ -652,7 +652,7 @@ export const NotebookLMHub: React.FC<NotebookLMHubProps> = ({
                   </div>
                   <button
                     type="button"
-                    className="notebooklm-action-btn teal"
+                    className="knowledge-hub-action-btn teal"
                     disabled={isAiBusy}
                     onClick={() => {
                       onRunAction('patterns', undefined, activeSourceIds)
