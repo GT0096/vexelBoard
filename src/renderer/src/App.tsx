@@ -71,7 +71,7 @@ import {
 } from '@shared/ipc'
 import { resolveBoardPalette } from './board/backgroundPresets'
 import { Toolbar } from './components/Toolbar'
-import { MiroLeftToolbar } from './components/MiroLeftToolbar'
+import { LeftDockToolbar } from './components/LeftDockToolbar'
 import { TopBar } from './components/TopBar'
 import { HomeHub } from './components/HomeHub'
 import { RightPanel } from './components/RightPanel'
@@ -1534,7 +1534,7 @@ export default function App(): React.JSX.Element {
     [update, addToast, setSelectedId, setSelectedIds]
   )
 
-  /* ---------------- Miro Left Toolbar Handlers ---------------- */
+  /* ---------------- Left Dock Toolbar Handlers ---------------- */
   const handleAddShapeNode = useCallback(
     (
       shapeType: string,
@@ -2553,21 +2553,21 @@ export default function App(): React.JSX.Element {
       }
 
       const flyoutPanel =
-        (pointEl?.closest('.miro-flyout-panel') as HTMLElement | null) ||
-        (rawTarget?.closest('.miro-flyout-panel') as HTMLElement | null)
+        (pointEl?.closest('.vx-flyout-panel') as HTMLElement | null) ||
+        (rawTarget?.closest('.vx-flyout-panel') as HTMLElement | null)
       if (flyoutPanel) {
         e.preventDefault()
         e.stopPropagation()
         const deltaY = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaMode === 2 ? e.deltaY * 300 : e.deltaY
         const deltaX = e.deltaMode === 1 ? e.deltaX * 30 : e.deltaMode === 2 ? e.deltaX * 300 : e.deltaX
         const catRail =
-          (pointEl?.closest('.miro-cat-rail') as HTMLElement | null) ||
-          (rawTarget?.closest('.miro-cat-rail') as HTMLElement | null)
+          (pointEl?.closest('.vx-cat-rail') as HTMLElement | null) ||
+          (rawTarget?.closest('.vx-cat-rail') as HTMLElement | null)
         if (catRail) {
           catRail.scrollLeft += deltaX !== 0 ? deltaX : deltaY
           return
         }
-        const catalogScroll = flyoutPanel.querySelector('.miro-shape-catalog-scroll') as HTMLElement | null
+        const catalogScroll = flyoutPanel.querySelector('.vx-shape-catalog-scroll') as HTMLElement | null
         const targetScroll = catalogScroll || flyoutPanel
         if (e.shiftKey && deltaY !== 0 && deltaX === 0) {
           targetScroll.scrollLeft += deltaY
@@ -2612,8 +2612,8 @@ export default function App(): React.JSX.Element {
         rawTarget?.closest('.knowledge-hub-modal') ||
         pointEl?.closest('.right-panel') ||
         rawTarget?.closest('.right-panel') ||
-        pointEl?.closest('.miro-left-dock') ||
-        rawTarget?.closest('.miro-left-dock') ||
+        pointEl?.closest('.vx-left-dock') ||
+        rawTarget?.closest('.vx-left-dock') ||
         pointEl?.closest('.modal-content') ||
         rawTarget?.closest('.modal-content') ||
         pointEl?.closest('.modal-backdrop') ||
@@ -3580,8 +3580,8 @@ export default function App(): React.JSX.Element {
             </div>
           )}
 
-          {/* Miro-Style Left Quick-Access Toolbar */}
-          <MiroLeftToolbar
+          {/* Left Quick-Access Dock Toolbar */}
+          <LeftDockToolbar
             activeTool={activeTool}
             onSelectTool={setActiveTool}
             onAddShapeNode={handleAddShapeNode}

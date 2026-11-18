@@ -16,7 +16,7 @@ export interface LibraryShapeDef {
   id: string
   name: string
   category: string
-  sources: ('miro' | 'drawio')[]
+  sources: ('essentials' | 'standard')[]
   size: [number, number]
   paths: ShapePathSpec[]
   text?: [number, number, number, number]
@@ -56,11 +56,7 @@ const CATEGORY_DESCRIPTION_OVERRIDES: Record<string, string> = {
 }
 
 function sanitizeDisplayText(text: string): string {
-  return text
-    .replace(/\s*\((?:Miro|draw\.io|diagrams\.net)\)\s*/gi, '')
-    .replace(/\b(?:Miro|draw\.io|diagrams\.net)\b/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
+  return text.replace(/\s{2,}/g, ' ').trim()
 }
 
 export const ANIMATED_LINE_SHAPES: LibraryShapeDef[] = [

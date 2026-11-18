@@ -102,7 +102,7 @@ const QUICK_NODE_SHAPES: QuickNodeDef[] = [
   { type: 'actor', label: 'Actor / User', defaultLabel: 'User', previewShapeId: 'uml-actor' },
   { type: 'stateCircle', label: 'State Circle', defaultLabel: 'State', previewShapeId: 'circle' },
   { type: 'group', label: 'Group Frame', defaultLabel: 'Group Frame', previewShapeId: 'rectangle' },
-  { type: 'sticky', label: 'Sticky Note', defaultLabel: 'Quick Note', previewShapeId: 'miro-sticky' },
+  { type: 'sticky', label: 'Sticky Note', defaultLabel: 'Quick Note', previewShapeId: 'sticky-note' },
   { type: 'custom', label: 'Custom Card', defaultLabel: 'Service Card', previewShapeId: 'card-header' }
 ]
 
@@ -796,7 +796,7 @@ function GroupNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): Rea
   )
 }
 
-// 11. Miro-Style Sticky Note Node
+// 11. Sticky Note Node
 function StickyNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [label, setLabel] = useState(data.label || 'Idea note')
@@ -889,7 +889,7 @@ function CustomCardNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>)
   )
 }
 
-// 13. Universal Miro & draw.io Library Shape Node
+// 13. Universal Library Shape Node
 function LibraryShapeNode({
   id,
   type,

@@ -32,7 +32,7 @@ Thank you for contributing to **Vexelboard**! Whether you are fixing bugs, impro
 - `src/preload/`: Context-isolated preload script exposing typed APIs to the renderer.
 - `src/shared/`: Shared TypeScript types across main, preload, and renderer (`ipc.ts`).
 - `src/renderer/src/board/`: Whiteboard state and history (`useBoard.ts`), canvas stroke/shape renderer (`render.ts`), color palettes (`backgroundPresets.ts`), eraser math (`eraserUtils.ts`), SVG/image export (`exportUtils.ts`), and workspace storage (`workspaceStore.ts`).
-- `src/renderer/src/components/`: UI components (`App.tsx`, `TopBar.tsx`, `MiroLeftToolbar.tsx`, `Toolbar.tsx`, `PenControls.tsx`, `HomeHub.tsx`, `SettingsModal.tsx`, `ReactFlowDiagram.tsx`, `CodeStudioPanel.tsx`, etc.).
+- `src/renderer/src/components/`: UI components (`App.tsx`, `TopBar.tsx`, `LeftDockToolbar.tsx`, `Toolbar.tsx`, `PenControls.tsx`, `HomeHub.tsx`, `SettingsModal.tsx`, `ReactFlowDiagram.tsx`, `CodeStudioPanel.tsx`, etc.).
 - `src/renderer/src/shapes/`: Shape definitions (`shapeLibrary.ts`) and SVG shape rendering (`ShapeSvg.tsx`). If modifying generated shape data, regenerate with `npm run generate:shapes`.
 - `src/renderer/src/vision/`: MediaPipe webcam hand-tracking engine.
 

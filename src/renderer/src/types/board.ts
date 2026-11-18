@@ -76,7 +76,7 @@ export type ShapeKind =
   | 'line'
   | 'dashed-line'
   | 'elbow'
-  // Miro & draw.io shape library IDs
+  // Vexelboard shape library IDs
   | (string & {})
 
 export interface ShapeNode {

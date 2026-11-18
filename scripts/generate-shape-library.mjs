@@ -2,15 +2,13 @@
 /**
  * Shape Library Generator
  * -----------------------
- * Builds `src/renderer/src/shapes/shapeLibrary.json`, a catalog of the shapes
- * found in the Miro shape panel and the draw.io (diagrams.net) built-in
- * geometric / diagram palettes: General, Basic, Misc, Advanced, Arrows,
+ * Builds `src/renderer/src/shapes/shapeLibrary.json`, a catalog of built-in
+ * geometric / flowchart / engineering palettes: General, Basic, Misc, Advanced, Arrows,
  * Flowchart, UML, BPMN, Entity Relation, Network (generic) and Mockups.
  *
  * Every shape is described as one or more SVG paths in a normalised
  * 100 x 100 coordinate space. The renderer stretches that box to the node size
- * (preserveAspectRatio="none") and uses non-scaling strokes, which matches how
- * Miro and draw.io resize shapes.
+ * (preserveAspectRatio="none") and uses non-scaling strokes for crisp scaling.
  *
  * Path `fill` roles:
  *   fill  -> node fill colour        none   -> no fill (outline only)
@@ -195,30 +193,30 @@ const gridLines = (cols, rows, headerY = null) => {
 /* Categories                                                          */
 /* ------------------------------------------------------------------ */
 const categories = [
-  { id: 'basic', name: 'Basic Shapes', description: 'Miro basic shapes + draw.io General / Basic palette' },
-  { id: 'polygons', name: 'Polygons & Stars', description: 'Regular polygons and star variants (draw.io Basic)' },
-  { id: 'arrows', name: 'Block Arrows', description: 'Miro arrows + draw.io Arrows palette' },
-  { id: 'lines', name: 'Lines & Connectors', description: 'draw.io General line / arrow / curve shapes' },
-  { id: 'flowchart', name: 'Flowchart', description: 'Full ANSI / ISO flowchart set (Miro + draw.io Flowchart)' },
+  { id: 'basic', name: 'Basic Shapes', description: 'Basic geometric shapes and containers' },
+  { id: 'polygons', name: 'Polygons & Stars', description: 'Regular polygons and star variants' },
+  { id: 'arrows', name: 'Block Arrows', description: 'Directional block arrows and indicators' },
+  { id: 'lines', name: 'Lines & Connectors', description: 'Connector lines, arrows, and curves' },
+  { id: 'flowchart', name: 'Flowchart', description: 'Full ANSI / ISO flowchart shapes' },
   { id: 'callouts', name: 'Callouts & Bubbles', description: 'Speech, thought and line callouts' },
   { id: 'brackets', name: 'Brackets & Annotations', description: 'Braces, brackets, parentheses, annotations' },
   { id: 'containers', name: 'Containers & Tables', description: 'Swimlanes, frames, folders, lists, tables' },
-  { id: 'threeD', name: '3D Shapes', description: 'Cube, cylinder, cone, pyramid, sphere (draw.io Basic / Advanced)' },
+  { id: 'threeD', name: '3D Shapes', description: 'Cube, cylinder, cone, pyramid, and sphere shapes' },
   { id: 'symbols', name: 'Symbols & Icons', description: 'Heart, lightning, gear, pin, flag, check and more' },
   { id: 'uml', name: 'UML', description: 'Class, use case, activity, state, sequence & component shapes' },
   { id: 'bpmn', name: 'BPMN', description: 'Activities, events, gateways, data & pools' },
   { id: 'er', name: 'Entity Relation', description: 'Chen notation entities, attributes, relationships, tables' },
   { id: 'network', name: 'Network & Infra', description: 'Generic servers, devices, network gear' },
-  { id: 'mockup', name: 'Wireframe / Mockup', description: 'UI controls and device frames (Miro wireframes + draw.io Mockups)' }
+  { id: 'mockup', name: 'Wireframe / Mockup', description: 'UI controls and device wireframe frames' }
 ]
 
 /* ------------------------------------------------------------------ */
 /* Shape definitions                                                   */
 /* ------------------------------------------------------------------ */
 const shapes = []
-const MD = ['miro', 'drawio']
-const D = ['drawio']
-const M = ['miro']
+const MD = ['essentials', 'standard']
+const D = ['standard']
+const M = ['essentials']
 
 /**
  * add(id, name, category, sources, size, paths, opts)
@@ -281,7 +279,7 @@ add('dashed-rect', 'Dashed Rectangle', 'basic', D, [140, 80], [f(R(0, 0, 100, 10
 add('text', 'Text', 'basic', MD, [140, 40], [n(R(0, 0, 100, 100), { stroke: 'none' })], { defaultLabel: 'Text', aliases: ['label'] })
 add('textbox', 'Text Box', 'basic', D, [180, 90], [n(R(0, 0, 100, 100), { dash: 'dot' })], { defaultLabel: 'Heading\nBody text', text: [5, 5, 90, 90] })
 add('sticky-note', 'Sticky Note', 'basic', M, [120, 120], [f(R(0, 0, 100, 100), { stroke: 'none' }), sh(P([[85, 100], [100, 85], [100, 100]]))], { defaultFill: '#fef08a', aliases: ['post-it'] })
-add('miro-card', 'Card (Miro)', 'basic', M, [180, 90], [f(R(0, 0, 100, 100)), so(R(0, 0, 4, 100))], { text: [8, 8, 88, 84] })
+add('accent-card', 'Accent Card', 'basic', M, [180, 90], [f(R(0, 0, 100, 100)), so(R(0, 0, 4, 100))], { aliases: ['card'], text: [8, 8, 88, 84] })
 add('banner', 'Banner', 'basic', D, [160, 70], [f(P([[0, 0], [100, 0], [88, 50], [100, 100], [0, 100], [12, 50]]))], { text: [14, 5, 72, 90] })
 add('ribbon', 'Ribbon', 'basic', D, [180, 70], [
   sh(P([[0, 25], [18, 25], [18, 100], [0, 100], [8, 62]])),
@@ -640,9 +638,9 @@ add('mock-table', 'Data Table', 'mockup', D, [300, 160], [f(R(0, 0, 100, 100)), 
 /* ------------------------------------------------------------------ */
 const out = {
   $schema: './shapeLibrary.schema.json',
-  name: 'Virtual Board Shape Library',
+  name: 'Vexelboard Shape Library',
   description:
-    'Shapes from the Miro shape panel and the draw.io / diagrams.net built-in General, Basic, Misc, Advanced, Arrows, Flowchart, UML, BPMN, Entity Relation, Network and Mockup palettes. Geometry is defined in a 100x100 box and stretched to the node size.',
+    'Built-in Vexelboard geometric, Basic, Misc, Advanced, Arrows, Flowchart, UML, BPMN, Entity Relation, Network, and Mockup shape palettes. Geometry is defined in a 100x100 box and stretched to the node size.',
   version: 1,
   viewBox: '0 0 100 100',
   generatedBy: 'scripts/generate-shape-library.mjs',
@@ -656,7 +654,7 @@ for (const s of shapes) if (!categories.some((c) => c.id === s.category)) throw 
 
 const schema = {
   $schema: 'http://json-schema.org/draft-07/schema#',
-  title: 'Virtual Board Shape Library',
+  title: 'Vexelboard Shape Library',
   type: 'object',
   required: ['name', 'version', 'viewBox', 'count', 'categories', 'shapes'],
   properties: {
@@ -691,7 +689,7 @@ const schema = {
           category: { type: 'string' },
           sources: {
             type: 'array',
-            items: { type: 'string', enum: ['miro', 'drawio'] }
+            items: { type: 'string', enum: ['essentials', 'standard'] }
           },
           size: {
             type: 'array',

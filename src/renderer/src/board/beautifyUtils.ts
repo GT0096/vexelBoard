@@ -552,7 +552,7 @@ export function parseAndCleanReactFlow(raw: string, opts?: ParseReactFlowOptions
     return null
   }
 
-  // Normalize nodes onto Miro & draw.io library shapes (while preserving sticky/group/circle/custom)
+  // Normalize nodes onto Vexelboard library shapes (while preserving sticky/group/circle/custom)
   const nodes: RFNode[] = parsed.nodes.map((n, idx) => {
     const rawId = String(n.id ?? idx + 1).trim()
     const safeId = `node-${rawId || idx + 1}`
@@ -918,7 +918,7 @@ export function buildTemplateDiagram(
         { id: 'center', type: 'circle', label: 'Core Vision', description: 'Central Theme' },
         { id: 'branch1', type: 'sticky', label: 'Architecture', description: 'React Flow + Dagre' },
         { id: 'branch2', type: 'sticky', label: 'AI Engine', description: 'Gemma 4 Vision on Cloud' },
-        { id: 'branch3', type: 'sticky', label: 'Miro Board UI', description: 'Glassmorphism Left Dock' },
+        { id: 'branch3', type: 'sticky', label: 'Canvas Dock UI', description: 'Floating Left Toolbar' },
         { id: 'branch4', type: 'sticky', label: 'Collaboration', description: 'Live sync & multi-screen' }
       ],
       edges: [
