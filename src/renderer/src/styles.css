@@ -938,7 +938,7 @@ html, body, #root {
   gap: 2px;
 }
 
-input, select {
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']), select {
   flex: 1;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
@@ -951,7 +951,7 @@ input, select {
   transition: border-color var(--transition-smooth);
 }
 
-input:focus, select:focus {
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):focus, select:focus {
   border-color: var(--theme-ink);
 }
 
@@ -7891,6 +7891,16 @@ input.model-input {
   gap: 11px;
   min-width: 0;
   flex: 1;
+}
+
+.knowledge-hub-source-left input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  accent-color: #2563eb;
 }
 
 .knowledge-hub-source-icon {
