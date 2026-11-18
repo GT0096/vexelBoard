@@ -427,6 +427,7 @@ export interface GlassAPI {
   isMaximized?: () => Promise<boolean>
   onMaximizedChanged?: (callback: (isMaximized: boolean) => void) => () => void
   hasNativeWindowControls?: boolean
+  platform?: string
   openDetachedChat?: () => Promise<boolean>
   toggleDetachedChat?: () => Promise<boolean>
   closeDetachedChat?: () => Promise<boolean>

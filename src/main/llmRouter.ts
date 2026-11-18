@@ -719,6 +719,15 @@ async function callOllama(p: ChatPayload, host?: string): Promise<string> {
   }
 }
 
+function isOpenAIBaseUrl(baseUrl: string): boolean {
+  try {
+    const parsed = new URL(baseUrl)
+    return parsed.protocol === 'https:' && parsed.hostname === 'api.openai.com'
+  } catch {
+    return false
+  }
+}
+
 async function callOpenAICompatible(baseUrl: string, apiKey: string, p: ChatPayload): Promise<string> {
   const messages: Array<{ role: string; content: unknown }> = [{ role: 'system', content: p.system }]
   if (p.history?.length) {
@@ -741,7 +750,7 @@ async function callOpenAICompatible(baseUrl: string, apiKey: string, p: ChatPayl
     messages
   }
 
-  if (baseUrl.includes('api.openai.com')) {
+  if (isOpenAIBaseUrl(baseUrl)) {
     const profile = resolveOpenAIModelProfile(p.model)
     if (!profile.supportsTemperature) {
       body.max_completion_tokens = profile.maxOutputTokens

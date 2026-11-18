@@ -146,8 +146,10 @@ npm run build:mac:universal
 ```
 
 Produces Apple Silicon (`arm64`) and Intel (`x64`) installers in `dist/`:
-- `Vexelboard-<version>-<arch>.dmg` — Drag-and-drop **Vexelboard.app** into `/Applications`.
-- `Vexelboard-<version>-<arch>.zip`
+- `Vexelboard-<version>-arm64.dmg` & `Vexelboard-<version>-x64.dmg` — Drag-and-drop **Vexelboard.app** into `/Applications`.
+- `Vexelboard-<version>-arm64.zip` & `Vexelboard-<version>-x64.zip`
+
+> **Building `.dmg` from Windows or CI:** Apple's `.dmg` packager only runs on macOS. You can build macOS installers automatically on GitHub Actions using [release.yml](.github/workflows/release.yml) (**Actions → Release Installers → Run workflow**, or push a `v*` tag). For unsigned builds on macOS Gatekeeper, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
 
 ### Linux (`AppImage` & `deb`)
 

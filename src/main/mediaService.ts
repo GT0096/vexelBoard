@@ -44,15 +44,30 @@ export function extractYouTubeVideoId(urlOrId: string): string | null {
   return match ? match[1] : null
 }
 
+const HTML_ENTITIES: Record<string, string> = {
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&#39;': "'",
+  '&amp;#39;': "'"
+}
+
 function decodeHtmlEntities(str: string): string {
   return str
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&amp;#39;/g, "'")
+    .replace(/&amp;#39;|&(?:amp|lt|gt|quot|#39);/g, (entity) => HTML_ENTITIES[entity] ?? entity)
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function stripHtmlTags(input: string): string {
+  let prev = ''
+  let curr = input
+  while (curr !== prev) {
+    prev = curr
+    curr = curr.replace(/<[^>]*>/g, '')
+  }
+  return curr.replace(/[<>]/g, '')
 }
 
 async function fetchCaptionFallback(videoId: string): Promise<TranscriptItem[]> {
@@ -85,7 +100,7 @@ async function fetchCaptionFallback(videoId: string): Promise<TranscriptItem[]> 
     while ((m = regex.exec(xml)) !== null) {
       const start = parseFloat(m[1]) || 0
       const duration = parseFloat(m[2]) || 2
-      const text = decodeHtmlEntities(m[3].replace(/<[^>]+>/g, ''))
+      const text = decodeHtmlEntities(stripHtmlTags(m[3]))
       if (text) items.push({ text, start, duration })
     }
     return items

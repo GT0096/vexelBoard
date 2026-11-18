@@ -12488,6 +12488,11 @@ input.model-input {
   padding-right: calc(100vw - env(titlebar-area-width, calc(100vw - 142px)) + 12px);
 }
 
+/* Reserve left space for macOS native traffic-light window buttons */
+.topbar.has-mac-traffic-lights {
+  padding-left: 82px;
+}
+
 /* ── Chat NotebookLM Books Picker, @Mentions & Project Context Toggle ── */
 .chat-input-wrapper {
   position: relative;
