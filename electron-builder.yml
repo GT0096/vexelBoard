@@ -1,0 +1,93 @@
+appId: com.vexelboard.app
+productName: Vexelboard
+copyright: Copyright © 2026 Vexelboard
+directories:
+  buildResources: build
+  output: dist
+files:
+  - '!**/.vscode/*'
+  - '!**/.agents/*'
+  - '!src/*'
+  - '!scripts/*'
+  - '!graphify-out/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md,implementation.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+  - '**/*.node'
+  - '**/*.dll'
+  - '**/*.dylib'
+  - '**/*.so'
+  - node_modules/better-sqlite3/**
+  - node_modules/sqlite-vec/**
+  - node_modules/sqlite-vec-*/**
+win:
+  executableName: Vexelboard
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  artifactName: Vexelboard-${version}-Setup.${ext}
+  shortcutName: Vexelboard
+  uninstallDisplayName: Vexelboard
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  runAfterFinish: true
+  include: build/installer.nsh
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  deleteAppDataOnUninstall: false
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  extendInfo:
+    NSCameraUsageDescription: Vexelboard uses your camera for optional hand-tracking gesture control.
+    NSMicrophoneUsageDescription: Vexelboard uses your microphone for optional voice notes.
+    NSDocumentsFolderUsageDescription: Vexelboard accesses Documents when you open or export study files.
+    NSDownloadsFolderUsageDescription: Vexelboard accesses Downloads when you save or import files.
+  notarize: false
+dmg:
+  title: Vexelboard ${version}
+  icon: build/icon.icns
+  artifactName: Vexelboard-${version}-${arch}.${ext}
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 140
+      y: 200
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+linux:
+  target:
+    - AppImage
+    - deb
+  maintainer: vexelboard.app
+  category: Education
+appImage:
+  artifactName: Vexelboard-${version}-${arch}.${ext}
+npmRebuild: false
