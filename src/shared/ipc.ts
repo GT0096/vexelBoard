@@ -195,7 +195,7 @@ export interface AIRequest {
   sectionId?: string
   /** Include project-wide sections, materials & source catalog (defaults to true when projectId is set) */
   includeProjectContext?: boolean
-  /** Specific NotebookLM source IDs explicitly referenced by the user */
+  /** Specific Knowledge Studio source IDs explicitly referenced by the user */
   sourceIds?: string[]
   /** Attached files, images or YouTube contexts */
   attachments?: ChatAttachment[]
@@ -369,7 +369,7 @@ export interface DetachedChatAction {
     | 'insertToNotes'
     | 'insertDiagram'
     | 'settingsUpdated'
-    | 'openNotebookLM'
+    | 'openKnowledgeHub'
     | 'generateTutorial'
     | 'addYouTubeToCanvas'
   text?: string

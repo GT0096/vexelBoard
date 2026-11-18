@@ -1479,7 +1479,7 @@ class DatabaseManager {
       const sources = this.getKnowledgeSources(skipSectionId, projectId)
       if (sources.length > 0) {
         lines.push(
-          `Uploaded NotebookLM Books/Notes in Project (${sources.length}): ${sources
+          `Uploaded Knowledge Studio Books/Notes in Project (${sources.length}): ${sources
             .slice(0, 12)
             .map((s) => `"${s.title}" (${s.sourceType})`)
             .join(', ')}`

@@ -1055,7 +1055,7 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
       }
     }
 
-    // Task E: Conversational Q&A for the Right Panel & NotebookLM
+    // Task E: Conversational Q&A for the Right Panel & Knowledge Studio
     const prompt = (req.prompt ?? '').trim()
     if (!prompt) {
       return { ok: false, error: 'Empty question prompt.' }
@@ -1089,7 +1089,7 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
     if (ragSnippet) {
       const ragLabel =
         pinnedTitles.length > 0
-          ? `[EXPLICITLY REFERENCED NOTEBOOKLM BOOKS / SOURCES: ${pinnedTitles.join(', ')}]`
+          ? `[EXPLICITLY REFERENCED KNOWLEDGE STUDIO BOOKS / SOURCES: ${pinnedTitles.join(', ')}]`
           : '[INDEXED NOTEBOOK SOURCES (SQLite RAG)]'
       enrichedPrompt = `${ragLabel}\n${ragSnippet}\n\n${enrichedPrompt}`
     }
@@ -1111,7 +1111,7 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
 
     let systemPrompt = CHAT_SYSTEM_PROMPT
     if (pinnedTitles.length > 0) {
-      systemPrompt += `\n\nIMPORTANT: The user explicitly asked you to refer to these NotebookLM book(s)/source(s): ${pinnedTitles.map((t) => `"${t}"`).join(', ')}. Prioritize and strictly ground your answer in these referenced sources, citing their title and relevant details.`
+      systemPrompt += `\n\nIMPORTANT: The user explicitly asked you to refer to these Knowledge Studio book(s)/source(s): ${pinnedTitles.map((t) => `"${t}"`).join(', ')}. Prioritize and strictly ground your answer in these referenced sources, citing their title and relevant details.`
     } else if ((req.attachments && req.attachments.length > 0) || ragSnippet) {
       systemPrompt += `\n\nWhen sources, documents, or YouTube transcripts are provided, strictly ground your answers in those sources whenever applicable. Cite sources by name (e.g. [Document Name] or [YouTube: mm:ss]) when referencing facts.`
     }

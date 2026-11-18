@@ -63,7 +63,7 @@ export interface MiroLeftToolbarProps {
   isBeautifying?: boolean
   hasSelection?: boolean
   onAddCodeNode?: (initialTab?: CodeTabItem) => void
-  onOpenNotebookLM?: () => void
+  onOpenKnowledgeHub?: () => void
   onAddYouTubeVideo?: () => void
   boardPalette?: BoardPalette
   penColor: string
@@ -150,7 +150,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
   isBeautifying,
   hasSelection,
   onAddCodeNode,
-  onOpenNotebookLM,
+  onOpenKnowledgeHub,
   onAddYouTubeVideo,
   boardPalette,
   penColor,
@@ -494,15 +494,15 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
         <Video size={18} />
       </button>
 
-      {/* 8c. Open NotebookLM Knowledge Studio */}
+      {/* 8c. Open Knowledge Studio */}
       <button
         type="button"
         className="miro-dock-btn"
         onClick={() => {
           setOpenFlyout(null)
-          onOpenNotebookLM?.()
+          onOpenKnowledgeHub?.()
         }}
-        title="Open NotebookLM Knowledge Studio — Multi-source study, tutorials & recall"
+        title="Open Knowledge Studio — Multi-source study, tutorials & recall"
         style={{ color: '#a78bfa' }}
       >
         <BookOpen size={18} />

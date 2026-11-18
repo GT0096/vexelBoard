@@ -17,7 +17,7 @@
 
 **Vexelboard** is an AI-powered, interactive desktop whiteboard and study studio built with **Electron**, **React**, **TypeScript**, and **Vite** in a bold **Neo-Brutalist** interface.
 
-It combines an infinite drawing canvas, background-adaptive color palettes, diagrams and shape libraries, Markdown & LaTeX notes, an embedded multi-language Code Studio, playable YouTube study cards, a NotebookLM-style local knowledge hub backed by SQLite + vector search with `@book` chat citations and project-wide context, and flexible AI integrations (local Ollama or BYOK cloud providers).
+It combines an infinite drawing canvas, background-adaptive color palettes, diagrams and shape libraries, Markdown & LaTeX notes, an embedded multi-language Code Studio, playable YouTube study cards, a local **Knowledge Studio** backed by SQLite + vector search with `@book` chat citations and project-wide context, and flexible AI integrations (local Ollama or BYOK cloud providers).
 
 ---
 
@@ -34,7 +34,7 @@ It combines an infinite drawing canvas, background-adaptive color palettes, diag
 - **Code Studio & Video Cards**:
   - **Code Cards**: Movable, resizable code containers on the canvas with CodeMirror editing and local code execution (`src/main/codeRunner.ts`).
   - **YouTube Video Cards**: Embed videos directly on the canvas with timestamped bookmarks and notes.
-- **NotebookLM Knowledge Hub & `@` Book Citations**:
+- **Knowledge Studio & `@` Book Citations**:
   - Index `.pdf`, `.txt`, `.md`, code files, YouTube transcripts, and whiteboard snapshots into local SQLite (`better-sqlite3` with automatic `node:sqlite` fallback) + `sqlite-vec` hybrid FTS5/vector RAG.
   - Generate **Study Guides**, **FAQ & Quizzes**, **Podcast Scripts**, **Visual Tutorials**, and **Board Recall** analyses.
   - Pin specific books or notes directly inside Chat via the **`Books` picker** or **`@` autocomplete** to strictly ground answers in that book, and toggle **Project Context** to let the AI refer to materials across all sections in the project.

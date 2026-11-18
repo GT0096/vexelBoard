@@ -55,7 +55,7 @@ interface RightPanelProps {
   onInsertToNotes: (text: string, title?: string) => void
   onInsertDiagram: (text: string) => void
   onClearChat: () => void
-  onOpenNotebookLM?: () => void
+  onOpenKnowledgeHub?: () => void
   onGenerateTutorial?: (topic: string) => void
   onAddYouTubeToCanvas?: (url: string, title?: string) => void
   isAiBusy: boolean
@@ -125,7 +125,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
   onInsertToNotes,
   onInsertDiagram,
   onClearChat,
-  onOpenNotebookLM,
+  onOpenKnowledgeHub,
   onGenerateTutorial,
   onAddYouTubeToCanvas,
   isAiBusy,
@@ -626,7 +626,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
           title={
             isDetached
               ? 'AI Chat open in separate window (Click to focus / toggle)'
-              : 'Open AI Research, File Uploads, Tutorials & NotebookLM'
+              : 'Open AI Research, File Uploads, Tutorials & Knowledge Studio'
           }
           aria-label="Open AI Research & Notes"
         >
@@ -913,7 +913,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
           )}
 
           {/* Dedicated Accessible Feature Quick-Bar */}
-          {(onGenerateTutorial || onOpenNotebookLM) && (
+          {(onGenerateTutorial || onOpenKnowledgeHub) && (
             <div className="chat-feature-bar" onPointerDown={(e) => e.stopPropagation()}>
               {onGenerateTutorial && (
                 <button
@@ -926,15 +926,15 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                   <span>Create Tutorial</span>
                 </button>
               )}
-              {onOpenNotebookLM && (
+              {onOpenKnowledgeHub && (
                 <button
                   type="button"
                   className="chat-feature-pill notebook"
-                  onClick={onOpenNotebookLM}
-                  title="Open NotebookLM Multi-Source Study Studio & Board Recall"
+                  onClick={onOpenKnowledgeHub}
+                  title="Open Multi-Source Knowledge Studio & Board Recall"
                 >
                   <BookOpen size={13} />
-                  <span>NotebookLM Studio</span>
+                  <span>Knowledge Studio</span>
                 </button>
               )}
             </div>
@@ -1126,7 +1126,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
               </div>
             )}
 
-            {/* Pinned NotebookLM Book References */}
+            {/* Pinned Knowledge Studio Book References */}
             <ChatPinnedSourcesBar
               pinnedSources={knowledge.pinnedSources}
               onRemove={knowledge.removePinnedSource}
@@ -1179,7 +1179,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                 pinnedSources={knowledge.pinnedSources}
                 onSelect={(src) => knowledge.applyAtMention(src, input, setInput)}
                 onClose={knowledge.closeAtMention}
-                onOpenNotebookLM={onOpenNotebookLM}
+                onOpenKnowledgeHub={onOpenKnowledgeHub}
               />
               <textarea
                 className="chat-textarea"
@@ -1230,7 +1230,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                   <ChatSourceContextControls
                     state={knowledge}
                     hasProject={Boolean(projectId)}
-                    onOpenNotebookLM={onOpenNotebookLM}
+                    onOpenKnowledgeHub={onOpenKnowledgeHub}
                   />
                 </div>
 
