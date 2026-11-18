@@ -1315,19 +1315,19 @@ export const CodeStudioPanel: React.FC<CodeStudioPanelProps> = ({
   return (
     <div
       ref={flyoutRef}
-      className={`miro-flyout-panel code-studio-panel ${isExpanded ? 'is-expanded' : ''}`}
+      className={`vx-flyout-panel code-studio-panel ${isExpanded ? 'is-expanded' : ''}`}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div className="miro-flyout-header">
-        <div className="miro-flyout-title">
+      <div className="vx-flyout-header">
+        <div className="vx-flyout-title">
           <Code2 size={14} />
           <span>Code Runner Studio</span>
-          <span className="miro-count-pill">{studioState.tabs.length} tab{studioState.tabs.length > 1 ? 's' : ''}</span>
+          <span className="vx-count-pill">{studioState.tabs.length} tab{studioState.tabs.length > 1 ? 's' : ''}</span>
         </div>
         <div className="code-studio-header-actions">
           <button
             type="button"
-            className="miro-flyout-close-btn"
+            className="vx-flyout-close-btn"
             title={isExpanded ? 'Compact width' : 'Expand coding panel'}
             onClick={() => setIsExpanded((v) => !v)}
           >
@@ -1335,7 +1335,7 @@ export const CodeStudioPanel: React.FC<CodeStudioPanelProps> = ({
           </button>
           <button
             type="button"
-            className="miro-flyout-close-btn"
+            className="vx-flyout-close-btn"
             title="Close Coding Studio"
             onClick={onClose}
           >

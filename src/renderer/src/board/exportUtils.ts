@@ -169,7 +169,7 @@ export function exportToSvg(board: BoardState, themeId: ThemeId, customBgColor?:
     }
   }
 
-  // 4. Interactive Diagrams & Miro / draw.io library shapes
+  // 4. Interactive Diagrams & library shapes
   for (const d of board.diagramNodes ?? []) {
     const dw = d.w ?? 600
     const dh = d.h ?? 400

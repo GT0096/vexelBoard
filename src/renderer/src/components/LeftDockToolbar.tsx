@@ -42,7 +42,7 @@ import {
 } from '../shapes/shapeLibrary'
 import { ShapeSvg } from '../shapes/ShapeSvg'
 
-export interface MiroLeftToolbarProps {
+export interface LeftDockToolbarProps {
   activeTool: ToolType
   onSelectTool: (tool: ToolType) => void
   onAddShapeNode: (
@@ -140,7 +140,7 @@ const TEMPLATES = [
   }
 ]
 
-export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
+export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
   activeTool,
   onSelectTool,
   onAddShapeNode,
@@ -271,7 +271,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
 
       const targetEl = e.target as HTMLElement | null
       const catRailEl = catRailRef.current
-      if (catRailEl && (targetEl?.closest('.miro-cat-rail') === catRailEl || catRailEl.contains(targetEl))) {
+      if (catRailEl && (targetEl?.closest('.vx-cat-rail') === catRailEl || catRailEl.contains(targetEl))) {
         catRailEl.scrollLeft += deltaX !== 0 ? deltaX : deltaY
         return
       }
@@ -310,7 +310,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       <button
         key={`${animated ? 'anim' : 'std'}-${shape.id}`}
         type="button"
-        className={`miro-shape-tile ${animated ? 'is-animated' : ''}`}
+        className={`vx-shape-tile ${animated ? 'is-animated' : ''}`}
         title={animated ? `${shape.name} — ${catTitle} (Animated)` : `${shape.name} — ${catTitle}`}
         onClick={() => {
           onAddShapeNode(shape.id, {
@@ -325,20 +325,20 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
           setOpenFlyout(null)
         }}
       >
-        <div className="miro-shape-tile-preview">
+        <div className="vx-shape-tile-preview">
           <ShapeSvg
             shape={shape}
             strokeColor={boardPalette?.shapeStroke ?? '#111111'}
             fillColor={shape.defaultFill || boardPalette?.shapeFill || '#FFE566'}
             strokeWidth={1.7}
             preserveAspectRatio="xMidYMid meet"
-            className="miro-shape-tile-svg"
+            className="vx-shape-tile-svg"
             animated={animated}
           />
         </div>
-        <span className="miro-shape-tile-name">{shape.name}</span>
+        <span className="vx-shape-tile-name">{shape.name}</span>
         {animated && (
-          <span className="miro-shape-tile-anim-badge" title="Animated shape" aria-hidden="true">
+          <span className="vx-shape-tile-anim-badge" title="Animated shape" aria-hidden="true">
             <Zap size={9} />
           </span>
         )}
@@ -347,12 +347,12 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
   }
 
   const renderCoreNodesGrid = (): React.JSX.Element => (
-    <div className="miro-shape-grid">
+    <div className="vx-shape-grid">
       {filteredCoreShapes.map((shape) => (
         <button
           key={shape.type}
           type="button"
-          className={`miro-shape-chip ${isAnimatedMode ? 'is-animated' : ''}`}
+          className={`vx-shape-chip ${isAnimatedMode ? 'is-animated' : ''}`}
           title={isAnimatedMode ? `${shape.desc} (Animated)` : shape.desc}
           onClick={() => {
             onAddShapeNode(shape.type, {
@@ -363,8 +363,8 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
             setOpenFlyout(null)
           }}
         >
-          <span className="miro-shape-chip-icon">{shape.icon}</span>
-          <span className="miro-shape-chip-text">
+          <span className="vx-shape-chip-icon">{shape.icon}</span>
+          <span className="vx-shape-chip-text">
             <strong>{isAnimatedMode ? `Animated ${shape.label}` : shape.label}</strong>
             <small>{shape.desc}</small>
           </span>
@@ -374,11 +374,11 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
   )
 
   return (
-    <div className="miro-left-dock" ref={containerRef}>
+    <div className="vx-left-dock" ref={containerRef}>
       {/* 1. Selection Tool */}
       <button
         type="button"
-        className={`miro-dock-btn ${activeTool === 'select' ? 'active' : ''}`}
+        className={`vx-dock-btn ${activeTool === 'select' ? 'active' : ''}`}
         onClick={() => {
           onSelectTool('select')
           setOpenFlyout(null)
@@ -391,7 +391,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       {/* 2. Hand / Pan Canvas Tool */}
       <button
         type="button"
-        className={`miro-dock-btn ${activeTool === 'pan' ? 'active' : ''}`}
+        className={`vx-dock-btn ${activeTool === 'pan' ? 'active' : ''}`}
         onClick={() => {
           onSelectTool('pan')
           setOpenFlyout(null)
@@ -401,12 +401,12 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
         <Hand size={18} />
       </button>
 
-      <div className="miro-dock-divider" />
+      <div className="vx-dock-divider" />
 
       {/* 3. Pen Drawing Tool */}
       <button
         type="button"
-        className={`miro-dock-btn miro-pen-btn ${activeTool === 'pen' ? 'active' : ''}`}
+        className={`vx-dock-btn vx-pen-btn ${activeTool === 'pen' ? 'active' : ''}`}
         onClick={() => {
           const wasPen = activeTool === 'pen'
           onSelectTool('pen')
@@ -416,7 +416,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       >
         <PenTool size={18} />
         <span
-          className="miro-pen-color-dot"
+          className="vx-pen-color-dot"
           style={{ background: resolvedPenColor }}
           aria-hidden="true"
         />
@@ -425,7 +425,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       {/* 4. Eraser Tool */}
       <button
         type="button"
-        className={`miro-dock-btn ${activeTool === 'eraser' ? 'active' : ''}`}
+        className={`vx-dock-btn ${activeTool === 'eraser' ? 'active' : ''}`}
         onClick={() => {
           onSelectTool('eraser')
           setOpenFlyout(null)
@@ -435,12 +435,12 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
         <Eraser size={18} />
       </button>
 
-      <div className="miro-dock-divider" />
+      <div className="vx-dock-divider" />
 
       {/* 5. Shapes & Flowchart Nodes Flyout */}
       <button
         type="button"
-        className={`miro-dock-btn ${openFlyout === 'shapes' ? 'active' : ''}`}
+        className={`vx-dock-btn ${openFlyout === 'shapes' ? 'active' : ''}`}
         onClick={() => toggleFlyout('shapes')}
         title="All Shapes & Flowchart Components"
       >
@@ -450,7 +450,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       {/* 6. Sticky Notes Flyout */}
       <button
         type="button"
-        className={`miro-dock-btn ${openFlyout === 'stickies' ? 'active' : ''}`}
+        className={`vx-dock-btn ${openFlyout === 'stickies' ? 'active' : ''}`}
         onClick={() => toggleFlyout('stickies')}
         title="Sticky Notes"
       >
@@ -460,7 +460,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       {/* 7. Templates Flyout */}
       <button
         type="button"
-        className={`miro-dock-btn ${openFlyout === 'templates' ? 'active' : ''}`}
+        className={`vx-dock-btn ${openFlyout === 'templates' ? 'active' : ''}`}
         onClick={() => toggleFlyout('templates')}
         title="Diagram & Architecture Templates"
       >
@@ -470,7 +470,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       {/* 8. Add Coding Tab Container onto Board */}
       <button
         type="button"
-        className="miro-dock-btn code-tab-btn"
+        className="vx-dock-btn code-tab-btn"
         onClick={() => {
           setOpenFlyout(null)
           onAddCodeNode?.()
@@ -483,7 +483,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       {/* 8b. Add YouTube Interactive Video Card to Board */}
       <button
         type="button"
-        className="miro-dock-btn"
+        className="vx-dock-btn"
         onClick={() => {
           setOpenFlyout(null)
           onAddYouTubeVideo?.()
@@ -497,7 +497,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       {/* 8c. Open Knowledge Studio */}
       <button
         type="button"
-        className="miro-dock-btn"
+        className="vx-dock-btn"
         onClick={() => {
           setOpenFlyout(null)
           onOpenKnowledgeHub?.()
@@ -508,12 +508,12 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
         <BookOpen size={18} />
       </button>
 
-      <div className="miro-dock-divider" />
+      <div className="vx-dock-divider" />
 
       {/* 9. AI Diagram Beautifier / Sketch Recognizer */}
       <button
         type="button"
-        className={`miro-dock-btn magic-ai ${isBeautifying ? 'active' : ''}`}
+        className={`vx-dock-btn magic-ai ${isBeautifying ? 'active' : ''}`}
         onClick={onBeautify}
         title={
           hasSelection
@@ -530,17 +530,17 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       {openFlyout === 'pen' && (
         <div
           ref={flyoutRef}
-          className="miro-flyout-panel pen-flyout-panel"
+          className="vx-flyout-panel pen-flyout-panel"
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <div className="miro-flyout-header">
-            <div className="miro-flyout-title">
+          <div className="vx-flyout-header">
+            <div className="vx-flyout-title">
               <span>Pen Settings</span>
-              <span className="miro-count-pill">{penType}</span>
+              <span className="vx-count-pill">{penType}</span>
             </div>
             <button
               type="button"
-              className="miro-flyout-close-btn"
+              className="vx-flyout-close-btn"
               title="Close pen settings"
               onClick={() => setOpenFlyout(null)}
             >
@@ -567,13 +567,13 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       {openFlyout === 'shapes' && (
         <div
           ref={flyoutRef}
-          className="miro-flyout-panel shapes-catalog"
+          className="vx-flyout-panel shapes-catalog"
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <div className="miro-flyout-header">
-            <div className="miro-flyout-title">
+          <div className="vx-flyout-header">
+            <div className="vx-flyout-title">
               <span>Shapes</span>
-              <span className="miro-count-pill">
+              <span className="vx-count-pill">
                 {activeCategory === 'core'
                   ? `${filteredCoreShapes.length} quick`
                   : `${filteredLibraryShapes.length +
@@ -585,7 +585,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
             </div>
             <button
               type="button"
-              className="miro-flyout-close-btn"
+              className="vx-flyout-close-btn"
               title="Close shapes panel"
               onClick={() => setOpenFlyout(null)}
             >
@@ -593,12 +593,12 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
             </button>
           </div>
 
-          <div className="miro-catalog-controls">
-            <div className="miro-shape-search">
-              <Search size={13} className="miro-shape-search-icon" />
+          <div className="vx-catalog-controls">
+            <div className="vx-shape-search">
+              <Search size={13} className="vx-shape-search-icon" />
               <input
                 type="text"
-                className="miro-shape-search-input"
+                className="vx-shape-search-input"
                 placeholder={`Search ${ALL_LIBRARY_SHAPES.length + ANIMATED_LINE_SHAPES.length} shapes & lines...`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -608,7 +608,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
               {searchQuery && (
                 <button
                   type="button"
-                  className="miro-shape-search-clear"
+                  className="vx-shape-search-clear"
                   title="Clear search"
                   onClick={() => setSearchQuery('')}
                 >
@@ -617,17 +617,17 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
               )}
             </div>
 
-            <div className="miro-source-pills">
+            <div className="vx-source-pills">
               <button
                 type="button"
-                className={`miro-filter-pill ${animFilter === 'all' ? 'active' : ''}`}
+                className={`vx-filter-pill ${animFilter === 'all' ? 'active' : ''}`}
                 onClick={() => setAnimFilter('all')}
               >
                 All
               </button>
               <button
                 type="button"
-                className={`miro-filter-pill animated-pill ${animFilter === 'animated' ? 'active' : ''}`}
+                className={`vx-filter-pill animated-pill ${animFilter === 'animated' ? 'active' : ''}`}
                 onClick={() => setAnimFilter('animated')}
                 title="Show animated lines and animated versions of every shape"
               >
@@ -639,20 +639,20 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
 
           <div
             ref={catRailRef}
-            className="miro-cat-rail"
+            className="vx-cat-rail"
             role="tablist"
             aria-label="Shape categories"
           >
             <button
               type="button"
-              className={`miro-cat-pill ${activeCategory === 'all' ? 'active' : ''}`}
+              className={`vx-cat-pill ${activeCategory === 'all' ? 'active' : ''}`}
               onClick={() => setActiveCategory('all')}
             >
               All ({ALL_LIBRARY_SHAPES.length + ANIMATED_LINE_SHAPES.length})
             </button>
             <button
               type="button"
-              className={`miro-cat-pill animated-cat-pill ${isAnimatedMode ? 'active' : ''}`}
+              className={`vx-cat-pill animated-cat-pill ${isAnimatedMode ? 'active' : ''}`}
               title="Toggle Animated mode for all shapes and lines"
               onClick={() => setAnimFilter((prev) => (prev === 'animated' ? 'all' : 'animated'))}
             >
@@ -661,7 +661,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
             </button>
             <button
               type="button"
-              className={`miro-cat-pill ${activeCategory === 'core' ? 'active' : ''}`}
+              className={`vx-cat-pill ${activeCategory === 'core' ? 'active' : ''}`}
               onClick={() => setActiveCategory('core')}
             >
               Quick Nodes ({SHAPES_LIST.length})
@@ -670,7 +670,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
               <button
                 key={cat.id}
                 type="button"
-                className={`miro-cat-pill ${activeCategory === cat.id ? 'active' : ''}`}
+                className={`vx-cat-pill ${activeCategory === cat.id ? 'active' : ''}`}
                 title={cat.description}
                 onClick={() => setActiveCategory(cat.id)}
               >
@@ -680,10 +680,10 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
             ))}
           </div>
 
-          <div ref={catalogScrollRef} className="miro-shape-catalog-scroll">
+          <div ref={catalogScrollRef} className="vx-shape-catalog-scroll">
             {activeCategory === 'core' ? (
               filteredCoreShapes.length === 0 ? (
-                <div className="miro-shape-empty">No matching quick nodes found.</div>
+                <div className="vx-shape-empty">No matching quick nodes found.</div>
               ) : (
                 renderCoreNodesGrid()
               )
@@ -691,21 +691,21 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
               filteredCoreShapes.length === 0 &&
                 filteredAnimatedLines.length === 0 &&
                 groupedCategories.length === 0 ? (
-                <div className="miro-shape-empty">No matching shapes found.</div>
+                <div className="vx-shape-empty">No matching shapes found.</div>
               ) : (
-                <div className="miro-cat-sections">
+                <div className="vx-cat-sections">
                   {filteredAnimatedLines.length > 0 && (
-                    <section className="miro-cat-section">
+                    <section className="vx-cat-section">
                       <button
                         type="button"
-                        className="miro-cat-section-header"
+                        className="vx-cat-section-header"
                         onClick={() => toggleCategoryCollapsed('animated-lines')}
                       >
-                        <span className="miro-cat-section-title">
+                        <span className="vx-cat-section-title">
                           Animated Lines &amp; Connectors
                         </span>
-                        <span className="miro-cat-section-meta">
-                          <span className="miro-cat-section-count">
+                        <span className="vx-cat-section-meta">
+                          <span className="vx-cat-section-count">
                             {filteredAnimatedLines.length}
                           </span>
                           {collapsedCategories['animated-lines'] ? (
@@ -716,7 +716,7 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
                         </span>
                       </button>
                       {!collapsedCategories['animated-lines'] && (
-                        <div className="miro-shape-catalog-grid">
+                        <div className="vx-shape-catalog-grid">
                           {filteredAnimatedLines.map((s) => renderShapeTile(s, true))}
                         </div>
                       )}
@@ -724,17 +724,17 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
                   )}
 
                   {filteredCoreShapes.length > 0 && (
-                    <section className="miro-cat-section">
+                    <section className="vx-cat-section">
                       <button
                         type="button"
-                        className="miro-cat-section-header"
+                        className="vx-cat-section-header"
                         onClick={() => toggleCategoryCollapsed('core')}
                       >
-                        <span className="miro-cat-section-title">
+                        <span className="vx-cat-section-title">
                           {isAnimatedMode ? 'Animated Quick Diagram Nodes' : 'Quick Diagram Nodes'}
                         </span>
-                        <span className="miro-cat-section-meta">
-                          <span className="miro-cat-section-count">{filteredCoreShapes.length}</span>
+                        <span className="vx-cat-section-meta">
+                          <span className="vx-cat-section-count">{filteredCoreShapes.length}</span>
                           {collapsedCategories.core ? (
                             <ChevronRight size={13} />
                           ) : (
@@ -749,23 +749,23 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
                   {groupedCategories.map(({ cat, shapes }) => {
                     const isCollapsed = Boolean(collapsedCategories[cat.id])
                     return (
-                      <section key={cat.id} className="miro-cat-section">
+                      <section key={cat.id} className="vx-cat-section">
                         <button
                           type="button"
-                          className="miro-cat-section-header"
+                          className="vx-cat-section-header"
                           title={cat.description}
                           onClick={() => toggleCategoryCollapsed(cat.id)}
                         >
-                          <span className="miro-cat-section-title">
+                          <span className="vx-cat-section-title">
                             {isAnimatedMode ? `Animated ${cat.name}` : cat.name}
                           </span>
-                          <span className="miro-cat-section-meta">
-                            <span className="miro-cat-section-count">{shapes.length}</span>
+                          <span className="vx-cat-section-meta">
+                            <span className="vx-cat-section-count">{shapes.length}</span>
                             {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
                           </span>
                         </button>
                         {!isCollapsed && (
-                          <div className="miro-shape-catalog-grid">
+                          <div className="vx-shape-catalog-grid">
                             {shapes.map((s) => renderShapeTile(s))}
                           </div>
                         )}
@@ -775,37 +775,37 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
                 </div>
               )
             ) : filteredLibraryShapes.length === 0 && filteredAnimatedLines.length === 0 ? (
-              <div className="miro-shape-empty">No matching shapes found.</div>
+              <div className="vx-shape-empty">No matching shapes found.</div>
             ) : (
-              <div className="miro-cat-sections">
+              <div className="vx-cat-sections">
                 {activeCategory === 'lines' && filteredAnimatedLines.length > 0 && !isAnimatedMode && (
-                  <section className="miro-cat-section">
-                    <div className="miro-cat-section-header static">
-                      <span className="miro-cat-section-title">
+                  <section className="vx-cat-section">
+                    <div className="vx-cat-section-header static">
+                      <span className="vx-cat-section-title">
                         Animated Lines &amp; Connectors
                       </span>
-                      <span className="miro-cat-section-count">{filteredAnimatedLines.length}</span>
+                      <span className="vx-cat-section-count">{filteredAnimatedLines.length}</span>
                     </div>
-                    <div className="miro-shape-catalog-grid">
+                    <div className="vx-shape-catalog-grid">
                       {filteredAnimatedLines.map((s) => renderShapeTile(s, true))}
                     </div>
                   </section>
                 )}
 
-                <section className="miro-cat-section">
-                  <div className="miro-cat-section-header static">
-                    <span className="miro-cat-section-title">
+                <section className="vx-cat-section">
+                  <div className="vx-cat-section-header static">
+                    <span className="vx-cat-section-title">
                       {isAnimatedMode
                         ? `Animated ${categoryNameById.get(activeCategory) || activeCategory}`
                         : categoryNameById.get(activeCategory) || activeCategory}
                     </span>
-                    <span className="miro-cat-section-count">
+                    <span className="vx-cat-section-count">
                       {activeCategory === 'lines' && isAnimatedMode
                         ? filteredAnimatedLines.length
                         : filteredLibraryShapes.length}
                     </span>
                   </div>
-                  <div className="miro-shape-catalog-grid">
+                  <div className="vx-shape-catalog-grid">
                     {(activeCategory === 'lines' && isAnimatedMode
                       ? filteredAnimatedLines
                       : filteredLibraryShapes
@@ -822,17 +822,17 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       {openFlyout === 'stickies' && (
         <div
           ref={flyoutRef}
-          className="miro-flyout-panel stickies-panel"
+          className="vx-flyout-panel stickies-panel"
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <div className="miro-flyout-header">
-            <div className="miro-flyout-title">
+          <div className="vx-flyout-header">
+            <div className="vx-flyout-title">
               <span>Sticky Notes</span>
-              <span className="miro-count-pill">Pick color</span>
+              <span className="vx-count-pill">Pick color</span>
             </div>
             <button
               type="button"
-              className="miro-flyout-close-btn"
+              className="vx-flyout-close-btn"
               title="Close sticky notes panel"
               onClick={() => setOpenFlyout(null)}
             >
@@ -840,12 +840,12 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
             </button>
           </div>
 
-          <div className="miro-sticky-swatches">
+          <div className="vx-sticky-swatches">
             {STICKY_COLORS.map((s) => (
               <button
                 key={s.name}
                 type="button"
-                className="miro-sticky-swatch"
+                className="vx-sticky-swatch"
                 style={{ backgroundColor: s.color }}
                 title={`${s.name} Sticky Note`}
                 onClick={() => {
@@ -862,17 +862,17 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
       {openFlyout === 'templates' && (
         <div
           ref={flyoutRef}
-          className="miro-flyout-panel templates-panel"
+          className="vx-flyout-panel templates-panel"
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <div className="miro-flyout-header">
-            <div className="miro-flyout-title">
+          <div className="vx-flyout-header">
+            <div className="vx-flyout-title">
               <span>One-Click Templates</span>
-              <span className="miro-count-pill">{TEMPLATES.length}</span>
+              <span className="vx-count-pill">{TEMPLATES.length}</span>
             </div>
             <button
               type="button"
-              className="miro-flyout-close-btn"
+              className="vx-flyout-close-btn"
               title="Close templates panel"
               onClick={() => setOpenFlyout(null)}
             >
@@ -880,23 +880,23 @@ export const MiroLeftToolbar: React.FC<MiroLeftToolbarProps> = ({
             </button>
           </div>
 
-          <div className="miro-template-list">
+          <div className="vx-template-list">
             {TEMPLATES.map((tmpl) => (
               <button
                 key={tmpl.id}
                 type="button"
-                className="miro-template-item"
+                className="vx-template-item"
                 onClick={() => {
                   onAddTemplate(tmpl.id)
                   setOpenFlyout(null)
                 }}
               >
-                <div className="miro-template-title">
+                <div className="vx-template-title">
                   {tmpl.icon}
                   <span>{tmpl.title}</span>
                   <ChevronRight size={14} style={{ marginLeft: 'auto', color: '#94a3b8' }} />
                 </div>
-                <div className="miro-template-desc">{tmpl.desc}</div>
+                <div className="vx-template-desc">{tmpl.desc}</div>
               </button>
             ))}
           </div>

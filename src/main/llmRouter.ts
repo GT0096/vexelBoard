@@ -221,9 +221,9 @@ Supported node types:
 - "actor": Human user, person, client, or external role
 - "circle": Event circle, state node, or junction
 - "group": Frame container boundary to group related nodes
-- "sticky": Miro-style colored sticky note for comments or ideas
+- "sticky": Colored sticky note for comments or ideas
 - "custom": Generic card
-- Plus Miro & draw.io library shape IDs when domain-specific shapes fit better:
+- Plus Vexelboard library shape IDs when domain-specific shapes fit better:
   - Flowchart ("fc-*"): fc-predefined-process, fc-delay, fc-display, fc-stored-data, fc-manual-input, fc-preparation, fc-merge, fc-extract, fc-or, fc-summing-junction, fc-off-page-reference
   - UML ("uml-*"): uml-class, uml-interface, uml-abstract-class, uml-enumeration, uml-package, uml-component, uml-node, uml-lifeline, uml-state, uml-composite-state, uml-initial-state, uml-final-state, uml-fork-join-h
   - BPMN ("bpmn-*"): bpmn-task, bpmn-subprocess, bpmn-event-start, bpmn-event-intermediate, bpmn-event-end, bpmn-gateway-exclusive, bpmn-gateway-parallel, bpmn-gateway-inclusive, bpmn-data-store, bpmn-pool
@@ -501,9 +501,9 @@ Supported Node Types:
 - "actor": Person, client, or role
 - "circle": State circle, event connector, or terminal
 - "group": Container frame to group related nodes
-- "sticky": Miro-style sticky note for remarks or ideas
+- "sticky": Sticky note for remarks or ideas
 - "custom": General card
-- Full Miro & draw.io Shape Library IDs (use when the diagram is UML, BPMN, ERD, Network, Mockup, or specialized Flowchart):
+- Full Vexelboard Shape Library IDs (use when the diagram is UML, BPMN, ERD, Network, Mockup, or specialized Flowchart):
   - Flowchart: fc-predefined-process, fc-delay, fc-display, fc-stored-data, fc-manual-input, fc-preparation, fc-merge, fc-extract, fc-or, fc-summing-junction, fc-off-page-reference
   - UML: uml-class, uml-interface, uml-abstract-class, uml-package, uml-component, uml-node, uml-lifeline, uml-state, uml-initial-state, uml-final-state, uml-fork-join-h
   - BPMN: bpmn-task, bpmn-subprocess, bpmn-event-start, bpmn-event-intermediate, bpmn-event-end, bpmn-gateway-exclusive, bpmn-gateway-parallel, bpmn-gateway-inclusive, bpmn-data-store, bpmn-pool
@@ -528,7 +528,7 @@ Analyze the user's drawing carefully:
    - NEVER rotate, transpose, or convert a Left-to-Right (LR) diagram into Top-to-Bottom (TB), or vice versa! Preserve the EXACT 2D spatial layout from the image using pixel coordinates relative to top-left (0, 0) ("x", "y", "width", "height"): shapes on the left must have smaller "x", shapes on the right must have larger "x", shapes near the top must have smaller "y", and shapes near the bottom must have larger "y".
    - Keep the EXACT text written inside each shape in "label" (e.g. if the user wrote "D", output "D", NOT "Decision"; if "A", output "A"). Set "description": "" unless secondary descriptive text is actually written in the drawing—NEVER invent placeholder descriptions like "Document E".
    - Use "rectangle" or "rounded-rectangle" for plain four-sided boxes (even with slightly hand-drawn lines); ONLY use "fc-document" when the shape clearly has a wavy bottom edge representing a document.
-   - Match each drawn shape to the closest exact ID from our Miro & draw.io shape library:
+   - Match each drawn shape to the closest exact ID from our shape library:
      - Basic: "rectangle", "square", "rounded-rectangle", "stadium", "circle", "ellipse", "triangle", "triangle-down", "right-triangle", "rhombus", "parallelogram", "parallelogram-left", "trapezoid", "trapezoid-inverted", "cross", "x-shape", "half-circle", "donut", "cloud", "shield", "banner", "ribbon", "wave", "can"
      - Polygons & Stars: "pentagon", "hexagon", "hexagon-vertical", "heptagon", "octagon", "decagon", "star-4", "star-5", "star-6", "star-8", "explosion"
      - Arrows: "arrow-right", "arrow-left", "arrow-up", "arrow-down", "arrow-left-right", "arrow-up-down", "arrow-quad", "arrow-circular", "chevron", "pentagon-arrow"

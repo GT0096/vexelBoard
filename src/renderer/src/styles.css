@@ -4631,7 +4631,7 @@ input.model-input {
   color: #f1f5f9;
 }
 
-/* Sticky Note Node (Miro style) */
+/* Sticky Note Node */
 .rf-sticky-note {
   position: relative;
   border-radius: 4px;
@@ -4782,9 +4782,9 @@ input.model-input {
   border-color: #ffffff;
 }
 
-/* ---------------- Miro-Style Left Dock & Flyouts ---------------- */
+/* ---------------- Left Dock & Flyouts ---------------- */
 
-.miro-left-dock {
+.vx-left-dock {
   position: fixed;
   top: 50%;
   left: 16px;
@@ -4806,13 +4806,13 @@ input.model-input {
   pointer-events: auto;
 }
 
-.app-container.theme-light-bg .miro-left-dock {
+.app-container.theme-light-bg .vx-left-dock {
   background: rgba(255, 255, 255, 0.88);
   border-color: rgba(0, 0, 0, 0.12);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
 }
 
-.miro-dock-btn {
+.vx-dock-btn {
   position: relative;
   width: 38px;
   height: 38px;
@@ -4827,52 +4827,52 @@ input.model-input {
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.miro-dock-btn:hover {
+.vx-dock-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
   transform: scale(1.06);
 }
 
-.app-container.theme-light-bg .miro-dock-btn {
+.app-container.theme-light-bg .vx-dock-btn {
   color: #64748b;
 }
 
-.app-container.theme-light-bg .miro-dock-btn:hover {
+.app-container.theme-light-bg .vx-dock-btn:hover {
   background: rgba(0, 0, 0, 0.07);
   color: #0f172a;
 }
 
-.miro-dock-btn.active {
+.vx-dock-btn.active {
   background: linear-gradient(135deg, rgba(56, 189, 248, 0.28) 0%, rgba(14, 165, 233, 0.12) 100%);
   border: 1px solid rgba(56, 189, 248, 0.45);
   color: #38bdf8;
   box-shadow: 0 0 14px rgba(56, 189, 248, 0.25);
 }
 
-.miro-dock-btn.magic-ai {
+.vx-dock-btn.magic-ai {
   background: linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(236, 72, 153, 0.15) 100%);
   border: 1px solid rgba(168, 85, 247, 0.35);
   color: #c084fc;
 }
 
-.miro-dock-btn.magic-ai:hover {
+.vx-dock-btn.magic-ai:hover {
   background: linear-gradient(135deg, rgba(168, 85, 247, 0.35) 0%, rgba(236, 72, 153, 0.25) 100%);
   color: #fff;
   box-shadow: 0 0 16px rgba(168, 85, 247, 0.4);
 }
 
-.miro-dock-divider {
+.vx-dock-divider {
   width: 24px;
   height: 1px;
   background: rgba(255, 255, 255, 0.1);
   margin: 3px 0;
 }
 
-.app-container.theme-light-bg .miro-dock-divider {
+.app-container.theme-light-bg .vx-dock-divider {
   background: rgba(0, 0, 0, 0.1);
 }
 
-@keyframes miroFlyoutIn {
+@keyframes vxFlyoutIn {
   from {
     opacity: 0;
     transform: translateY(-50%) translateX(-8px) scale(0.98);
@@ -4883,8 +4883,8 @@ input.model-input {
   }
 }
 
-/* Miro Flyout Panel */
-.miro-flyout-panel {
+/* Flyout Panel */
+.vx-flyout-panel {
   position: absolute;
   top: 50%;
   left: calc(100% + 12px);
@@ -4902,25 +4902,25 @@ input.model-input {
   padding: 14px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
   z-index: 85;
-  animation: miroFlyoutIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: vxFlyoutIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: auto;
 }
 
-.miro-flyout-panel.stickies-panel {
+.vx-flyout-panel.stickies-panel {
   width: min(264px, calc(100vw - 88px));
 }
 
-.miro-flyout-panel.templates-panel {
+.vx-flyout-panel.templates-panel {
   width: min(330px, calc(100vw - 88px));
 }
 
-.app-container.theme-light-bg .miro-flyout-panel {
+.app-container.theme-light-bg .vx-flyout-panel {
   background: rgba(255, 255, 255, 0.96);
   border-color: rgba(0, 0, 0, 0.12);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.16);
 }
 
-.miro-flyout-header {
+.vx-flyout-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4930,11 +4930,11 @@ input.model-input {
   flex-shrink: 0;
 }
 
-.app-container.theme-light-bg .miro-flyout-header {
+.app-container.theme-light-bg .vx-flyout-header {
   border-bottom-color: rgba(0, 0, 0, 0.08);
 }
 
-.miro-flyout-title {
+.vx-flyout-title {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -4945,7 +4945,7 @@ input.model-input {
   gap: 8px;
 }
 
-.miro-count-pill {
+.vx-count-pill {
   font-size: 10px;
   font-weight: 600;
   text-transform: none;
@@ -4957,13 +4957,13 @@ input.model-input {
   color: #7dd3fc;
 }
 
-.app-container.theme-light-bg .miro-count-pill {
+.app-container.theme-light-bg .vx-count-pill {
   background: rgba(2, 132, 199, 0.1);
   border-color: rgba(2, 132, 199, 0.25);
   color: #0284c7;
 }
 
-.miro-flyout-close-btn {
+.vx-flyout-close-btn {
   width: 24px;
   height: 24px;
   border-radius: 7px;
@@ -4978,29 +4978,29 @@ input.model-input {
   flex-shrink: 0;
 }
 
-.miro-flyout-close-btn:hover {
+.vx-flyout-close-btn:hover {
   background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
 }
 
-.app-container.theme-light-bg .miro-flyout-close-btn {
+.app-container.theme-light-bg .vx-flyout-close-btn {
   background: rgba(0, 0, 0, 0.04);
   border-color: rgba(0, 0, 0, 0.08);
   color: #64748b;
 }
 
-.app-container.theme-light-bg .miro-flyout-close-btn:hover {
+.app-container.theme-light-bg .vx-flyout-close-btn:hover {
   background: rgba(0, 0, 0, 0.09);
   color: #0f172a;
 }
 
-.miro-shape-grid {
+.vx-shape-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 8px;
 }
 
-.miro-shape-chip {
+.vx-shape-chip {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -5017,7 +5017,7 @@ input.model-input {
   min-width: 0;
 }
 
-.miro-shape-chip-icon {
+.vx-shape-chip-icon {
   width: 28px;
   height: 28px;
   border-radius: 7px;
@@ -5029,13 +5029,13 @@ input.model-input {
   flex-shrink: 0;
 }
 
-.miro-shape-chip-text {
+.vx-shape-chip-text {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
 
-.miro-shape-chip-text strong {
+.vx-shape-chip-text strong {
   font-size: 11.5px;
   font-weight: 600;
   white-space: nowrap;
@@ -5043,7 +5043,7 @@ input.model-input {
   text-overflow: ellipsis;
 }
 
-.miro-shape-chip-text small {
+.vx-shape-chip-text small {
   font-size: 10px;
   color: #94a3b8;
   white-space: nowrap;
@@ -5051,31 +5051,31 @@ input.model-input {
   text-overflow: ellipsis;
 }
 
-.miro-shape-chip:hover {
+.vx-shape-chip:hover {
   background: rgba(56, 189, 248, 0.18);
   border-color: rgba(56, 189, 248, 0.4);
   color: #ffffff;
   transform: translateY(-1px);
 }
 
-.app-container.theme-light-bg .miro-shape-chip {
+.app-container.theme-light-bg .vx-shape-chip {
   background: rgba(0, 0, 0, 0.04);
   border-color: rgba(0, 0, 0, 0.08);
   color: #1e293b;
 }
 
-.app-container.theme-light-bg .miro-shape-chip-text small {
+.app-container.theme-light-bg .vx-shape-chip-text small {
   color: #64748b;
 }
 
-.app-container.theme-light-bg .miro-shape-chip:hover {
+.app-container.theme-light-bg .vx-shape-chip:hover {
   background: rgba(2, 132, 199, 0.1);
   border-color: rgba(2, 132, 199, 0.3);
   color: #0284c7;
 }
 
 /* Sticky notes palette */
-.miro-sticky-swatches {
+.vx-sticky-swatches {
   display: flex;
   gap: 10px;
   align-items: center;
@@ -5083,7 +5083,7 @@ input.model-input {
   padding: 6px 2px;
 }
 
-.miro-sticky-swatch {
+.vx-sticky-swatch {
   width: 32px;
   height: 32px;
   border-radius: 6px;
@@ -5093,19 +5093,19 @@ input.model-input {
   transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 
-.miro-sticky-swatch:hover {
+.vx-sticky-swatch:hover {
   transform: translateY(-3px) scale(1.1);
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
 }
 
 /* Template items */
-.miro-template-list {
+.vx-template-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.miro-template-item {
+.vx-template-item {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -5119,24 +5119,24 @@ input.model-input {
   text-align: left;
 }
 
-.miro-template-item:hover {
+.vx-template-item:hover {
   background: rgba(56, 189, 248, 0.16);
   border-color: rgba(56, 189, 248, 0.35);
   transform: translateX(2px);
 }
 
-.app-container.theme-light-bg .miro-template-item {
+.app-container.theme-light-bg .vx-template-item {
   background: rgba(0, 0, 0, 0.03);
   border-color: rgba(0, 0, 0, 0.08);
   color: #0f172a;
 }
 
-.app-container.theme-light-bg .miro-template-item:hover {
+.app-container.theme-light-bg .vx-template-item:hover {
   background: rgba(2, 132, 199, 0.08);
   border-color: rgba(2, 132, 199, 0.3);
 }
 
-.miro-template-title {
+.vx-template-title {
   font-size: 12.5px;
   font-weight: 600;
   display: flex;
@@ -5144,15 +5144,15 @@ input.model-input {
   gap: 6px;
 }
 
-.miro-template-desc {
+.vx-template-desc {
   font-size: 11px;
   color: #94a3b8;
   line-height: 1.35;
 }
 
-/* ---------------- Miro & draw.io Full Shape Catalog & Library Nodes ---------------- */
+/* ---------------- Full Shape Catalog & Library Nodes ---------------- */
 
-.miro-flyout-panel.shapes-catalog {
+.vx-flyout-panel.shapes-catalog {
   width: clamp(300px, 38vw, 460px);
   max-width: calc(100vw - 88px);
   height: min(620px, calc(100vh - 140px));
@@ -5162,7 +5162,7 @@ input.model-input {
   overflow: hidden;
 }
 
-.miro-catalog-controls {
+.vx-catalog-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -5170,7 +5170,7 @@ input.model-input {
   flex-shrink: 0;
 }
 
-.miro-shape-search {
+.vx-shape-search {
   position: relative;
   display: flex;
   align-items: center;
@@ -5178,14 +5178,14 @@ input.model-input {
   min-width: 0;
 }
 
-.miro-shape-search-icon {
+.vx-shape-search-icon {
   position: absolute;
   left: 10px;
   color: #94a3b8;
   pointer-events: none;
 }
 
-.miro-shape-search-input {
+.vx-shape-search-input {
   width: 100%;
   padding: 7px 28px 7px 30px;
   border-radius: 9px;
@@ -5196,12 +5196,12 @@ input.model-input {
   outline: none;
 }
 
-.miro-shape-search-input:focus {
+.vx-shape-search-input:focus {
   border-color: rgba(56, 189, 248, 0.65);
   background: rgba(255, 255, 255, 0.09);
 }
 
-.miro-shape-search-clear {
+.vx-shape-search-clear {
   position: absolute;
   right: 8px;
   background: transparent;
@@ -5214,11 +5214,11 @@ input.model-input {
   padding: 2px;
 }
 
-.miro-shape-search-clear:hover {
+.vx-shape-search-clear:hover {
   color: #ffffff;
 }
 
-.miro-source-pills {
+.vx-source-pills {
   display: inline-flex;
   gap: 3px;
   padding: 2px;
@@ -5228,12 +5228,12 @@ input.model-input {
   flex-shrink: 0;
 }
 
-.app-container.theme-light-bg .miro-source-pills {
+.app-container.theme-light-bg .vx-source-pills {
   background: rgba(0, 0, 0, 0.04);
   border-color: rgba(0, 0, 0, 0.08);
 }
 
-.miro-filter-pill {
+.vx-filter-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -5249,21 +5249,21 @@ input.model-input {
   white-space: nowrap;
 }
 
-.miro-filter-pill.active,
-.miro-filter-pill:hover {
+.vx-filter-pill.active,
+.vx-filter-pill:hover {
   background: rgba(56, 189, 248, 0.22);
   border-color: rgba(56, 189, 248, 0.45);
   color: #ffffff;
 }
 
-.miro-filter-pill.animated-pill.active {
+.vx-filter-pill.animated-pill.active {
   background: linear-gradient(135deg, rgba(56, 189, 248, 0.26), rgba(168, 85, 247, 0.24));
   border-color: rgba(56, 189, 248, 0.6);
   color: #e0f2fe;
   box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
 }
 
-.miro-cat-rail {
+.vx-cat-rail {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
@@ -5276,16 +5276,16 @@ input.model-input {
   scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
 }
 
-.miro-cat-rail::-webkit-scrollbar {
+.vx-cat-rail::-webkit-scrollbar {
   height: 4px;
 }
 
-.miro-cat-rail::-webkit-scrollbar-thumb {
+.vx-cat-rail::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.35);
   border-radius: 999px;
 }
 
-.miro-cat-pill {
+.vx-cat-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -5302,20 +5302,20 @@ input.model-input {
   flex-shrink: 0;
 }
 
-.miro-cat-pill.active,
-.miro-cat-pill:hover {
+.vx-cat-pill.active,
+.vx-cat-pill:hover {
   background: rgba(56, 189, 248, 0.22);
   border-color: rgba(56, 189, 248, 0.55);
   color: #ffffff;
 }
 
-.miro-cat-pill.animated-cat-pill.active {
+.vx-cat-pill.animated-cat-pill.active {
   background: linear-gradient(135deg, rgba(56, 189, 248, 0.26), rgba(168, 85, 247, 0.24));
   border-color: rgba(56, 189, 248, 0.65);
   color: #e0f2fe;
 }
 
-.miro-shape-catalog-scroll {
+.vx-shape-catalog-scroll {
   flex: 1 1 0%;
   min-height: 0;
   overflow-y: auto;
@@ -5325,37 +5325,37 @@ input.model-input {
   scrollbar-color: rgba(148, 163, 184, 0.45) rgba(255, 255, 255, 0.04);
 }
 
-.miro-shape-catalog-scroll::-webkit-scrollbar {
+.vx-shape-catalog-scroll::-webkit-scrollbar {
   width: 6px;
 }
 
-.miro-shape-catalog-scroll::-webkit-scrollbar-track {
+.vx-shape-catalog-scroll::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.03);
   border-radius: 999px;
 }
 
-.miro-shape-catalog-scroll::-webkit-scrollbar-thumb {
+.vx-shape-catalog-scroll::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.4);
   border-radius: 999px;
 }
 
-.miro-shape-catalog-scroll::-webkit-scrollbar-thumb:hover {
+.vx-shape-catalog-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(56, 189, 248, 0.6);
 }
 
-.miro-cat-sections {
+.vx-cat-sections {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.miro-cat-section {
+.vx-cat-section {
   display: flex;
   flex-direction: column;
   gap: 7px;
 }
 
-.miro-cat-section-header {
+.vx-cat-section-header {
   width: 100%;
   display: flex;
   align-items: center;
@@ -5373,22 +5373,22 @@ input.model-input {
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.miro-cat-section-header:hover:not(.static) {
+.vx-cat-section-header:hover:not(.static) {
   background: rgba(56, 189, 248, 0.12);
   color: #ffffff;
 }
 
-.miro-cat-section-header.static {
+.vx-cat-section-header.static {
   cursor: default;
 }
 
-.miro-cat-section-meta {
+.vx-cat-section-meta {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.miro-cat-section-count {
+.vx-cat-section-count {
   font-size: 10px;
   font-weight: 600;
   padding: 1px 6px;
@@ -5397,13 +5397,13 @@ input.model-input {
   color: #94a3b8;
 }
 
-.miro-shape-catalog-grid {
+.vx-shape-catalog-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   gap: 8px;
 }
 
-.miro-shape-tile {
+.vx-shape-tile {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -5420,7 +5420,7 @@ input.model-input {
   transition: all 0.15s ease;
 }
 
-.miro-shape-tile:hover {
+.vx-shape-tile:hover {
   background: rgba(56, 189, 248, 0.18);
   border-color: rgba(56, 189, 248, 0.48);
   color: #ffffff;
@@ -5428,7 +5428,7 @@ input.model-input {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
 }
 
-.miro-shape-tile-preview {
+.vx-shape-tile-preview {
   width: 42px;
   height: 32px;
   display: flex;
@@ -5437,13 +5437,13 @@ input.model-input {
   flex-shrink: 0;
 }
 
-.miro-shape-tile-svg {
+.vx-shape-tile-svg {
   width: 100%;
   height: 100%;
   overflow: visible;
 }
 
-.miro-shape-tile-name {
+.vx-shape-tile-name {
   font-size: 10.5px;
   line-height: 1.2;
   text-align: center;
@@ -5455,11 +5455,11 @@ input.model-input {
   word-break: break-word;
 }
 
-.miro-shape-tile.is-animated {
+.vx-shape-tile.is-animated {
   border-color: rgba(56, 189, 248, 0.22);
 }
 
-.miro-shape-tile-anim-badge {
+.vx-shape-tile-anim-badge {
   position: absolute;
   top: 4px;
   right: 4px;
@@ -5475,7 +5475,7 @@ input.model-input {
   pointer-events: none;
 }
 
-.miro-shape-chip.is-animated {
+.vx-shape-chip.is-animated {
   border-color: rgba(56, 189, 248, 0.35);
   animation: rfNodeAnimatedGlow 1.8s ease-in-out infinite;
 }
@@ -5512,7 +5512,7 @@ input.model-input {
   animation: rfNodeAnimatedGlow 1.8s ease-in-out infinite;
 }
 
-.miro-shape-empty {
+.vx-shape-empty {
   padding: 28px 12px;
   text-align: center;
   font-size: 12px;
@@ -5520,40 +5520,40 @@ input.model-input {
 }
 
 /* Light theme overrides for catalog */
-.app-container.theme-light-bg .miro-shape-search-input {
+.app-container.theme-light-bg .vx-shape-search-input {
   background: rgba(0, 0, 0, 0.04);
   border-color: rgba(0, 0, 0, 0.12);
   color: #0f172a;
 }
 
-.app-container.theme-light-bg .miro-cat-section-header {
+.app-container.theme-light-bg .vx-cat-section-header {
   background: rgba(0, 0, 0, 0.04);
   color: #334155;
 }
 
-.app-container.theme-light-bg .miro-cat-section-header:hover:not(.static) {
+.app-container.theme-light-bg .vx-cat-section-header:hover:not(.static) {
   background: rgba(2, 132, 199, 0.1);
   color: #0284c7;
 }
 
-.app-container.theme-light-bg .miro-cat-section-count {
+.app-container.theme-light-bg .vx-cat-section-count {
   background: rgba(0, 0, 0, 0.08);
   color: #475569;
 }
 
-.app-container.theme-light-bg .miro-filter-pill,
-.app-container.theme-light-bg .miro-cat-pill,
-.app-container.theme-light-bg .miro-shape-tile {
+.app-container.theme-light-bg .vx-filter-pill,
+.app-container.theme-light-bg .vx-cat-pill,
+.app-container.theme-light-bg .vx-shape-tile {
   background: rgba(0, 0, 0, 0.04);
   border-color: rgba(0, 0, 0, 0.09);
   color: #1e293b;
 }
 
-.app-container.theme-light-bg .miro-filter-pill.active,
-.app-container.theme-light-bg .miro-filter-pill:hover,
-.app-container.theme-light-bg .miro-cat-pill.active,
-.app-container.theme-light-bg .miro-cat-pill:hover,
-.app-container.theme-light-bg .miro-shape-tile:hover {
+.app-container.theme-light-bg .vx-filter-pill.active,
+.app-container.theme-light-bg .vx-filter-pill:hover,
+.app-container.theme-light-bg .vx-cat-pill.active,
+.app-container.theme-light-bg .vx-cat-pill:hover,
+.app-container.theme-light-bg .vx-shape-tile:hover {
   background: rgba(2, 132, 199, 0.12);
   border-color: rgba(2, 132, 199, 0.35);
   color: #0284c7;
@@ -5561,47 +5561,47 @@ input.model-input {
 
 /* Responsive adjustments for smaller windows */
 @media (max-width: 768px) {
-  .miro-left-dock {
+  .vx-left-dock {
     left: 10px;
     padding: 6px 5px;
   }
 
-  .miro-dock-btn {
+  .vx-dock-btn {
     width: 34px;
     height: 34px;
   }
 
-  .miro-flyout-panel {
+  .vx-flyout-panel {
     left: calc(100% + 8px);
     max-width: calc(100vw - 68px);
     padding: 12px;
   }
 
-  .miro-flyout-panel.shapes-catalog {
+  .vx-flyout-panel.shapes-catalog {
     width: calc(100vw - 68px);
     max-width: calc(100vw - 68px);
     height: min(520px, calc(100vh - 120px));
   }
 
-  .miro-shape-catalog-grid {
+  .vx-shape-catalog-grid {
     grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
   }
 }
 
 @media (max-height: 700px) {
-  .miro-left-dock {
+  .vx-left-dock {
     gap: 2px;
     padding: 6px 5px;
     max-height: calc(100vh - 108px);
   }
 
-  .miro-dock-btn {
+  .vx-dock-btn {
     width: 34px;
     height: 34px;
   }
 
-  .miro-flyout-panel,
-  .miro-flyout-panel.shapes-catalog {
+  .vx-flyout-panel,
+  .vx-flyout-panel.shapes-catalog {
     max-height: calc(100vh - 108px);
     height: min(520px, calc(100vh - 108px));
   }
@@ -6226,14 +6226,14 @@ input.model-input {
    Left Panel Coding Tab Studio & Whiteboard Code Runner Cards
    =================================================================== */
 
-.miro-dock-btn.code-tab-btn.active {
+.vx-dock-btn.code-tab-btn.active {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(56, 189, 248, 0.16) 100%);
   border: 1px solid rgba(16, 185, 129, 0.5);
   color: #34d399;
   box-shadow: 0 0 14px rgba(16, 185, 129, 0.25);
 }
 
-.miro-flyout-panel.code-studio-panel {
+.vx-flyout-panel.code-studio-panel {
   width: clamp(420px, 44vw, 560px);
   max-width: calc(100vw - 88px);
   height: min(680px, calc(100vh - 120px));
@@ -6244,7 +6244,7 @@ input.model-input {
   transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.miro-flyout-panel.code-studio-panel.is-expanded {
+.vx-flyout-panel.code-studio-panel.is-expanded {
   width: clamp(580px, 62vw, 820px);
 }
 
@@ -7211,8 +7211,8 @@ input.model-input {
 }
 
 @media (max-width: 768px) {
-  .miro-flyout-panel.code-studio-panel,
-  .miro-flyout-panel.code-studio-panel.is-expanded {
+  .vx-flyout-panel.code-studio-panel,
+  .vx-flyout-panel.code-studio-panel.is-expanded {
     width: calc(100vw - 68px);
     max-width: calc(100vw - 68px);
     height: min(620px, calc(100vh - 110px));
@@ -10848,51 +10848,51 @@ input.model-input {
   border: 1.5px dashed var(--nb-ink);
 }
 
-/* ---------------- Miro Left Dock & Flyouts ---------------- */
-.miro-left-dock {
+/* ---------------- Left Dock & Flyouts ---------------- */
+.vx-left-dock {
   background: var(--nb-card) !important;
   border: var(--nb-border-thick) !important;
   box-shadow: 5px 5px 0 var(--nb-ink) !important;
   border-radius: 16px;
 }
 
-.miro-dock-btn {
+.vx-dock-btn {
   color: var(--nb-ink) !important;
   border: 1.5px solid transparent;
 }
 
-.miro-dock-btn:hover {
+.vx-dock-btn:hover {
   background: var(--nb-yellow) !important;
   border-color: var(--nb-ink);
   color: var(--nb-ink) !important;
   box-shadow: 2px 2px 0 var(--nb-ink);
 }
 
-.miro-dock-btn.active {
+.vx-dock-btn.active {
   background: var(--nb-cyan) !important;
   border: var(--nb-border) !important;
   color: var(--nb-ink) !important;
   box-shadow: 2px 2px 0 var(--nb-ink) !important;
 }
 
-.miro-dock-btn.magic-ai {
+.vx-dock-btn.magic-ai {
   background: var(--nb-lilac) !important;
   border: var(--nb-border) !important;
   color: var(--nb-ink) !important;
   box-shadow: 2px 2px 0 var(--nb-ink);
 }
 
-.miro-dock-btn.magic-ai:hover {
+.vx-dock-btn.magic-ai:hover {
   background: #a78bfa !important;
   color: var(--nb-ink) !important;
 }
 
-.miro-dock-divider {
+.vx-dock-divider {
   background: rgba(17, 17, 17, 0.18) !important;
   height: 2px;
 }
 
-.miro-flyout-panel {
+.vx-flyout-panel {
   background: var(--nb-card) !important;
   border: var(--nb-border-thick) !important;
   box-shadow: var(--nb-shadow-lg) !important;
@@ -10900,87 +10900,87 @@ input.model-input {
   border-radius: 16px;
 }
 
-.miro-flyout-header {
+.vx-flyout-header {
   border-bottom: 2px solid var(--nb-ink) !important;
 }
 
-.miro-flyout-title {
+.vx-flyout-title {
   color: var(--nb-ink) !important;
   font-family: var(--font-display);
   font-weight: 800;
 }
 
-.miro-count-pill {
+.vx-count-pill {
   background: var(--nb-yellow) !important;
   border: 1.5px solid var(--nb-ink) !important;
   color: var(--nb-ink) !important;
   font-weight: 700;
 }
 
-.miro-flyout-close-btn {
+.vx-flyout-close-btn {
   background: var(--nb-cream) !important;
   border: 1.5px solid var(--nb-ink) !important;
   color: var(--nb-ink) !important;
 }
 
-.miro-flyout-close-btn:hover {
+.vx-flyout-close-btn:hover {
   background: var(--nb-coral) !important;
   color: #ffffff !important;
 }
 
-.miro-shape-search-input {
+.vx-shape-search-input {
   background: var(--nb-cream) !important;
   border: var(--nb-border) !important;
   color: var(--nb-ink) !important;
 }
 
-.miro-source-pills {
+.vx-source-pills {
   background: var(--nb-bg) !important;
   border: 1.5px solid var(--nb-ink) !important;
 }
 
-.miro-filter-pill,
-.miro-cat-pill {
+.vx-filter-pill,
+.vx-cat-pill {
   background: var(--nb-cream) !important;
   border: 1.5px solid var(--nb-ink) !important;
   color: var(--nb-ink) !important;
   font-weight: 600;
 }
 
-.miro-filter-pill.active,
-.miro-filter-pill:hover,
-.miro-cat-pill.active,
-.miro-cat-pill:hover {
+.vx-filter-pill.active,
+.vx-filter-pill:hover,
+.vx-cat-pill.active,
+.vx-cat-pill:hover {
   background: var(--nb-yellow) !important;
   border-color: var(--nb-ink) !important;
   color: var(--nb-ink) !important;
   box-shadow: 2px 2px 0 var(--nb-ink);
 }
 
-.miro-cat-section-header {
+.vx-cat-section-header {
   background: var(--nb-bg) !important;
   border: 1.5px solid var(--nb-ink);
   color: var(--nb-ink) !important;
 }
 
-.miro-cat-section-count {
+.vx-cat-section-count {
   background: var(--nb-yellow) !important;
   border: 1px solid var(--nb-ink);
   color: var(--nb-ink) !important;
 }
 
-.miro-shape-tile,
-.miro-shape-chip,
-.miro-template-item {
+.vx-shape-tile,
+.vx-shape-chip,
+.vx-template-item {
   background: var(--nb-cream) !important;
   border: var(--nb-border) !important;
   box-shadow: 2px 2px 0 var(--nb-ink);
   color: var(--nb-ink) !important;
 }
 
-.miro-shape-tile:hover,
-.miro-shape-chip:hover,
-.miro-template-item:hover {
+.vx-shape-tile:hover,
+.vx-shape-chip:hover,
+.vx-template-item:hover {
   background: var(--nb-yellow) !important;
   border-color: var(--nb-ink) !important;
   color: var(--nb-ink) !important;
@@ -10988,18 +10988,18 @@ input.model-input {
   box-shadow: 4px 4px 0 var(--nb-ink);
 }
 
-.miro-shape-chip-icon {
+.vx-shape-chip-icon {
   background: var(--nb-cyan);
   border: 1.5px solid var(--nb-ink);
   color: var(--nb-ink);
 }
 
-.miro-shape-chip-text small,
-.miro-template-desc {
+.vx-shape-chip-text small,
+.vx-template-desc {
   color: var(--text-muted) !important;
 }
 
-.miro-sticky-swatch {
+.vx-sticky-swatch {
   border: 2px solid var(--nb-ink);
   box-shadow: 3px 3px 0 var(--nb-ink);
 }
@@ -12145,11 +12145,11 @@ input.model-input {
     display: none;
   }
 
-  .miro-left-dock {
+  .vx-left-dock {
     left: 10px;
   }
 
-  .miro-flyout-panel {
+  .vx-flyout-panel {
     left: calc(100% + 8px);
     width: min(290px, calc(100vw - 74px));
     max-width: calc(100vw - 74px);
@@ -12179,7 +12179,7 @@ input.model-input {
 
 /* Keep Left Dock & Flyouts clear of Nav HUD (top) and Bottom Dock on shorter viewports */
 @media (max-height: 780px) {
-  .miro-left-dock {
+  .vx-left-dock {
     top: 106px;
     transform: none;
     gap: 3px;
@@ -12187,37 +12187,37 @@ input.model-input {
     max-height: none;
   }
 
-  .miro-dock-btn {
+  .vx-dock-btn {
     width: 32px;
     height: 32px;
     border-radius: 8px;
   }
 
-  .miro-flyout-panel {
+  .vx-flyout-panel {
     top: 0;
     transform: none;
     max-height: calc(100vh - 190px);
   }
 
-  .miro-flyout-panel.shapes-catalog,
-  .miro-flyout-panel.code-studio-panel {
+  .vx-flyout-panel.shapes-catalog,
+  .vx-flyout-panel.code-studio-panel {
     height: min(500px, calc(100vh - 190px));
   }
 }
 
 @media (max-height: 620px) {
-  .miro-left-dock {
+  .vx-left-dock {
     top: 98px;
     gap: 2px;
     padding: 5px 4px;
   }
 
-  .miro-dock-btn {
+  .vx-dock-btn {
     width: 28px;
     height: 28px;
   }
 
-  .miro-dock-divider {
+  .vx-dock-divider {
     margin: 2px 0;
   }
 
@@ -12384,11 +12384,11 @@ input.model-input {
 }
 
 /* ── Pen Controls (Left Panel Pen Flyout & Bottom Pad Tab) ── */
-.miro-pen-btn {
+.vx-pen-btn {
   position: relative;
 }
 
-.miro-pen-color-dot {
+.vx-pen-color-dot {
   position: absolute;
   right: 5px;
   bottom: 5px;
@@ -12400,7 +12400,7 @@ input.model-input {
   pointer-events: none;
 }
 
-.miro-flyout-panel.pen-flyout-panel {
+.vx-flyout-panel.pen-flyout-panel {
   width: min(318px, calc(100vw - 88px));
 }
 
