@@ -3,8 +3,17 @@ name: Release Installers
 on:
   workflow_dispatch:
     inputs:
+      bump:
+        description: 'Auto version bump when tag is blank (avoids immutable release collisions)'
+        required: false
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
       tag:
-        description: 'Release tag (e.g. v1.0.0). Defaults to v<package.json version> if left blank.'
+        description: 'Optional explicit release tag (e.g. v1.2.0). Leave blank to auto-bump from the latest release.'
         required: false
         default: ''
       draft:
@@ -21,7 +30,149 @@ permissions:
   contents: write
 
 jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      draft: ${{ steps.version.outputs.draft }}
+
+    steps:
+      - name: Checkout repository with full tag history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve next release tag & version
+        id: version
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_DRAFT: ${{ inputs.draft }}
+        run: |
+          node <<'EOF'
+          const { execSync } = require('child_process')
+          const fs = require('fs')
+
+          const parseSemver = (raw) => {
+            const m = String(raw || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)$/)
+            if (!m) return null
+            return [Number(m[1]), Number(m[2]), Number(m[3])]
+          }
+
+          const cmpSemver = (a, b) => {
+            for (let i = 0; i < 3; i++) {
+              if (a[i] !== b[i]) return a[i] - b[i]
+            }
+            return 0
+          }
+
+          const bumpSemver = (ver, kind) => {
+            const [maj, min, pat] = ver
+            if (kind === 'major') return [maj + 1, 0, 0]
+            if (kind === 'minor') return [maj, min + 1, 0]
+            return [maj, min, pat + 1]
+          }
+
+          const fmt = (ver) => `${ver[0]}.${ver[1]}.${ver[2]}`
+
+          async function fetchReleases() {
+            const repo = process.env.GITHUB_REPOSITORY
+            const token = process.env.GITHUB_TOKEN
+            if (!repo || !token) return []
+            try {
+              const res = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=100`, {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Accept: 'application/vnd.github+json',
+                  'User-Agent': 'vexelboard-release-workflow'
+                }
+              })
+              if (!res.ok) return []
+              return await res.json()
+            } catch {
+              return []
+            }
+          }
+
+          async function main() {
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+            const pkgVer = parseSemver(pkg.version) || [1, 0, 0]
+
+            const gitTags = execSync('git tag -l', { encoding: 'utf8' })
+              .split(/\r?\n/)
+              .map((t) => t.trim())
+              .filter(Boolean)
+
+            const releases = await fetchReleases()
+            const publishedTags = new Set(
+              releases.filter((r) => !r.draft && r.tag_name).map((r) => String(r.tag_name).trim())
+            )
+            const allExistingTags = new Set([...gitTags, ...releases.map((r) => String(r.tag_name || '').trim()).filter(Boolean)])
+
+            const refType = process.env.REF_TYPE
+            const refName = (process.env.REF_NAME || '').trim()
+            const inputTag = (process.env.INPUT_TAG || '').trim()
+            const bumpKind = (process.env.INPUT_BUMP || 'patch').trim()
+            const inputDraft = process.env.INPUT_DRAFT === 'true'
+
+            let tag = ''
+            let version = ''
+
+            if (refType === 'tag') {
+              tag = refName
+              version = refName.replace(/^v/i, '')
+            } else if (inputTag) {
+              tag = inputTag.startsWith('v') ? inputTag : `v${inputTag}`
+              version = tag.replace(/^v/i, '')
+            } else {
+              // Auto-resolve next free SemVer tag from existing tags/releases & package.json
+              let highest = pkgVer
+              for (const t of allExistingTags) {
+                const parsed = parseSemver(t)
+                if (parsed && cmpSemver(parsed, highest) > 0) {
+                  highest = parsed
+                }
+              }
+
+              let candidate = highest
+              if (allExistingTags.has(`v${fmt(candidate)}`) || allExistingTags.has(fmt(candidate))) {
+                candidate = bumpSemver(candidate, bumpKind)
+                while (allExistingTags.has(`v${fmt(candidate)}`) || allExistingTags.has(fmt(candidate))) {
+                  candidate = bumpSemver(candidate, 'patch')
+                }
+              }
+
+              version = fmt(candidate)
+              tag = `v${version}`
+            }
+
+            if (publishedTags.has(tag)) {
+              console.error(`::error::Release ${tag} is already published (immutable). Leave tag blank to auto-bump or provide a new version tag.`)
+              process.exit(1)
+            }
+
+            const out = process.env.GITHUB_OUTPUT
+            fs.appendFileSync(out, `tag=${tag}\n`)
+            fs.appendFileSync(out, `version=${version}\n`)
+            fs.appendFileSync(out, `draft=${inputDraft ? 'true' : 'false'}\n`)
+            console.log(`Resolved release -> tag=${tag}, version=${version}, draft=${inputDraft}`)
+          }
+
+          main().catch((err) => {
+            console.error(err)
+            process.exit(1)
+          })
+          EOF
+
   build-installers:
+    needs: resolve-version
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -48,6 +199,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Apply resolved release version
+        shell: bash
+        run: |
+          npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Typecheck & build bundles
         run: npm run build
@@ -87,8 +243,8 @@ jobs:
           if-no-files-found: error
 
   publish-release:
-    if: ${{ !cancelled() }}
-    needs: build-installers
+    if: ${{ !cancelled() && needs.resolve-version.result == 'success' }}
+    needs: [resolve-version, build-installers]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -98,58 +254,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Resolve release metadata
-        id: meta
-        shell: bash
-        env:
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
-          INPUT_TAG: ${{ inputs.tag }}
-          INPUT_DRAFT: ${{ inputs.draft }}
-          BUILD_RESULT: ${{ needs.build-installers.result }}
-        run: |
-          TRIMMED_TAG="${INPUT_TAG#"${INPUT_TAG%%[![:space:]]*}"}"
-          TRIMMED_TAG="${TRIMMED_TAG%"${TRIMMED_TAG##*[![:space:]]}"}"
-
-          if [ "$REF_TYPE" = "tag" ]; then
-            TAG="$REF_NAME"
-          elif [ -n "$TRIMMED_TAG" ]; then
-            TAG="$TRIMMED_TAG"
-          else
-            PKG_VER="$(node -p "require('./package.json').version")"
-            TAG="v${PKG_VER}"
-          fi
-
-          if [ "$INPUT_DRAFT" = "true" ] || [ "$BUILD_RESULT" != "success" ]; then
-            IS_DRAFT="true"
-          else
-            IS_DRAFT="false"
-          fi
-
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "draft=${IS_DRAFT}" >> "$GITHUB_OUTPUT"
-          echo "Resolved release tag: ${TAG} (draft=${IS_DRAFT}, build_result=${BUILD_RESULT})"
-
       - name: Download built installers
         uses: actions/download-artifact@v4
         with:
           path: release-files
           merge-multiple: true
 
-      - name: Create permanent unversioned installer aliases
+      - name: Create stable "latest" installer filenames
         shell: bash
         run: |
           shopt -s nullglob
           for f in release-files/Vexelboard-*-Setup.exe; do
-            cp -f "$f" release-files/Vexelboard-Setup.exe
+            cp -f "$f" release-files/Vexelboard-latest-Setup.exe
             break
           done
           for f in release-files/Vexelboard-*-arm64.dmg; do
-            cp -f "$f" release-files/Vexelboard-arm64.dmg
+            cp -f "$f" release-files/Vexelboard-latest-arm64.dmg
             break
           done
           for f in release-files/Vexelboard-*-x64.dmg; do
-            cp -f "$f" release-files/Vexelboard-x64.dmg
+            cp -f "$f" release-files/Vexelboard-latest-x64.dmg
             break
           done
 
@@ -168,10 +292,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: Vexelboard ${{ steps.meta.outputs.tag }}
+          tag_name: ${{ needs.resolve-version.outputs.tag }}
+          name: Vexelboard ${{ needs.resolve-version.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          draft: ${{ steps.meta.outputs.draft == 'true' }}
+          draft: ${{ needs.resolve-version.outputs.draft == 'true' || needs.build-installers.result != 'success' }}
+          make_latest: ${{ (needs.resolve-version.outputs.draft != 'true' && needs.build-installers.result == 'success') && 'true' || 'false' }}
           files: release-files/*
           fail_on_unmatched_files: true
           generate_release_notes: true

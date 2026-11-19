@@ -46,22 +46,22 @@ flowchart LR
 
 ### Downloading & Installing Vexelboard
 
-Download the latest desktop installer directly from GitHub Releases:
+Download the latest desktop installer directly from GitHub Releases (these links always point to the newest published version automatically):
 
 | Platform | Architecture | Direct Download |
 | --- | --- | --- |
-| **Windows** | 64-bit (`x64`) | [Download Vexelboard-Setup.exe](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-Setup.exe) |
-| **macOS** | Apple Silicon (`arm64` — M1/M2/M3/M4) | [Download Vexelboard-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-arm64.dmg) |
-| **macOS** | Intel (`x64`) | [Download Vexelboard-x64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-x64.dmg) |
+| **Windows** | 64-bit (`x64`) | [Download Vexelboard-latest-Setup.exe](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-Setup.exe) |
+| **macOS** | Apple Silicon (`arm64` — M1/M2/M3/M4) | [Download Vexelboard-latest-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-arm64.dmg) |
+| **macOS** | Intel (`x64`) | [Download Vexelboard-latest-x64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-x64.dmg) |
 
 You can also browse `.zip` archives and release notes on the [Latest Release page](https://github.com/GT0096/vexelBoard/releases/latest).
 
-### Launching Vexelboard
+### Launching, Updating & Uninstalling Vexelboard
 
-- **Windows**: Run `Vexelboard-Setup.exe` (adds Desktop/Start Menu shortcuts and registers `Vexelboard` on `PATH` and Windows Search), or launch `Vexelboard.exe` directly from the unpacked build.
-- **macOS**: Open `Vexelboard-arm64.dmg` (Apple Silicon) or `Vexelboard-x64.dmg` (Intel) and drag **Vexelboard.app** to `/Applications`.
+- **Windows**: Run `Vexelboard-latest-Setup.exe` (adds Desktop/Start Menu shortcuts and registers `Vexelboard` on `PATH` and Windows Search). If Vexelboard is already installed, the setup automatically offers **Update / Reinstall** (preserving your boards & Knowledge Studio) or **Uninstall** from the same installer.
+- **macOS**: Open `Vexelboard-latest-arm64.dmg` (Apple Silicon) or `Vexelboard-latest-x64.dmg` (Intel). Drag **Vexelboard.app** to `/Applications`, or double-click **`Update or Uninstall Vexelboard.command`** inside the DMG to install, update in place (preserving your data), or uninstall cleanly.
   > [!NOTE]
-  > For unsigned macOS builds, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
+  > For unsigned macOS builds, running **`Update or Uninstall Vexelboard.command`** clears Gatekeeper quarantine automatically. If dragging manually, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
 - **Linux**: Build or launch the `AppImage` / `.deb` package from source (`npm run build:linux`).
 
 ### Configuring AI Models & Providers
