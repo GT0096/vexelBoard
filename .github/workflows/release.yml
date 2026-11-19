@@ -226,6 +226,10 @@ jobs:
           ls -lh dist/
           if [ "${{ matrix.platform }}" = "mac" ]; then
             ls dist/*.dmg dist/*.zip
+            for dmg in dist/*.dmg; do
+              echo "Verifying DMG integrity: $dmg"
+              hdiutil verify "$dmg"
+            done
           else
             ls dist/*.exe
           fi

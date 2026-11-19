@@ -1,6 +1,7 @@
 appId: com.vexelboard.app
 productName: Vexelboard
 copyright: Copyright © 2026 https://github.com/GT0096/vexelBoard
+afterPack: scripts/afterPack-mac.cjs
 directories:
   buildResources: build
   output: dist
@@ -49,7 +50,7 @@ nsis:
 mac:
   category: public.app-category.productivity
   icon: build/icon.icns
-  hardenedRuntime: true
+  hardenedRuntime: false
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
@@ -71,6 +72,9 @@ mac:
 dmg:
   title: Vexelboard ${version}
   icon: build/icon.icns
+  format: UDZO
+  sign: false
+  writeUpdateInfo: false
   artifactName: Vexelboard-${version}-${arch}.${ext}
   window:
     width: 580

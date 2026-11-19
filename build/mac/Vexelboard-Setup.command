@@ -66,8 +66,9 @@ run_install_or_update() {
     rm -rf "$dest"
     ditto "$SOURCE_APP" "$dest"
     xattr -cr "$dest" 2>/dev/null || true
+    codesign --verify --deep --strict "$dest" >/dev/null 2>&1 || codesign --force --deep --sign - "$dest" 2>/dev/null || true
   else
-    osascript -e "do shell script \"rm -rf $(printf '%q' "$dest") && ditto $(printf '%q' "$SOURCE_APP") $(printf '%q' "$dest") && xattr -cr $(printf '%q' "$dest") || true\" with administrator privileges"
+    osascript -e "do shell script \"rm -rf $(printf '%q' "$dest") && ditto $(printf '%q' "$SOURCE_APP") $(printf '%q' "$dest") && xattr -cr $(printf '%q' "$dest") && (codesign --verify --deep --strict $(printf '%q' "$dest") || codesign --force --deep --sign - $(printf '%q' "$dest")) || true\" with administrator privileges"
   fi
 
   local launch_choice
