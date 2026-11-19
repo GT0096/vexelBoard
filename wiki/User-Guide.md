@@ -51,7 +51,7 @@ Download the latest desktop installer directly from GitHub Releases (these links
 | Platform | Architecture | Direct Download |
 | --- | --- | --- |
 | **Windows** | 64-bit (`x64`) | [Download Vexelboard-latest-Setup.exe](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-Setup.exe) |
-| **macOS** | Apple Silicon (`arm64` — M1/M2/M3/M4) | [Download Vexelboard-latest-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-arm64.dmg) |
+| **macOS** | Apple Silicon (`arm64` — M-series: M1 &amp; newer) | [Download Vexelboard-latest-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-arm64.dmg) |
 | **macOS** | Intel (`x64`) | [Download Vexelboard-latest-x64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-x64.dmg) |
 
 You can also browse `.zip` archives and release notes on the [Latest Release page](https://github.com/GT0096/vexelBoard/releases/latest).
