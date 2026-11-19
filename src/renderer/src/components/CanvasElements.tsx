@@ -88,6 +88,7 @@ interface CanvasElementsProps {
   onAddCodeNode?: () => void
   onAddVideoNode?: () => void
   onCreateTutorialFromVideo?: (topic: string, transcriptText?: string) => void
+  isAiConfigured?: boolean
   onDeleteElement: (id: string) => void
   onDuplicateElement: (id: string) => void
   onPushHistory?: () => void
@@ -132,6 +133,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
   onAddCodeNode,
   onAddVideoNode,
   onCreateTutorialFromVideo,
+  isAiConfigured = true,
   onDeleteElement,
   onDuplicateElement,
   onPushHistory,
@@ -1184,6 +1186,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
               onInsertToNotes?.(noteText, `${videoTitle} @ ${formatted}`)
             }}
             onCreateTutorialFromVideo={onCreateTutorialFromVideo}
+            isAiConfigured={isAiConfigured}
             onToast={onToast}
           />
         )

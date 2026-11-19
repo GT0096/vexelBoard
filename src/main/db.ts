@@ -433,6 +433,57 @@ class DatabaseManager {
 
   // --- Knowledge Source & Chunk Indexing ---
 
+  private reclaimDiskSpace(): void {
+    if (!this.db) return
+    try {
+      this.db.exec('PRAGMA wal_checkpoint(TRUNCATE);')
+    } catch {
+      /* ignore checkpoint warnings */
+    }
+    try {
+      this.db.exec('VACUUM;')
+    } catch {
+      /* ignore vacuum warnings if DB is busy */
+    }
+  }
+
+  private purgeSourcesInTx(sourceIds: string[]): number {
+    if (!this.db || sourceIds.length === 0) return 0
+    const selectChunkIds = this.db.prepare('SELECT id FROM knowledge_chunks WHERE source_id = ?')
+    const deleteVecById = this.vectorExtensionLoaded
+      ? this.db.prepare('DELETE FROM vec_chunks WHERE chunk_id = ?')
+      : null
+    const deleteFtsBySource = this.db.prepare('DELETE FROM chunks_fts WHERE source_id = ?')
+    const deleteChunksBySource = this.db.prepare('DELETE FROM knowledge_chunks WHERE source_id = ?')
+    const deleteSourceById = this.db.prepare('DELETE FROM knowledge_sources WHERE id = ?')
+
+    let deletedChunks = 0
+    for (const sourceId of sourceIds) {
+      const chunkRows = selectChunkIds.all(sourceId) as { id: string }[]
+      deletedChunks += chunkRows.length
+
+      if (deleteVecById) {
+        for (const row of chunkRows) {
+          try {
+            deleteVecById.run(row.id)
+          } catch {
+            /* ignore missing vec row */
+          }
+        }
+      }
+
+      try {
+        deleteFtsBySource.run(sourceId)
+      } catch {
+        /* ignore FTS errors */
+      }
+      deleteChunksBySource.run(sourceId)
+      deleteSourceById.run(sourceId)
+    }
+
+    return deletedChunks
+  }
+
   public addKnowledgeSource(source: KnowledgeSource, chunks: KnowledgeChunk[]): void {
     if (!this.ensureInit() || !this.db) return
 
@@ -441,13 +492,15 @@ class DatabaseManager {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
+        source_url = excluded.source_url,
         raw_content = excluded.raw_content,
         summary = excluded.summary,
         token_count = excluded.token_count
     `)
 
-    const deleteOldVecs = this.vectorExtensionLoaded
-      ? this.db.prepare('DELETE FROM vec_chunks WHERE chunk_id IN (SELECT id FROM knowledge_chunks WHERE source_id = ?)')
+    const selectOldChunkIds = this.db.prepare('SELECT id FROM knowledge_chunks WHERE source_id = ?')
+    const deleteVecById = this.vectorExtensionLoaded
+      ? this.db.prepare('DELETE FROM vec_chunks WHERE chunk_id = ?')
       : null
     const deleteOldChunks = this.db.prepare('DELETE FROM knowledge_chunks WHERE source_id = ?')
     const deleteOldFts = this.db.prepare('DELETE FROM chunks_fts WHERE source_id = ?')
@@ -481,6 +534,13 @@ class DatabaseManager {
             ]
           : []
 
+    // Store only a compact preview in knowledge_sources (avoid duplicating the entire book text alongside chunks)
+    const compactPreview = (source.rawContent || effectiveChunks[0]?.chunkText || '').slice(0, 3000)
+    const compactSummary =
+      source.summary ||
+      compactPreview.replace(/\s+/g, ' ').trim().slice(0, 240) ||
+      null
+
     this.runTransaction(() => {
       insertSource.run(
         source.id,
@@ -488,17 +548,20 @@ class DatabaseManager {
         source.title,
         source.sourceType,
         source.sourceUrl ?? null,
-        source.rawContent,
-        source.summary ?? null,
+        compactPreview,
+        compactSummary,
         source.tokenCount ?? 0,
         source.createdAt
       )
 
-      if (deleteOldVecs) {
-        try {
-          deleteOldVecs.run(source.id)
-        } catch {
-          /* ignore */
+      if (deleteVecById) {
+        const oldChunks = selectOldChunkIds.all(source.id) as { id: string }[]
+        for (const row of oldChunks) {
+          try {
+            deleteVecById.run(row.id)
+          } catch {
+            /* ignore */
+          }
         }
       }
       deleteOldChunks.run(source.id)
@@ -538,13 +601,21 @@ class DatabaseManager {
     })
   }
 
-  public getKnowledgeSources(boardId?: string, projectId?: string): KnowledgeSource[] {
+  public getKnowledgeSources(
+    boardId?: string,
+    projectId?: string,
+    opts?: { includeRawContent?: boolean }
+  ): KnowledgeSource[] {
     if (!this.ensureInit() || !this.db) return []
+    const includeRaw = Boolean(opts?.includeRawContent)
+    const cols = includeRaw
+      ? 'id, board_id, title, source_type, source_url, raw_content, summary, token_count, created_at'
+      : 'id, board_id, title, source_type, source_url, summary, token_count, created_at'
     let rows: any[] = []
     if (projectId) {
       rows = this.db
         .prepare(
-          `SELECT * FROM knowledge_sources
+          `SELECT ${cols} FROM knowledge_sources
            WHERE board_id IN (SELECT id FROM sections WHERE project_id = ?)
               OR board_id = ?
               OR board_id IS NULL
@@ -553,10 +624,10 @@ class DatabaseManager {
         .all(projectId, boardId || '') as any[]
     } else if (boardId) {
       rows = this.db
-        .prepare('SELECT * FROM knowledge_sources WHERE board_id = ? OR board_id IS NULL ORDER BY created_at DESC')
+        .prepare(`SELECT ${cols} FROM knowledge_sources WHERE board_id = ? OR board_id IS NULL ORDER BY created_at DESC`)
         .all(boardId) as any[]
     } else {
-      rows = this.db.prepare('SELECT * FROM knowledge_sources ORDER BY created_at DESC').all() as any[]
+      rows = this.db.prepare(`SELECT ${cols} FROM knowledge_sources ORDER BY created_at DESC`).all() as any[]
     }
     return rows.map((r) => ({
       id: r.id,
@@ -564,7 +635,7 @@ class DatabaseManager {
       title: r.title,
       sourceType: r.source_type,
       sourceUrl: r.source_url,
-      rawContent: r.raw_content,
+      rawContent: includeRaw ? r.raw_content || '' : '',
       summary: r.summary,
       tokenCount: r.token_count,
       createdAt: r.created_at
@@ -590,24 +661,14 @@ class DatabaseManager {
     }))
   }
 
-  public deleteKnowledgeSource(sourceId: string): void {
-    if (!this.ensureInit() || !this.db) return
+  public deleteKnowledgeSource(sourceId: string): { deletedChunks: number } {
+    if (!this.ensureInit() || !this.db) return { deletedChunks: 0 }
+    let deletedChunks = 0
     this.runTransaction(() => {
-      if (this.vectorExtensionLoaded) {
-        try {
-          this.db!.prepare('DELETE FROM vec_chunks WHERE chunk_id IN (SELECT id FROM knowledge_chunks WHERE source_id = ?)').run(sourceId)
-        } catch {
-          /* ignore */
-        }
-      }
-      this.db!.prepare('DELETE FROM knowledge_sources WHERE id = ?').run(sourceId)
-      this.db!.prepare('DELETE FROM knowledge_chunks WHERE source_id = ?').run(sourceId)
-      try {
-        this.db!.prepare('DELETE FROM chunks_fts WHERE source_id = ?').run(sourceId)
-      } catch {
-        /* ignore */
-      }
+      deletedChunks = this.purgeSourcesInTx([sourceId])
     })
+    this.reclaimDiskSpace()
+    return { deletedChunks }
   }
 
   // --- Hybrid & Vector Retrieval ---
@@ -900,9 +961,17 @@ class DatabaseManager {
     if (!this.ensureInit() || !this.db) return
     const secRows = this.db.prepare('SELECT id FROM sections WHERE project_id = ?').all(projectId) as { id: string }[]
     const secIds = secRows.map((s) => s.id)
+    let hadPurgedSources = false
 
     this.runTransaction(() => {
       for (const sid of secIds) {
+        const srcRows = this.db!
+          .prepare('SELECT id FROM knowledge_sources WHERE board_id = ?')
+          .all(sid) as { id: string }[]
+        if (srcRows.length > 0) {
+          this.purgeSourcesInTx(srcRows.map((r) => r.id))
+          hadPurgedSources = true
+        }
         this.db!.prepare('DELETE FROM board_elements WHERE board_id = ?').run(sid)
         try {
           this.db!.prepare('DELETE FROM elements_fts WHERE board_id = ?').run(sid)
@@ -916,6 +985,10 @@ class DatabaseManager {
       this.db!.prepare('DELETE FROM sections WHERE project_id = ?').run(projectId)
       this.db!.prepare('DELETE FROM projects WHERE id = ?').run(projectId)
     })
+
+    if (hadPurgedSources) {
+      this.reclaimDiskSpace()
+    }
   }
 
   public listSections(projectId?: string): SectionItem[] {
@@ -1056,7 +1129,15 @@ class DatabaseManager {
 
   public deleteSection(sectionId: string): void {
     if (!this.ensureInit() || !this.db) return
+    let hadPurgedSources = false
     this.runTransaction(() => {
+      const srcRows = this.db!
+        .prepare('SELECT id FROM knowledge_sources WHERE board_id = ?')
+        .all(sectionId) as { id: string }[]
+      if (srcRows.length > 0) {
+        this.purgeSourcesInTx(srcRows.map((r) => r.id))
+        hadPurgedSources = true
+      }
       this.db!.prepare('DELETE FROM board_elements WHERE board_id = ?').run(sectionId)
       try {
         this.db!.prepare('DELETE FROM elements_fts WHERE board_id = ?').run(sectionId)
@@ -1067,6 +1148,10 @@ class DatabaseManager {
       this.db!.prepare('DELETE FROM boards WHERE id = ?').run(sectionId)
       this.db!.prepare('DELETE FROM sections WHERE id = ?').run(sectionId)
     })
+
+    if (hadPurgedSources) {
+      this.reclaimDiskSpace()
+    }
   }
 
   public getOverallHistory(limit = 120): OverallHistorySummary {

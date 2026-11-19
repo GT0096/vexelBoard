@@ -73,6 +73,7 @@ interface ToolbarProps {
   onSelectBackgroundPattern: (pattern: BackgroundPattern) => void
   onBeautify?: () => void
   isBeautifying?: boolean
+  isAiConfigured?: boolean
   hasSelection?: boolean
   boardPalette?: BoardPalette
 }
@@ -171,25 +172,45 @@ export function Toolbar(p: ToolbarProps): React.JSX.Element {
               </button>
               <button
                 className={p.writingPadDetection === 'text' ? 'active' : ''}
+                disabled={p.isAiConfigured === false}
+                title={
+                  p.isAiConfigured === false
+                    ? 'Configure AI Settings to enable Text OCR'
+                    : 'Convert handwriting to typed text'
+                }
                 onClick={() => {
+                  if (p.isAiConfigured === false) return
                   p.onSelectDetection('text')
                   p.onSelectTool('pen')
                   setPadDetectionMenuOpen(false)
                 }}
               >
                 <Type size={13} className="text-accent" />
-                <span>Text OCR (Handwriting to Typed Text)</span>
+                <span>
+                  Text OCR (Handwriting to Typed Text)
+                  {p.isAiConfigured === false ? ' · AI Required' : ''}
+                </span>
               </button>
               <button
                 className={p.writingPadDetection === 'equation' ? 'active' : ''}
+                disabled={p.isAiConfigured === false}
+                title={
+                  p.isAiConfigured === false
+                    ? 'Configure AI Settings to enable Equation OCR'
+                    : 'Convert handwriting to LaTeX equation'
+                }
                 onClick={() => {
+                  if (p.isAiConfigured === false) return
                   p.onSelectDetection('equation')
                   p.onSelectTool('pen')
                   setPadDetectionMenuOpen(false)
                 }}
               >
                 <Sigma size={13} className="text-accent" />
-                <span>Equation OCR (Handwriting to LaTeX Formula)</span>
+                <span>
+                  Equation OCR (Handwriting to LaTeX Formula)
+                  {p.isAiConfigured === false ? ' · AI Required' : ''}
+                </span>
               </button>
             </div>
           )}
@@ -494,13 +515,15 @@ export function Toolbar(p: ToolbarProps): React.JSX.Element {
         {p.onBeautify && (
           <button
             type="button"
-            className={`tool-beautify-btn ${p.isBeautifying ? 'loading' : ''} ${p.hasSelection ? 'active-pulse' : ''}`}
+            className={`tool-beautify-btn ${p.isBeautifying ? 'loading' : ''} ${p.hasSelection && p.isAiConfigured !== false ? 'active-pulse' : ''}`}
             onClick={p.onBeautify}
-            disabled={p.isBeautifying}
+            disabled={p.isAiConfigured === false || p.isBeautifying}
             title={
-              p.hasSelection
-                ? '✨ Beautify selected drawing into interactive React Flow diagram (Flowchart, Architecture, Electronic, UI)'
-                : '✨ Beautify diagram: Draw with pen, select diagram, and click here'
+              p.isAiConfigured === false
+                ? 'AI Beautify disabled — configure AI Settings first'
+                : p.hasSelection
+                  ? '✨ Beautify selected drawing into interactive React Flow diagram (Flowchart, Architecture, Electronic, UI)'
+                  : '✨ Beautify diagram: Draw with pen, select diagram, and click here'
             }
           >
             {p.isBeautifying ? (

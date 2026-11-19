@@ -47,6 +47,7 @@ import {
   isCodeInRect
 } from './board/eraserUtils'
 import { useBoard, useSettings } from './board/useBoard'
+import { useAiReadiness } from './board/useAiReadiness'
 import {
   LAST_SECTION_KEY,
   createChatThread,
@@ -505,6 +506,18 @@ export default function App(): React.JSX.Element {
   const messages = activeThread?.messages ?? []
   const [aiBusy, setAiBusy] = useState(false)
   const [isBeautifying, setIsBeautifying] = useState(false)
+  const aiReadiness = useAiReadiness(settings.ai)
+  const isAiConfigured = aiReadiness.isAiConfigured
+  const effectiveWritingPadDetection: WritingPadDetection = isAiConfigured
+    ? writingPadDetection
+    : 'none'
+  const isAiConfiguredRef = useRef(isAiConfigured)
+  const aiReasonRef = useRef(aiReadiness.reason)
+
+  useEffect(() => {
+    isAiConfiguredRef.current = isAiConfigured
+    aiReasonRef.current = aiReadiness.reason
+  }, [isAiConfigured, aiReadiness.reason])
 
   // Window State
   const [clickThrough, setClickThrough] = useState(false)
@@ -906,6 +919,11 @@ export default function App(): React.JSX.Element {
       attachments?: ChatAttachment[],
       options?: { sourceIds?: string[]; includeProjectContext?: boolean }
     ) => {
+      if (!isAiConfiguredRef.current) {
+        addToast('info', aiReasonRef.current || 'Configure AI Settings to enable AI features.')
+        setSettingsOpen(true)
+        return
+      }
       const api = window.glassAPI
       if (!api) {
         addToast('error', 'AI IPC bridge unavailable')
@@ -1018,6 +1036,11 @@ export default function App(): React.JSX.Element {
 
   const handleGenerateTutorial = useCallback(
     async (topic: string) => {
+      if (!isAiConfiguredRef.current) {
+        addToast('info', aiReasonRef.current || 'Configure AI Settings to enable AI features.')
+        setSettingsOpen(true)
+        return
+      }
       const api = window.glassAPI
       if (!api) {
         addToast('error', 'AI bridge unavailable')
@@ -1341,6 +1364,11 @@ export default function App(): React.JSX.Element {
       customQuery?: string,
       activeSourceIds?: string[]
     ) => {
+      if (!isAiConfiguredRef.current) {
+        addToast('info', aiReasonRef.current || 'Configure AI Settings to enable AI features.')
+        setSettingsOpen(true)
+        return
+      }
       const api = window.glassAPI
       if (!api) return
 
@@ -1353,21 +1381,6 @@ export default function App(): React.JSX.Element {
           : currentSettings.ai.byokModels[activeProvider]
 
       try {
-        let attachments: ChatAttachment[] = []
-        if (activeSourceIds && activeSourceIds.length > 0 && api.getKnowledgeSources) {
-          const allSources = await api.getKnowledgeSources(activeSection?.id, activeProjectId ?? undefined)
-          const idSet = new Set(activeSourceIds)
-          attachments = allSources
-            .filter((s) => idSet.has(s.id))
-            .map((s) => ({
-              id: s.id,
-              type: s.sourceType === 'youtube' ? 'youtube' : 'file',
-              name: s.title,
-              url: s.sourceUrl,
-              textContent: s.rawContent
-            }))
-        }
-
         let actionPrompt = ''
         if (actionType === 'study_guide') {
           actionPrompt =
@@ -1405,8 +1418,7 @@ export default function App(): React.JSX.Element {
           boardContext,
           projectId: activeProjectId ?? undefined,
           sectionId: activeSection?.id,
-          sourceIds: activeSourceIds,
-          attachments
+          sourceIds: activeSourceIds
         })
 
         if (res.ok && res.reply) {
@@ -1438,6 +1450,11 @@ export default function App(): React.JSX.Element {
 
   const handleInsertDiagram = useCallback(
     async (text: string) => {
+      if (!isAiConfiguredRef.current) {
+        addToast('info', aiReasonRef.current || 'Configure AI Settings to enable AI features.')
+        setSettingsOpen(true)
+        return
+      }
       const startView = viewRef.current
       const screenStart = getSafeViewportScreenRect()
       const startZoom = Math.max(0.15, startView.zoom)
@@ -1752,6 +1769,11 @@ export default function App(): React.JSX.Element {
 
   /* ---------------- Diagram Beautification & Handwriting Conversion ---------------- */
   const handleBeautifySelected = useCallback(async () => {
+    if (!isAiConfiguredRef.current) {
+      addToast('info', aiReasonRef.current || 'Configure AI Settings to enable AI features.')
+      setSettingsOpen(true)
+      return
+    }
     // Cancel any pending debounced OCR so Beautify processes the full stroke set once
     if (ocrTimerRef.current !== null) {
       window.clearTimeout(ocrTimerRef.current)
@@ -2804,7 +2826,10 @@ export default function App(): React.JSX.Element {
       // Always render the ink stroke right away so multi-stroke writing stays visible
       update((b) => ({ ...b, strokes: [...b.strokes, stroke] }))
 
-      if (writingPadDetection === 'text' || writingPadDetection === 'equation') {
+      if (
+        isAiConfiguredRef.current &&
+        (writingPadDetection === 'text' || writingPadDetection === 'equation')
+      ) {
         const mode = writingPadDetection
         pendingOcrStrokeIdsRef.current.push(stroke.id)
         if (ocrTimerRef.current !== null) {
@@ -2813,6 +2838,10 @@ export default function App(): React.JSX.Element {
 
         ocrTimerRef.current = window.setTimeout(async () => {
           ocrTimerRef.current = null
+          if (!isAiConfiguredRef.current) {
+            pendingOcrStrokeIdsRef.current = []
+            return
+          }
           const batchIds = [...pendingOcrStrokeIdsRef.current]
           pendingOcrStrokeIdsRef.current = []
           if (batchIds.length === 0) return
@@ -3445,6 +3474,7 @@ export default function App(): React.JSX.Element {
       {/* Top bar */}
       <TopBar
         aiBusy={aiBusy}
+        isAiConfigured={isAiConfigured}
         modelLabel={
           settings.ai.provider === 'ollama'
             ? settings.ai.ollamaModel
@@ -3515,6 +3545,7 @@ export default function App(): React.JSX.Element {
                 transcript ? `${topic}\n\nTranscript Context:\n${transcript.slice(0, 2500)}` : topic
               )
             }
+            isAiConfigured={isAiConfigured}
             onDeleteElement={handleDeleteElement}
             onDuplicateElement={handleDuplicateElement}
             onPushHistory={pushHistory}
@@ -3545,8 +3576,12 @@ export default function App(): React.JSX.Element {
                 type="button"
                 className="diagram-selection-beautify-btn"
                 onClick={handleBeautifySelected}
-                disabled={isBeautifying}
-                title="Convert raw hand-drawn sketch into interactive React Flow diagram (Flowchart, Architecture, Electronic, UI)"
+                disabled={!isAiConfigured || isBeautifying}
+                title={
+                  isAiConfigured
+                    ? 'Convert raw hand-drawn sketch into interactive React Flow diagram (Flowchart, Architecture, Electronic, UI)'
+                    : 'AI Beautify disabled — configure AI Settings first'
+                }
               >
                 {isBeautifying ? (
                   <>
@@ -3589,6 +3624,7 @@ export default function App(): React.JSX.Element {
             onAddTemplate={handleAddTemplate}
             onBeautify={handleBeautifySelected}
             isBeautifying={isBeautifying}
+            isAiConfigured={isAiConfigured}
             hasSelection={selectedIds.length > 0}
             onAddCodeNode={handleAddCodeNode}
             onOpenKnowledgeHub={() => setIsKnowledgeHubOpen(true)}
@@ -3609,7 +3645,7 @@ export default function App(): React.JSX.Element {
             <Toolbar
               activeTool={activeTool}
               onSelectTool={setActiveTool}
-              writingPadDetection={writingPadDetection}
+              writingPadDetection={effectiveWritingPadDetection}
               onSelectDetection={setWritingPadDetection}
               eraserSize={eraserSize}
               onEraserSize={setEraserSize}
@@ -3626,6 +3662,7 @@ export default function App(): React.JSX.Element {
               }}
               onBeautify={handleBeautifySelected}
               isBeautifying={isBeautifying}
+              isAiConfigured={isAiConfigured}
               hasSelection={selectedIds.length > 0}
               zoom={view.zoom}
               onZoomIn={() => setView((v) => ({ ...v, zoom: Math.min(3.0, v.zoom * 1.2) }))}
@@ -3705,6 +3742,8 @@ export default function App(): React.JSX.Element {
               }))
             }}
             isAiBusy={aiBusy}
+            isAiConfigured={isAiConfigured}
+            aiUnconfiguredReason={aiReadiness.reason}
             activeModel={
               settings.ai.provider === 'ollama'
                 ? settings.ai.ollamaModel
@@ -3737,6 +3776,9 @@ export default function App(): React.JSX.Element {
             getCurrentBoardSummary={summarizeCurrentBoard}
             onToast={addToast}
             isAiBusy={aiBusy}
+            isAiConfigured={isAiConfigured}
+            aiUnconfiguredReason={aiReadiness.reason}
+            onOpenAiSettings={() => setSettingsOpen(true)}
             onRunAction={handleNotebookAction}
           />
         </>

@@ -24,6 +24,7 @@ import {
   type ProviderId
 } from '@shared/ipc'
 import type { AISettings } from '../types/board'
+import { notifyAiConfigChanged } from '../board/useAiReadiness'
 
 export interface ChatAiSettingsProps {
   ai: AISettings
@@ -84,14 +85,26 @@ export const ChatAiSettings: React.FC<ChatAiSettingsProps> = ({
   const openAIReqIdRef = useRef(0)
 
   const recheckOllama = useCallback(
-    async (host: string) => {
+    async (host: string, enableIfOnline = false) => {
       if (!api) return
       setChecking(true)
       try {
         const res = await api.checkOllama(host)
         setStatus(res)
-        if (res.online && res.models.length > 0 && !aiRef.current.ollamaModel) {
-          onChangeAI({ ...aiRef.current, ollamaModel: res.models[0] })
+        if (res.online) {
+          const nextModel = aiRef.current.ollamaModel || res.models[0] || ''
+          if (enableIfOnline) {
+            onChangeAI({
+              ...aiRef.current,
+              ollamaHost: host,
+              ollamaModel: nextModel,
+              configured: true
+            })
+            notifyAiConfigChanged()
+            onToast?.('success', 'Ollama connected & AI features enabled')
+          } else if (res.models.length > 0 && !aiRef.current.ollamaModel) {
+            onChangeAI({ ...aiRef.current, ollamaModel: res.models[0] })
+          }
         }
       } catch {
         setStatus({ online: false, models: [], error: 'Could not connect to Ollama' })
@@ -99,7 +112,7 @@ export const ChatAiSettings: React.FC<ChatAiSettingsProps> = ({
         setChecking(false)
       }
     },
-    [api, onChangeAI]
+    [api, onChangeAI, onToast]
   )
 
   useEffect(() => {
@@ -180,9 +193,20 @@ export const ChatAiSettings: React.FC<ChatAiSettingsProps> = ({
     if (provider === 'openai') {
       const targetModel = ai.byokModels.openai || DEFAULT_PROVIDER_MODELS.openai
       void applyOpenAIModelIdealConfig(targetModel, { ...ai, provider }, false)
+      notifyAiConfigChanged()
+      return
+    }
+    if (provider === 'ollama') {
+      onChangeAI({
+        ...ai,
+        provider,
+        configured: status?.online ? true : ai.configured
+      })
+      notifyAiConfigChanged()
       return
     }
     onChangeAI({ ...ai, provider })
+    notifyAiConfigChanged()
   }
 
   const handleSelectModel = (model: string): void => {
@@ -191,7 +215,12 @@ export const ChatAiSettings: React.FC<ChatAiSettingsProps> = ({
     openAIReqIdRef.current += 1
     setFetchingModelConfig(false)
     if (ai.provider === 'ollama') {
-      onChangeAI({ ...ai, ollamaModel: trimmed })
+      onChangeAI({
+        ...ai,
+        ollamaModel: trimmed,
+        configured: status?.online ? true : ai.configured
+      })
+      notifyAiConfigChanged()
     } else if (ai.provider === 'openai') {
       const nextAi: AISettings = {
         ...ai,
@@ -225,13 +254,27 @@ export const ChatAiSettings: React.FC<ChatAiSettingsProps> = ({
   const handleSaveKey = async (id: ByokProvider): Promise<void> => {
     if (!api) return
     try {
-      await api.saveKey(id, keyDrafts[id])
-      setStored((s) => ({ ...s, [id]: Boolean(keyDrafts[id].trim()) }))
+      const trimmed = keyDrafts[id].trim()
+      await api.saveKey(id, trimmed)
+      const hasVal = Boolean(trimmed)
+      setStored((s) => ({ ...s, [id]: hasVal }))
       setKeyDrafts((d) => ({ ...d, [id]: '' }))
+      if (hasVal) {
+        onChangeAI({
+          ...aiRef.current,
+          provider: !aiRef.current.configured ? id : aiRef.current.provider,
+          configured: true
+        })
+      }
+      notifyAiConfigChanged()
       onToast?.('success', `${PROVIDER_LABELS[id]} API key saved`)
-      if (id === 'openai' && aiRef.current.provider === 'openai') {
+      if (id === 'openai' && (aiRef.current.provider === 'openai' || !aiRef.current.configured)) {
         const currentOpenAI = aiRef.current.byokModels.openai || DEFAULT_PROVIDER_MODELS.openai
-        void applyOpenAIModelIdealConfig(currentOpenAI, aiRef.current, true)
+        void applyOpenAIModelIdealConfig(
+          currentOpenAI,
+          { ...aiRef.current, provider: 'openai', configured: true },
+          true
+        )
       }
     } catch (err) {
       onToast?.('error', err instanceof Error ? err.message : String(err))
@@ -242,6 +285,7 @@ export const ChatAiSettings: React.FC<ChatAiSettingsProps> = ({
     if (!api) return
     await api.deleteKey(id)
     setStored((s) => ({ ...s, [id]: false }))
+    notifyAiConfigChanged()
     onToast?.('info', `${PROVIDER_LABELS[id]} key removed`)
   }
 
@@ -488,7 +532,7 @@ export const ChatAiSettings: React.FC<ChatAiSettingsProps> = ({
                 className="chat-btn-small"
                 onClick={() => {
                   onChangeAI({ ...ai, ollamaHost: hostDraft })
-                  void recheckOllama(hostDraft)
+                  void recheckOllama(hostDraft, true)
                 }}
                 disabled={checking}
                 title="Re-check connection"
@@ -496,6 +540,19 @@ export const ChatAiSettings: React.FC<ChatAiSettingsProps> = ({
                 <RefreshCw size={12} className={checking ? 'spin' : ''} />
                 <span>Check</span>
               </button>
+              {status?.online && !ai.configured && (
+                <button
+                  type="button"
+                  className="chat-btn-small primary"
+                  onClick={() => {
+                    onChangeAI({ ...ai, provider: 'ollama', ollamaHost: hostDraft, configured: true })
+                    notifyAiConfigChanged()
+                    onToast?.('success', 'Ollama AI enabled')
+                  }}
+                >
+                  Enable
+                </button>
+              )}
             </div>
             {status && !status.online && status.error && (
               <p className="settings-hint error">{status.error}</p>

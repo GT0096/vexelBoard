@@ -31,6 +31,7 @@ export interface CanvasVideoCardProps {
   onStartResize?: (e: React.PointerEvent, dir: ResizeDirection) => void
   onAddTimestampNote: (timestampSec: number, videoTitle: string, videoUrl: string) => void
   onCreateTutorialFromVideo?: (topic: string, transcriptText?: string) => void
+  isAiConfigured?: boolean
   onToast?: (kind: 'info' | 'success' | 'error', message: string) => void
 }
 
@@ -65,6 +66,7 @@ export const CanvasVideoCard: React.FC<CanvasVideoCardProps> = ({
   onStartResize,
   onAddTimestampNote,
   onCreateTutorialFromVideo,
+  isAiConfigured = true,
   onToast
 }) => {
   const tabs: VideoTabItem[] = useMemo(() => {
@@ -504,7 +506,12 @@ export const CanvasVideoCard: React.FC<CanvasVideoCardProps> = ({
                 type="button"
                 className="video-mini-btn accent"
                 onClick={handleCreateTutorial}
-                title="Create a structured tutorial on the board from this video"
+                disabled={!isAiConfigured}
+                title={
+                  isAiConfigured
+                    ? 'Create a structured tutorial on the board from this video'
+                    : 'Configure AI Settings to generate AI tutorials'
+                }
               >
                 <Sparkles size={12} />
                 <span>Tutorial</span>

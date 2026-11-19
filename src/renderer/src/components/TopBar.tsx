@@ -20,6 +20,7 @@ import { BrandMark } from './BrandMark'
 
 interface TopBarProps {
   aiBusy: boolean
+  isAiConfigured?: boolean
   modelLabel: string
   clickThrough: boolean
   isRightPanelOpen: boolean
@@ -192,10 +193,29 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
       </div>
 
       <div className="chips">
-        <span className={`chip ${p.aiBusy ? 'accent' : ''}`} id="ai-chip">
-          {p.aiBusy ? <Loader2 size={13} className="spin" /> : <Sparkles size={13} />}
-          {p.modelLabel}
-        </span>
+        {p.isAiConfigured === false ? (
+          <button
+            type="button"
+            className="chip warn ai-chip-btn"
+            id="ai-chip"
+            onClick={p.onOpenSettings}
+            title="AI features are disabled until AI Settings are configured. Click to configure."
+          >
+            <Settings2 size={13} />
+            AI Not Configured
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={`chip ai-chip-btn ${p.aiBusy ? 'accent' : ''}`}
+            id="ai-chip"
+            onClick={p.onOpenSettings}
+            title="Active AI model — click to configure AI Settings"
+          >
+            {p.aiBusy ? <Loader2 size={13} className="spin" /> : <Sparkles size={13} />}
+            {p.modelLabel}
+          </button>
+        )}
         {p.clickThrough && (
           <span className="chip warn" id="clickthrough-chip">
             <MousePointerClick size={13} /> Click-through · Alt+Space

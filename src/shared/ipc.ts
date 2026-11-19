@@ -447,8 +447,14 @@ export interface GlassAPI {
 
   // Local SQLite & Vector Knowledge Store
   saveKnowledgeSource?: (source: KnowledgeSourceItem, chunks: KnowledgeChunkItem[]) => Promise<{ ok: boolean }>
+  indexKnowledgeFilesFromDialog?: (boardId?: string) => Promise<{
+    ok: boolean
+    canceled?: boolean
+    indexed: Array<{ source: KnowledgeSourceItem; chunkCount: number }>
+    errors?: string[]
+  }>
   getKnowledgeSources?: (boardId?: string, projectId?: string) => Promise<KnowledgeSourceItem[]>
-  deleteKnowledgeSource?: (sourceId: string) => Promise<{ ok: boolean }>
+  deleteKnowledgeSource?: (sourceId: string) => Promise<{ ok: boolean; deletedChunks?: number }>
   hybridSearch?: (query: string, opts?: { sourceIds?: string[]; limit?: number }) => Promise<SearchResultItem[]>
 
   // Board Database Persistence & Spatial Memory
