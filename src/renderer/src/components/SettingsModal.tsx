@@ -11,6 +11,7 @@ import {
   type ProviderId
 } from '@shared/ipc'
 import type { AISettings } from '../types/board'
+import { notifyAiConfigChanged } from '../board/useAiReadiness'
 
 interface SettingsModalProps {
   ai: AISettings
@@ -50,16 +51,22 @@ export function SettingsModal(p: SettingsModalProps): React.JSX.Element {
   const api = window.glassAPI
 
   const recheck = useCallback(
-    async (host: string) => {
+    async (host: string, enableIfOnline = false) => {
       if (!api) return
       setChecking(true)
       try {
-        setStatus(await api.checkOllama(host))
+        const res = await api.checkOllama(host)
+        setStatus(res)
+        if (enableIfOnline && res.online) {
+          p.onChangeAI({ ...p.ai, ollamaHost: host, configured: true })
+          notifyAiConfigChanged()
+          p.onToast('success', 'Ollama connected & AI features enabled')
+        }
       } finally {
         setChecking(false)
       }
     },
-    [api]
+    [api, p]
   )
 
   useEffect(() => {
@@ -83,9 +90,32 @@ export function SettingsModal(p: SettingsModalProps): React.JSX.Element {
   const saveKey = async (id: ByokProvider): Promise<void> => {
     if (!api) return
     try {
-      await api.saveKey(id, keyDrafts[id])
-      setStored((s) => ({ ...s, [id]: Boolean(keyDrafts[id].trim()) }))
+      const trimmed = keyDrafts[id].trim()
+      await api.saveKey(id, trimmed)
+      const hasVal = Boolean(trimmed)
+      setStored((s) => ({ ...s, [id]: hasVal }))
       setKeyDrafts((d) => ({ ...d, [id]: '' }))
+      if (hasVal) {
+        const nextProvider = !p.ai.configured ? id : p.ai.provider
+        if (nextProvider === 'openai') {
+          const targetModel = p.ai.byokModels.openai || DEFAULT_PROVIDER_MODELS.openai
+          const profile = resolveOpenAIModelProfile(targetModel)
+          p.onChangeAI({
+            ...p.ai,
+            provider: nextProvider,
+            temperature: profile.idealTemperature,
+            openaiModelProfile: profile,
+            configured: true
+          })
+        } else {
+          p.onChangeAI({
+            ...p.ai,
+            provider: nextProvider,
+            configured: true
+          })
+        }
+      }
+      notifyAiConfigChanged()
       p.onToast('success', `${PROVIDER_LABELS[id]} key encrypted & saved`)
     } catch (err) {
       p.onToast('error', err instanceof Error ? err.message : String(err))
@@ -96,6 +126,7 @@ export function SettingsModal(p: SettingsModalProps): React.JSX.Element {
     if (!api) return
     await api.deleteKey(id)
     setStored((s) => ({ ...s, [id]: false }))
+    notifyAiConfigChanged()
     p.onToast('info', `${PROVIDER_LABELS[id]} key removed`)
   }
 
@@ -145,8 +176,16 @@ export function SettingsModal(p: SettingsModalProps): React.JSX.Element {
                             })
                           })
                         }
+                      } else if (id === 'ollama') {
+                        p.onChangeAI({
+                          ...p.ai,
+                          provider: id,
+                          configured: status?.online ? true : p.ai.configured
+                        })
+                        notifyAiConfigChanged()
                       } else {
                         p.onChangeAI({ ...p.ai, provider: id })
+                        notifyAiConfigChanged()
                       }
                     }}
                   >
@@ -185,17 +224,37 @@ export function SettingsModal(p: SettingsModalProps): React.JSX.Element {
                 className="btn"
                 onClick={() => {
                   p.onChangeAI({ ...p.ai, ollamaHost: hostDraft })
-                  void recheck(hostDraft)
+                  void recheck(hostDraft, true)
                 }}
               >
                 <RefreshCw size={14} className={checking ? 'spin' : ''} /> Re-check Ollama
               </button>
+              {status?.online && !p.ai.configured && (
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => {
+                    p.onChangeAI({ ...p.ai, provider: 'ollama', ollamaHost: hostDraft, configured: true })
+                    notifyAiConfigChanged()
+                    p.onToast('success', 'Ollama AI enabled')
+                  }}
+                >
+                  Enable Ollama
+                </button>
+              )}
             </div>
             <div className="row">
               <select
                 id="ollama-model-select"
                 value={p.ai.ollamaModel}
-                onChange={(e) => p.onChangeAI({ ...p.ai, ollamaModel: e.target.value })}
+                onChange={(e) => {
+                  p.onChangeAI({
+                    ...p.ai,
+                    ollamaModel: e.target.value,
+                    configured: status?.online ? true : p.ai.configured
+                  })
+                  notifyAiConfigChanged()
+                }}
               >
                 {modelOptions.map((m) => (
                   <option key={m} value={m}>

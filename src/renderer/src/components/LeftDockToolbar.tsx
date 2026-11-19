@@ -61,6 +61,7 @@ export interface LeftDockToolbarProps {
   onAddTemplate: (templateId: string) => void
   onBeautify: () => void
   isBeautifying?: boolean
+  isAiConfigured?: boolean
   hasSelection?: boolean
   onAddCodeNode?: (initialTab?: CodeTabItem) => void
   onOpenKnowledgeHub?: () => void
@@ -148,6 +149,7 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
   onAddTemplate,
   onBeautify,
   isBeautifying,
+  isAiConfigured = true,
   hasSelection,
   onAddCodeNode,
   onOpenKnowledgeHub,
@@ -515,10 +517,13 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
         type="button"
         className={`vx-dock-btn magic-ai ${isBeautifying ? 'active' : ''}`}
         onClick={onBeautify}
+        disabled={!isAiConfigured || isBeautifying}
         title={
-          hasSelection
-            ? 'Beautify selected sketch into interactive React Flow diagram'
-            : 'AI Beautify Diagram (Auto-detect drawing strokes)'
+          !isAiConfigured
+            ? 'AI Beautify disabled — configure AI Settings first'
+            : hasSelection
+              ? 'Beautify selected sketch into interactive React Flow diagram'
+              : 'AI Beautify Diagram (Auto-detect drawing strokes)'
         }
       >
         <Sparkles size={18} />

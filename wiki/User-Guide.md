@@ -44,13 +44,25 @@ flowchart LR
 
 ## 1. Getting Started & AI Provider Setup
 
+### Downloading & Installing Vexelboard
+
+Download the latest desktop installer directly from GitHub Releases:
+
+| Platform | Architecture | Direct Download |
+| --- | --- | --- |
+| **Windows** | 64-bit (`x64`) | [Download Vexelboard-Setup.exe](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-Setup.exe) |
+| **macOS** | Apple Silicon (`arm64` — M1/M2/M3/M4) | [Download Vexelboard-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-arm64.dmg) |
+| **macOS** | Intel (`x64`) | [Download Vexelboard-x64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-x64.dmg) |
+
+You can also browse `.zip` archives and release notes on the [Latest Release page](https://github.com/GT0096/vexelBoard/releases/latest).
+
 ### Launching Vexelboard
 
-- **Windows**: Run the `Vexelboard-<version>-Setup.exe` installer (adds Desktop/Start Menu shortcuts and registers `Vexelboard` on `PATH` and Windows Search), or launch `Vexelboard.exe` directly from the unpacked build.
-- **macOS**: Open the `.dmg` installer and drag **Vexelboard.app** to `/Applications`.
+- **Windows**: Run `Vexelboard-Setup.exe` (adds Desktop/Start Menu shortcuts and registers `Vexelboard` on `PATH` and Windows Search), or launch `Vexelboard.exe` directly from the unpacked build.
+- **macOS**: Open `Vexelboard-arm64.dmg` (Apple Silicon) or `Vexelboard-x64.dmg` (Intel) and drag **Vexelboard.app** to `/Applications`.
   > [!NOTE]
   > For unsigned macOS builds, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
-- **Linux**: Launch the `AppImage` or install the `.deb` package.
+- **Linux**: Build or launch the `AppImage` / `.deb` package from source (`npm run build:linux`).
 
 ### Configuring AI Models & Providers
 

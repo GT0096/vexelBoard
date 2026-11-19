@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/GT0096/vexelBoard/releases/latest"><img src="https://img.shields.io/github/v/release/GT0096/vexelBoard?label=Download%20Latest&style=for-the-badge&color=FF5E5B&labelColor=111111" alt="Download Latest Release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-FFE566?style=for-the-badge&labelColor=111111" alt="Apache 2.0 License" /></a>
   <img src="https://img.shields.io/badge/Electron-44-67E8F9?style=for-the-badge&labelColor=111111" alt="Electron 44" />
   <img src="https://img.shields.io/badge/React-19-7BF1A8?style=for-the-badge&labelColor=111111" alt="React 19" />
@@ -18,6 +19,20 @@
 **Vexelboard** is an AI-powered, interactive desktop whiteboard and study studio built with **Electron**, **React**, **TypeScript**, and **Vite** in a bold **Neo-Brutalist** interface.
 
 It combines an infinite drawing canvas, background-adaptive color palettes, diagrams and shape libraries, Markdown & LaTeX notes, an embedded multi-language Code Studio, playable YouTube study cards, a local **Knowledge Studio** backed by SQLite + vector search with `@book` chat citations and project-wide context, and flexible AI integrations (local Ollama or BYOK cloud providers).
+
+---
+
+## Download Installers
+
+Download the latest pre-built desktop installer for your platform:
+
+| Platform | Architecture | Installer |
+| --- | --- | --- |
+| **Windows** | 64-bit (`x64`) | [Download Vexelboard-Setup.exe](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-Setup.exe) |
+| **macOS** | Apple Silicon (`arm64` — M1/M2/M3/M4) | [Download Vexelboard-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-arm64.dmg) |
+| **macOS** | Intel (`x64`) | [Download Vexelboard-x64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-x64.dmg) |
+
+> Looking for `.zip` archives, older versions, or release notes? View [All Releases](https://github.com/GT0096/vexelBoard/releases/latest). On macOS, if Gatekeeper warns about an unsigned build, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
 
 ---
 

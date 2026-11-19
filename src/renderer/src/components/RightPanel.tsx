@@ -28,6 +28,7 @@ import {
 import type { ChatMessage, AISettings } from '../types/board'
 import type { ChatAttachment, ProjectChatThread } from '@shared/ipc'
 import { estimateThreadTokens } from '../board/workspaceStore'
+import { useAutoGrowTextarea } from '../board/useAutoGrowTextarea'
 import { Markdown } from './Markdown'
 import { ChatAiSettings } from './ChatAiSettings'
 import {
@@ -59,6 +60,8 @@ interface RightPanelProps {
   onGenerateTutorial?: (topic: string) => void
   onAddYouTubeToCanvas?: (url: string, title?: string) => void
   isAiBusy: boolean
+  isAiConfigured?: boolean
+  aiUnconfiguredReason?: string
   activeModel: string
   activeProvider: string
   projectId?: string | null
@@ -129,6 +132,8 @@ export const RightPanel: React.FC<RightPanelProps> = ({
   onGenerateTutorial,
   onAddYouTubeToCanvas,
   isAiBusy,
+  isAiConfigured = true,
+  aiUnconfiguredReason,
   activeModel,
   activeProvider,
   projectId,
@@ -231,7 +236,9 @@ export const RightPanel: React.FC<RightPanelProps> = ({
   const threadMenuRef = useRef<HTMLDivElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const knowledge = useChatKnowledgeSources(projectId, sectionId, isOpen && !isDetached)
+  useAutoGrowTextarea(textareaRef, input, 5, isOpen && !isDetached)
 
   useEffect(() => {
     if (!threadMenuOpen) return
@@ -359,6 +366,10 @@ export const RightPanel: React.FC<RightPanelProps> = ({
   }
 
   const handleTriggerTutorial = (): void => {
+    if (!isAiConfigured) {
+      setShowAiSettings(true)
+      return
+    }
     const clean = tutorialTopic.trim() || 'Current Whiteboard & Knowledge Context'
     onGenerateTutorial?.(clean)
     setTutorialTopic('')
@@ -366,6 +377,10 @@ export const RightPanel: React.FC<RightPanelProps> = ({
   }
 
   const handleSend = (textOverride?: string): void => {
+    if (!isAiConfigured) {
+      setShowAiSettings(true)
+      return
+    }
     const query = (textOverride ?? input).trim()
     if ((!query && attachments.length === 0) || isAiBusy) return
     const sourceIds = knowledge.pinnedSources.map((s) => s.id)
@@ -687,21 +702,25 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                 {aiSettings && onChangeAI ? (
                   <button
                     type="button"
-                    className={`panel-model-tag panel-model-badge-btn ${showAiSettings ? 'active' : ''}`}
+                    className={`panel-model-tag panel-model-badge-btn ${showAiSettings ? 'active' : ''} ${!isAiConfigured ? 'unconfigured' : ''}`}
                     onClick={() => setShowAiSettings((prev) => !prev)}
-                    title="Click to change AI model & settings"
+                    title={
+                      isAiConfigured
+                        ? 'Click to change AI model & settings'
+                        : 'AI not configured — click to open AI Settings'
+                    }
                   >
                     <Sparkles size={10} />
                     <span>
-                      {activeProvider} &bull; {activeModel}
+                      {isAiConfigured ? `${activeProvider} • ${activeModel}` : 'AI Not Configured'}
                     </span>
                     <Settings2 size={10} className="badge-settings-icon" />
                   </button>
                 ) : (
-                  <div className="panel-model-tag">
+                  <div className={`panel-model-tag ${!isAiConfigured ? 'unconfigured' : ''}`}>
                     <Sparkles size={10} />
                     <span>
-                      {activeProvider} &bull; {activeModel}
+                      {isAiConfigured ? `${activeProvider} • ${activeModel}` : 'AI Not Configured'}
                     </span>
                   </div>
                 )}
@@ -919,8 +938,13 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                 <button
                   type="button"
                   className={`chat-feature-pill ${showTutorialInput ? 'active' : ''}`}
-                  onClick={() => setShowTutorialInput((v) => !v)}
-                  title="Create structured visual tutorial with explanations & diagrams on the board"
+                  disabled={!isAiConfigured}
+                  onClick={() => isAiConfigured && setShowTutorialInput((v) => !v)}
+                  title={
+                    isAiConfigured
+                      ? 'Create structured visual tutorial with explanations & diagrams on the board'
+                      : 'Configure AI Settings to generate visual tutorials'
+                  }
                 >
                   <Layout size={13} />
                   <span>Create Tutorial</span>
@@ -941,7 +965,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
           )}
 
           {/* Inline Tutorial Generator Topic Bar */}
-          {showTutorialInput && onGenerateTutorial && (
+          {showTutorialInput && isAiConfigured && onGenerateTutorial && (
             <div className="tutorial-popover-bar" onPointerDown={(e) => e.stopPropagation()}>
               <div className="tutorial-popover-row">
                 <Layout size={14} style={{ color: '#38bdf8', flexShrink: 0 }} />
@@ -988,6 +1012,28 @@ export const RightPanel: React.FC<RightPanelProps> = ({
             />
           )}
 
+          {/* Unconfigured AI Notice */}
+          {!isAiConfigured && !showAiSettings && (
+            <div className="ai-setup-banner compact" onPointerDown={(e) => e.stopPropagation()}>
+              <div className="ai-setup-banner-copy">
+                <strong>AI Features Disabled</strong>
+                <span>
+                  {aiUnconfiguredReason || 'Configure Ollama or a Cloud API key to enable AI Chat, OCR, Beautify, and Synthesis.'}
+                </span>
+              </div>
+              {aiSettings && onChangeAI && (
+                <button
+                  type="button"
+                  className="ai-setup-banner-btn"
+                  onClick={() => setShowAiSettings(true)}
+                >
+                  <Settings2 size={13} />
+                  <span>Configure AI</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Conversation list */}
           <div ref={messagesScrollRef} className="chat-messages-scroll">
             {messages.length === 0 ? (
@@ -1025,8 +1071,13 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                         <button
                           type="button"
                           className="bubble-action-btn"
-                          onClick={() => onInsertDiagram(m.content)}
-                          title="Generate interactive React Flow diagram and place on whiteboard"
+                          disabled={!isAiConfigured}
+                          onClick={() => isAiConfigured && onInsertDiagram(m.content)}
+                          title={
+                            isAiConfigured
+                              ? 'Generate interactive React Flow diagram and place on whiteboard'
+                              : 'Configure AI Settings to generate diagrams'
+                          }
                         >
                           <Network size={13} />
                           <span>Create Diagram</span>
@@ -1035,8 +1086,13 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                           <button
                             type="button"
                             className="bubble-action-btn"
-                            onClick={() => onGenerateTutorial(m.content.slice(0, 800))}
-                            title="Convert this response into a structured visual tutorial on the board"
+                            disabled={!isAiConfigured}
+                            onClick={() => isAiConfigured && onGenerateTutorial(m.content.slice(0, 800))}
+                            title={
+                              isAiConfigured
+                                ? 'Convert this response into a structured visual tutorial on the board'
+                                : 'Configure AI Settings to generate tutorials'
+                            }
                           >
                             <Layout size={13} />
                             <span>To Tutorial</span>
@@ -1182,23 +1238,34 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                 onOpenKnowledgeHub={onOpenKnowledgeHub}
               />
               <textarea
+                ref={textareaRef}
                 className="chat-textarea"
                 value={input}
+                disabled={!isAiConfigured}
                 onChange={(e) => {
                   setInput(e.target.value)
                   knowledge.detectAtMention(e.target.value, e.target.selectionStart)
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask a question, type @ to cite a book, or upload files... (Enter to send)"
-                rows={2}
+                placeholder={
+                  isAiConfigured
+                    ? 'Ask a question, type @ to cite a book, or upload files... (Enter to send)'
+                    : 'Configure AI Settings to enable AI chat...'
+                }
+                rows={1}
               />
               <div className="chat-input-controls">
                 <div className="chat-attach-group">
                   <button
                     type="button"
                     className="chat-attach-btn"
+                    disabled={!isAiConfigured}
                     onClick={handleAddFileAttachment}
-                    title="Attach Document (PDF, Code, Text, Markdown)"
+                    title={
+                      isAiConfigured
+                        ? 'Attach Document (PDF, Code, Text, Markdown)'
+                        : 'Configure AI Settings first'
+                    }
                     aria-label="Attach File"
                   >
                     <Paperclip size={13} />
@@ -1208,8 +1275,13 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                   <button
                     type="button"
                     className="chat-attach-btn"
+                    disabled={!isAiConfigured}
                     onClick={() => imageInputRef.current?.click()}
-                    title="Attach Image / Screenshot"
+                    title={
+                      isAiConfigured
+                        ? 'Attach Image / Screenshot'
+                        : 'Configure AI Settings first'
+                    }
                     aria-label="Attach Image"
                   >
                     <ImageIcon size={13} />
@@ -1219,8 +1291,13 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                   <button
                     type="button"
                     className={`chat-attach-btn yt ${showYtInput ? 'active' : ''}`}
+                    disabled={!isAiConfigured}
                     onClick={() => setShowYtInput(!showYtInput)}
-                    title="Attach YouTube Video Transcript"
+                    title={
+                      isAiConfigured
+                        ? 'Attach YouTube Video Transcript'
+                        : 'Configure AI Settings first'
+                    }
                     aria-label="Attach YouTube Link"
                   >
                     <Video size={13} />
@@ -1238,8 +1315,8 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                   type="button"
                   className="chat-send-btn"
                   onClick={() => handleSend()}
-                  disabled={(!input.trim() && attachments.length === 0) || isAiBusy}
-                  title="Send (Enter)"
+                  disabled={!isAiConfigured || (!input.trim() && attachments.length === 0) || isAiBusy}
+                  title={isAiConfigured ? 'Send (Enter)' : 'Configure AI Settings to send messages'}
                   aria-label="Send message"
                 >
                   <Send size={15} />

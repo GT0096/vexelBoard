@@ -212,6 +212,8 @@ export interface AISettings {
   byokModels: Record<Exclude<ProviderId, 'ollama'>, string>
   temperature: number
   openaiModelProfile?: OpenAIModelProfile
+  /** True once the user has explicitly configured/enabled an AI provider */
+  configured?: boolean
 }
 
 export type BackgroundPattern = 'none' | 'dots' | 'grid'

@@ -1,6 +1,6 @@
 appId: com.vexelboard.app
 productName: Vexelboard
-copyright: Copyright © 2026 Vexelboard
+copyright: Copyright © 2026 https://github.com/GT0096/vexelBoard
 directories:
   buildResources: build
   output: dist
@@ -73,20 +73,25 @@ dmg:
   icon: build/icon.icns
   artifactName: Vexelboard-${version}-${arch}.${ext}
   window:
-    width: 540
-    height: 380
+    width: 580
+    height: 410
   contents:
-    - x: 140
-      y: 200
-    - x: 400
-      y: 200
+    - x: 150
+      y: 150
+    - x: 430
+      y: 150
       type: link
       path: /Applications
+    - x: 290
+      y: 310
+      type: file
+      path: build/mac/Vexelboard-Setup.command
+      name: Update or Uninstall Vexelboard.command
 linux:
   target:
     - AppImage
     - deb
-  maintainer: vexelboard.app
+  maintainer: https://github.com/GT0096/vexelBoard
   category: Education
 appImage:
   artifactName: Vexelboard-${version}-${arch}.${ext}

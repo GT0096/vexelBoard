@@ -32,6 +32,8 @@ import {
   useChatKnowledgeSources
 } from './ChatKnowledgePicker'
 import { useSettings } from '../board/useBoard'
+import { useAiReadiness } from '../board/useAiReadiness'
+import { useAutoGrowTextarea } from '../board/useAutoGrowTextarea'
 import {
   ACTIVE_CHAT_PROJECT_KEY,
   createChatThread,
@@ -83,13 +85,17 @@ export const DetachedChatApp: React.FC = () => {
   const [isFetchingMedia, setIsFetchingMedia] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const knowledge = useChatKnowledgeSources(activeProjectId, null, true)
+  useAutoGrowTextarea(textareaRef, input, 5, true)
 
   const activeProvider = settings.ai.provider
   const activeModel =
     settings.ai.provider === 'ollama'
       ? settings.ai.ollamaModel
       : settings.ai.byokModels[settings.ai.provider] || DEFAULT_PROVIDER_MODELS[settings.ai.provider]
+  const aiReadiness = useAiReadiness(settings.ai)
+  const isAiConfigured = aiReadiness.isAiConfigured
 
   const chatEndRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -288,6 +294,10 @@ export const DetachedChatApp: React.FC = () => {
   }
 
   const handleTriggerTutorial = (): void => {
+    if (!isAiConfigured) {
+      setShowAiSettings(true)
+      return
+    }
     const clean = tutorialTopic.trim() || 'Current Whiteboard & Knowledge Context'
     window.glassAPI?.sendDetachedAction?.({ type: 'generateTutorial', topic: clean })
     setTutorialTopic('')
@@ -295,6 +305,10 @@ export const DetachedChatApp: React.FC = () => {
   }
 
   const handleSend = async (queryText?: string): Promise<void> => {
+    if (!isAiConfigured) {
+      setShowAiSettings(true)
+      return
+    }
     const textToSend = (queryText ?? input).trim()
     if ((!textToSend && attachments.length === 0) || isAiBusy) return
 
@@ -500,12 +514,20 @@ export const DetachedChatApp: React.FC = () => {
             <h3 className="panel-title">AI Research & Notes</h3>
             <button
               type="button"
-              className={`panel-model-tag panel-model-badge-btn ${showAiSettings ? 'active' : ''}`}
+              className={`panel-model-tag panel-model-badge-btn ${showAiSettings ? 'active' : ''} ${!isAiConfigured ? 'unconfigured' : ''}`}
               onClick={() => setShowAiSettings((prev) => !prev)}
-              title="Click to change AI model & settings"
+              title={
+                isAiConfigured
+                  ? 'Click to change AI model & settings'
+                  : 'AI not configured — click to open AI Settings'
+              }
             >
               <Sparkles size={11} />
-              <span>{activeProvider.toUpperCase()} &bull; {activeModel} &bull; Multi-Screen Window</span>
+              <span>
+                {isAiConfigured
+                  ? `${activeProvider.toUpperCase()} • ${activeModel} • Multi-Screen Window`
+                  : 'AI Not Configured • Click to set up'}
+              </span>
               <Settings2 size={11} className="badge-settings-icon" />
             </button>
           </div>
@@ -730,8 +752,13 @@ export const DetachedChatApp: React.FC = () => {
         <button
           type="button"
           className={`chat-feature-pill ${showTutorialInput ? 'active' : ''}`}
-          onClick={() => setShowTutorialInput((v) => !v)}
-          title="Create structured visual tutorial on whiteboard"
+          disabled={!isAiConfigured}
+          onClick={() => isAiConfigured && setShowTutorialInput((v) => !v)}
+          title={
+            isAiConfigured
+              ? 'Create structured visual tutorial on whiteboard'
+              : 'Configure AI Settings to generate visual tutorials'
+          }
         >
           <Layout size={13} />
           <span>Create Tutorial</span>
@@ -748,7 +775,7 @@ export const DetachedChatApp: React.FC = () => {
       </div>
 
       {/* Inline Tutorial Generator Bar */}
-      {showTutorialInput && (
+      {showTutorialInput && isAiConfigured && (
         <div className="tutorial-popover-bar">
           <div className="tutorial-popover-row">
             <Layout size={14} style={{ color: '#38bdf8', flexShrink: 0 }} />
@@ -781,6 +808,23 @@ export const DetachedChatApp: React.FC = () => {
         />
       )}
 
+      {!isAiConfigured && !showAiSettings && (
+        <div className="ai-setup-banner compact">
+          <div className="ai-setup-banner-copy">
+            <strong>AI Features Disabled</strong>
+            <span>{aiReadiness.reason}</span>
+          </div>
+          <button
+            type="button"
+            className="ai-setup-banner-btn"
+            onClick={() => setShowAiSettings(true)}
+          >
+            <Settings2 size={13} />
+            <span>Configure AI</span>
+          </button>
+        </div>
+      )}
+
       {/* Conversation list */}
       <div className="chat-messages-scroll detached-scroll">
         {messages.length === 0 ? (
@@ -795,6 +839,7 @@ export const DetachedChatApp: React.FC = () => {
             </p>
             <div className="chat-quick-prompts">
               <button
+                disabled={!isAiConfigured}
                 onClick={() =>
                   handleSend(
                     'Explain how a distributed event streaming architecture works (Kafka/RabbitMQ) with key components.'
@@ -804,6 +849,7 @@ export const DetachedChatApp: React.FC = () => {
                 &ldquo;Explain distributed event streaming architecture&rdquo;
               </button>
               <button
+                disabled={!isAiConfigured}
                 onClick={() =>
                   handleSend('Give me the key mathematical equations and concepts for Transformer self-attention.')
                 }
@@ -839,8 +885,13 @@ export const DetachedChatApp: React.FC = () => {
                     <button
                       type="button"
                       className="bubble-action-btn"
-                      onClick={() => handleInsertDiagram(m.content)}
-                      title="Generate interactive React Flow diagram and place on whiteboard"
+                      disabled={!isAiConfigured}
+                      onClick={() => isAiConfigured && handleInsertDiagram(m.content)}
+                      title={
+                        isAiConfigured
+                          ? 'Generate interactive React Flow diagram and place on whiteboard'
+                          : 'Configure AI Settings to generate diagrams'
+                      }
                     >
                       <Network size={13} />
                       <span>Create Diagram</span>
@@ -848,13 +899,19 @@ export const DetachedChatApp: React.FC = () => {
                     <button
                       type="button"
                       className="bubble-action-btn"
+                      disabled={!isAiConfigured}
                       onClick={() =>
+                        isAiConfigured &&
                         window.glassAPI?.sendDetachedAction?.({
                           type: 'generateTutorial',
                           topic: m.content.slice(0, 800)
                         })
                       }
-                      title="Convert this response into a structured visual tutorial on the board"
+                      title={
+                        isAiConfigured
+                          ? 'Convert this response into a structured visual tutorial on the board'
+                          : 'Configure AI Settings to generate tutorials'
+                      }
                     >
                       <Layout size={13} />
                       <span>To Tutorial</span>
@@ -998,23 +1055,34 @@ export const DetachedChatApp: React.FC = () => {
             }
           />
           <textarea
+            ref={textareaRef}
             className="chat-textarea"
             value={input}
+            disabled={!isAiConfigured}
             onChange={(e) => {
               setInput(e.target.value)
               knowledge.detectAtMention(e.target.value, e.target.selectionStart)
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Ask a question, type @ to cite a book, or attach files... (Enter to send)"
-            rows={2}
+            placeholder={
+              isAiConfigured
+                ? 'Ask a question, type @ to cite a book, or attach files... (Enter to send)'
+                : 'Configure AI Settings to enable AI chat...'
+            }
+            rows={1}
           />
           <div className="chat-input-controls">
             <div className="chat-attach-group">
               <button
                 type="button"
                 className="chat-attach-btn"
+                disabled={!isAiConfigured}
                 onClick={() => fileInputRef.current?.click()}
-                title="Attach Document (PDF, Code, Text, Markdown)"
+                title={
+                  isAiConfigured
+                    ? 'Attach Document (PDF, Code, Text, Markdown)'
+                    : 'Configure AI Settings first'
+                }
                 aria-label="Attach File"
               >
                 <Paperclip size={13} />
@@ -1023,8 +1091,9 @@ export const DetachedChatApp: React.FC = () => {
               <button
                 type="button"
                 className="chat-attach-btn"
+                disabled={!isAiConfigured}
                 onClick={() => imageInputRef.current?.click()}
-                title="Attach Image / Screenshot"
+                title={isAiConfigured ? 'Attach Image / Screenshot' : 'Configure AI Settings first'}
                 aria-label="Attach Image"
               >
                 <ImageIcon size={13} />
@@ -1033,8 +1102,11 @@ export const DetachedChatApp: React.FC = () => {
               <button
                 type="button"
                 className={`chat-attach-btn yt ${showYtInput ? 'active' : ''}`}
+                disabled={!isAiConfigured}
                 onClick={() => setShowYtInput((v) => !v)}
-                title="Attach YouTube Video Transcript"
+                title={
+                  isAiConfigured ? 'Attach YouTube Video Transcript' : 'Configure AI Settings first'
+                }
                 aria-label="Attach YouTube Link"
               >
                 <Video size={13} />
@@ -1052,8 +1124,8 @@ export const DetachedChatApp: React.FC = () => {
               type="button"
               className="chat-send-btn"
               onClick={() => handleSend()}
-              disabled={(!input.trim() && attachments.length === 0) || isAiBusy}
-              title="Send (Enter)"
+              disabled={!isAiConfigured || (!input.trim() && attachments.length === 0) || isAiBusy}
+              title={isAiConfigured ? 'Send (Enter)' : 'Configure AI Settings to send messages'}
               aria-label="Send message"
             >
               <Send size={15} />

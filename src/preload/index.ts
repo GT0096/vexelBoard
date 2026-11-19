@@ -60,6 +60,7 @@ const glassAPI: GlassAPI = {
 
   // Knowledge Sources & Vector RAG
   saveKnowledgeSource: (source, chunks) => ipcRenderer.invoke('db:saveKnowledgeSource', source, chunks),
+  indexKnowledgeFilesFromDialog: (boardId) => ipcRenderer.invoke('db:indexFilesFromDialog', boardId),
   getKnowledgeSources: (boardId, projectId) => ipcRenderer.invoke('db:getKnowledgeSources', boardId, projectId),
   deleteKnowledgeSource: (sourceId) => ipcRenderer.invoke('db:deleteKnowledgeSource', sourceId),
   hybridSearch: (query, opts) => ipcRenderer.invoke('db:hybridSearch', query, opts),

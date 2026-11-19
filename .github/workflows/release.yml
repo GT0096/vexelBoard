@@ -52,6 +52,13 @@ jobs:
       - name: Typecheck & build bundles
         run: npm run build
 
+      - name: Ensure macOS DMG setup script is executable
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          sed -i '' 's/\r$//' build/mac/Vexelboard-Setup.command
+          chmod +x build/mac/Vexelboard-Setup.command
+
       - name: Package installer (${{ matrix.platform }})
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -128,6 +135,23 @@ jobs:
         with:
           path: release-files
           merge-multiple: true
+
+      - name: Create permanent unversioned installer aliases
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for f in release-files/Vexelboard-*-Setup.exe; do
+            cp -f "$f" release-files/Vexelboard-Setup.exe
+            break
+          done
+          for f in release-files/Vexelboard-*-arm64.dmg; do
+            cp -f "$f" release-files/Vexelboard-arm64.dmg
+            break
+          done
+          for f in release-files/Vexelboard-*-x64.dmg; do
+            cp -f "$f" release-files/Vexelboard-x64.dmg
+            break
+          done
 
       - name: Verify downloaded installers
         shell: bash

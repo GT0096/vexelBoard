@@ -223,7 +223,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
       claude: DEFAULT_PROVIDER_MODELS.claude
     },
     temperature: 0.3,
-    openaiModelProfile: resolveOpenAIModelProfile(DEFAULT_PROVIDER_MODELS.openai)
+    openaiModelProfile: resolveOpenAIModelProfile(DEFAULT_PROVIDER_MODELS.openai),
+    configured: false
   }
 }
 

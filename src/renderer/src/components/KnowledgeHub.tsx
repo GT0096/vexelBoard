@@ -10,6 +10,7 @@ import {
   Layout,
   Clock,
   Sparkles,
+  Settings2,
   X,
   Compass,
   ArrowRight,
@@ -27,6 +28,9 @@ interface KnowledgeHubProps {
   getCurrentBoardSummary: () => string
   onToast?: (kind: 'info' | 'success' | 'error', message: string) => void
   isAiBusy: boolean
+  isAiConfigured?: boolean
+  aiUnconfiguredReason?: string
+  onOpenAiSettings?: () => void
   onRunAction: (
     actionType: 'study_guide' | 'faq' | 'podcast' | 'recall' | 'patterns',
     customQuery?: string,
@@ -44,6 +48,9 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
   getCurrentBoardSummary,
   onToast,
   isAiBusy,
+  isAiConfigured = true,
+  aiUnconfiguredReason,
+  onOpenAiSettings,
   onRunAction
 }) => {
   const [sources, setSources] = useState<KnowledgeSourceItem[]>([])
@@ -80,11 +87,51 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
 
   const handleDeleteSource = async (id: string): Promise<void> => {
     if (window.glassAPI?.deleteKnowledgeSource) {
-      await window.glassAPI.deleteKnowledgeSource(id)
+      const res = await window.glassAPI.deleteKnowledgeSource(id)
       setSources((prev) => prev.filter((s) => s.id !== id))
       window.dispatchEvent(new CustomEvent('vexelboard:sources-changed'))
-      onToast?.('info', 'Source removed from knowledge base')
+      const clearedMsg =
+        res?.deletedChunks && res.deletedChunks > 0
+          ? `Source removed & ${res.deletedChunks} vector chunks cleared from DB`
+          : 'Source & vector embeddings removed from knowledge base'
+      onToast?.('info', clearedMsg)
     }
+  }
+
+  const handleUploadFilesClick = async (): Promise<void> => {
+    if (window.glassAPI?.indexKnowledgeFilesFromDialog) {
+      setLoading(true)
+      try {
+        const res = await window.glassAPI.indexKnowledgeFilesFromDialog(boardId)
+        if (res?.canceled) return
+        if (res?.indexed && res.indexed.length > 0) {
+          const added = res.indexed.map((item) => ({ ...item.source, rawContent: '', isActive: true }))
+          setSources((prev) => [...added, ...prev])
+          window.dispatchEvent(new CustomEvent('vexelboard:sources-changed'))
+          if (res.indexed.length === 1) {
+            onToast?.(
+              'success',
+              `Indexed "${res.indexed[0].source.title}" (${res.indexed[0].chunkCount} chunks · original file referenced)`
+            )
+          } else {
+            const totalChunks = res.indexed.reduce((sum, item) => sum + item.chunkCount, 0)
+            onToast?.(
+              'success',
+              `Indexed ${res.indexed.length} files (${totalChunks} vector chunks)`
+            )
+          }
+        }
+        if (res?.errors && res.errors.length > 0) {
+          onToast?.('error', res.errors[0])
+        }
+      } catch (err: any) {
+        onToast?.('error', `File indexing failed: ${err?.message || err}`)
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+    fileInputRef.current?.click()
   }
 
   const indexParsedDocument = async (parsed: any): Promise<void> => {
@@ -116,7 +163,7 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
     if (window.glassAPI?.saveKnowledgeSource) {
       await window.glassAPI.saveKnowledgeSource(newSource, chunks)
     }
-    setSources((prev) => [newSource, ...prev])
+    setSources((prev) => [{ ...newSource, rawContent: '' }, ...prev])
     window.dispatchEvent(new CustomEvent('vexelboard:sources-changed'))
     onToast?.('success', `Indexed "${parsed.fileName}" (${chunks.length} chunks)`)
   }
@@ -191,7 +238,7 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
       if (window.glassAPI?.saveKnowledgeSource) {
         await window.glassAPI.saveKnowledgeSource(newSource, chunks)
       }
-      setSources((prev) => [newSource, ...prev])
+      setSources((prev) => [{ ...newSource, rawContent: '' }, ...prev])
       window.dispatchEvent(new CustomEvent('vexelboard:sources-changed'))
       setYoutubeUrl('')
       setShowAddYoutube(false)
@@ -235,7 +282,7 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
     if (window.glassAPI?.saveKnowledgeSource) {
       await window.glassAPI.saveKnowledgeSource(newSource, chunks)
     }
-    setSources((prev) => [newSource, ...prev])
+    setSources((prev) => [{ ...newSource, rawContent: '' }, ...prev])
     window.dispatchEvent(new CustomEvent('vexelboard:sources-changed'))
     onToast?.('success', 'Indexed current whiteboard into knowledge base!')
   }
@@ -321,7 +368,7 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
                   <button
                     type="button"
                     className="knowledge-hub-btn"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => void handleUploadFilesClick()}
                     disabled={loading}
                   >
                     <Plus size={14} />
@@ -450,6 +497,30 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
 
           {activeTab === 'synthesis' && (
             <div className="knowledge-hub-section">
+              {!isAiConfigured && (
+                <div className="ai-setup-banner">
+                  <div className="ai-setup-banner-copy">
+                    <strong>AI Synthesis Disabled</strong>
+                    <span>
+                      {aiUnconfiguredReason || 'Configure AI Settings to generate study guides, quizzes, scripts, and tutorials.'}
+                    </span>
+                  </div>
+                  {onOpenAiSettings && (
+                    <button
+                      type="button"
+                      className="ai-setup-banner-btn"
+                      onClick={() => {
+                        onClose()
+                        onOpenAiSettings()
+                      }}
+                    >
+                      <Settings2 size={13} />
+                      <span>Configure AI</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
               <div className="knowledge-hub-section-hdr">
                 <h3>1-Click Synthesis Studio</h3>
                 <p>
@@ -473,8 +544,9 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
                   <button
                     type="button"
                     className="knowledge-hub-action-btn blue"
-                    disabled={isAiBusy || (activeSourceIds.length === 0 && getCurrentBoardSummary() === 'Whiteboard is currently empty.')}
+                    disabled={!isAiConfigured || isAiBusy || (activeSourceIds.length === 0 && getCurrentBoardSummary() === 'Whiteboard is currently empty.')}
                     onClick={() => {
+                      if (!isAiConfigured) return
                       onRunAction('study_guide', undefined, activeSourceIds)
                       onClose()
                     }}
@@ -498,8 +570,9 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
                   <button
                     type="button"
                     className="knowledge-hub-action-btn purple"
-                    disabled={isAiBusy || (activeSourceIds.length === 0 && getCurrentBoardSummary() === 'Whiteboard is currently empty.')}
+                    disabled={!isAiConfigured || isAiBusy || (activeSourceIds.length === 0 && getCurrentBoardSummary() === 'Whiteboard is currently empty.')}
                     onClick={() => {
+                      if (!isAiConfigured) return
                       onRunAction('faq', undefined, activeSourceIds)
                       onClose()
                     }}
@@ -523,8 +596,9 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
                   <button
                     type="button"
                     className="knowledge-hub-action-btn emerald"
-                    disabled={isAiBusy || (activeSourceIds.length === 0 && getCurrentBoardSummary() === 'Whiteboard is currently empty.')}
+                    disabled={!isAiConfigured || isAiBusy || (activeSourceIds.length === 0 && getCurrentBoardSummary() === 'Whiteboard is currently empty.')}
                     onClick={() => {
+                      if (!isAiConfigured) return
                       onRunAction('podcast', undefined, activeSourceIds)
                       onClose()
                     }}
@@ -548,10 +622,15 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
                       type="text"
                       className="knowledge-hub-topic-input"
                       value={tutorialTopicInput}
+                      disabled={!isAiConfigured}
                       onChange={(e) => setTutorialTopicInput(e.target.value)}
-                      placeholder="Enter topic (or leave blank for active sources)..."
+                      placeholder={
+                        isAiConfigured
+                          ? 'Enter topic (or leave blank for active sources)...'
+                          : 'Configure AI Settings first...'
+                      }
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                        if (e.key === 'Enter' && isAiConfigured) {
                           onGenerateTutorial(tutorialTopicInput.trim() || 'Active Knowledge Sources')
                           onClose()
                         }
@@ -561,8 +640,9 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
                   <button
                     type="button"
                     className="knowledge-hub-action-btn sky"
-                    disabled={isAiBusy}
+                    disabled={!isAiConfigured || isAiBusy}
                     onClick={() => {
+                      if (!isAiConfigured) return
                       onGenerateTutorial(tutorialTopicInput.trim() || 'Active Knowledge Sources')
                       onClose()
                     }}
@@ -577,6 +657,30 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
 
           {activeTab === 'spatial' && (
             <div className="knowledge-hub-section">
+              {!isAiConfigured && (
+                <div className="ai-setup-banner">
+                  <div className="ai-setup-banner-copy">
+                    <strong>Board Recall &amp; Patterns Disabled</strong>
+                    <span>
+                      {aiUnconfiguredReason || 'Configure AI Settings to analyze board history and conceptual patterns.'}
+                    </span>
+                  </div>
+                  {onOpenAiSettings && (
+                    <button
+                      type="button"
+                      className="ai-setup-banner-btn"
+                      onClick={() => {
+                        onClose()
+                        onOpenAiSettings()
+                      }}
+                    >
+                      <Settings2 size={13} />
+                      <span>Configure AI</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
               <div className="knowledge-hub-section-hdr">
                 <h3>Board as Context &amp; Spatial Recall</h3>
                 <p>
@@ -590,10 +694,15 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
                 <input
                   type="text"
                   value={customRecallQuery}
+                  disabled={!isAiConfigured}
                   onChange={(e) => setCustomRecallQuery(e.target.value)}
-                  placeholder="Ask about your board (e.g. 'How do my notes relate to this diagram?' or 'Why did I add Redis?')"
+                  placeholder={
+                    isAiConfigured
+                      ? "Ask about your board (e.g. 'How do my notes relate to this diagram?' or 'Why did I add Redis?')"
+                      : 'Configure AI Settings to ask questions about your board...'
+                  }
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && customRecallQuery.trim()) {
+                    if (e.key === 'Enter' && isAiConfigured && customRecallQuery.trim()) {
                       onRunAction('recall', customRecallQuery.trim(), activeSourceIds)
                       onClose()
                     }
@@ -603,8 +712,9 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
                   type="button"
                   className="knowledge-hub-action-btn sky"
                   style={{ width: 'auto', padding: '7px 14px' }}
-                  disabled={isAiBusy || !customRecallQuery.trim()}
+                  disabled={!isAiConfigured || isAiBusy || !customRecallQuery.trim()}
                   onClick={() => {
+                    if (!isAiConfigured) return
                     onRunAction('recall', customRecallQuery.trim(), activeSourceIds)
                     onClose()
                   }}
@@ -628,8 +738,9 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
                   <button
                     type="button"
                     className="knowledge-hub-action-btn amber"
-                    disabled={isAiBusy}
+                    disabled={!isAiConfigured || isAiBusy}
                     onClick={() => {
+                      if (!isAiConfigured) return
                       onRunAction('recall', undefined, activeSourceIds)
                       onClose()
                     }}
@@ -653,8 +764,9 @@ export const KnowledgeHub: React.FC<KnowledgeHubProps> = ({
                   <button
                     type="button"
                     className="knowledge-hub-action-btn teal"
-                    disabled={isAiBusy}
+                    disabled={!isAiConfigured || isAiBusy}
                     onClick={() => {
+                      if (!isAiConfigured) return
                       onRunAction('patterns', undefined, activeSourceIds)
                       onClose()
                     }}

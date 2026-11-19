@@ -392,8 +392,8 @@ function getRagContextSnippet(
       }
     }
     const sources = opts?.projectId
-      ? dbManager.getKnowledgeSources(opts.boardId, opts.projectId)
-      : dbManager.getKnowledgeSources()
+      ? dbManager.getKnowledgeSources(opts.boardId, opts.projectId, { includeRawContent: true })
+      : dbManager.getKnowledgeSources(undefined, undefined, { includeRawContent: true })
     if (sources.length > 0) {
       return {
         snippet: sources

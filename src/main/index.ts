@@ -418,14 +418,84 @@ function registerIpc(): void {
     }
   })
 
+  ipcMain.handle('db:indexFilesFromDialog', async (e, boardId?: string) => {
+    const targetWin = BrowserWindow.fromWebContents(e.sender) || mainWindow
+    if (!targetWin) return { ok: false, indexed: [], errors: ['No active window'] }
+
+    const result = await dialog.showOpenDialog(targetWin, {
+      title: 'Select Books, PDFs, Notes or Code Files to Index',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        {
+          name: 'Supported Documents & Code',
+          extensions: ['pdf', 'txt', 'md', 'markdown', 'json', 'csv', 'ts', 'tsx', 'js', 'jsx', 'py', 'html', 'css']
+        }
+      ]
+    })
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: true, canceled: true, indexed: [] }
+    }
+
+    const indexed: Array<{ source: any; chunkCount: number }> = []
+    const errors: string[] = []
+
+    for (const filePath of result.filePaths) {
+      const parsed = await parseDocumentFile(filePath)
+      if (!parsed.ok) {
+        errors.push(`${parsed.fileName}: ${parsed.error || 'Could not parse file'}`)
+        continue
+      }
+
+      const sourceId = `src-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      const text = parsed.text || ''
+      const createdAt = Date.now()
+      const tokenCount = Math.round(text.length / 4)
+      const sourceType = parsed.fileType === 'pdf' ? 'pdf' : 'file'
+
+      const dbSource = {
+        id: sourceId,
+        boardId,
+        title: parsed.fileName,
+        sourceType: sourceType as 'pdf' | 'file',
+        sourceUrl: filePath,
+        rawContent: text.slice(0, 3000),
+        tokenCount,
+        createdAt
+      }
+
+      const chunks = (parsed.chunks || []).map((c) => ({
+        id: `chunk-${sourceId}-${c.chunkIndex}`,
+        sourceId,
+        chunkIndex: c.chunkIndex,
+        chunkText: c.text,
+        metadata: { page: c.page, fileName: parsed.fileName, filePath }
+      }))
+
+      dbManager.addKnowledgeSource(dbSource, chunks)
+
+      // Return lightweight metadata only — never hold full book text in renderer RAM
+      indexed.push({
+        source: {
+          ...dbSource,
+          rawContent: '',
+          isActive: true
+        },
+        chunkCount: chunks.length
+      })
+    }
+
+    return { ok: indexed.length > 0 || errors.length === 0, indexed, errors }
+  })
+
   ipcMain.handle('db:getKnowledgeSources', async (_e, boardId?: string, projectId?: string) => {
-    return dbManager.getKnowledgeSources(boardId, projectId)
+    return dbManager.getKnowledgeSources(boardId, projectId, { includeRawContent: false })
   })
 
   ipcMain.handle('db:deleteKnowledgeSource', async (_e, sourceId: string) => {
     try {
-      dbManager.deleteKnowledgeSource(sourceId)
-      return { ok: true }
+      const { deletedChunks } = dbManager.deleteKnowledgeSource(sourceId)
+      return { ok: true, deletedChunks }
     } catch (err: any) {
       return { ok: false, error: err?.message }
     }
