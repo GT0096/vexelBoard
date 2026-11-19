@@ -1,20 +1,15 @@
-<p align="center">
-  <img src="resources/logo.svg" width="88" alt="Vexelboard Logo" />
-</p>
 
-<h1 align="center">Vexelboard</h1>
+<img src="resources/logo.svg" alt="Vexelboard Logo" width="88" />
 
-<p align="center">
-  <strong>AI-powered interactive whiteboard &amp; study studio for Windows, macOS, and Linux.</strong>
-</p>
+# Vexelboard
 
-<p align="center">
-  <a href="https://github.com/GT0096/vexelBoard/releases/latest"><img src="https://img.shields.io/github/v/release/GT0096/vexelBoard?label=Download%20Latest&style=for-the-badge&color=FF5E5B&labelColor=111111" alt="Download Latest Release" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-FFE566?style=for-the-badge&labelColor=111111" alt="Apache 2.0 License" /></a>
-  <img src="https://img.shields.io/badge/Electron-44-67E8F9?style=for-the-badge&labelColor=111111" alt="Electron 44" />
-  <img src="https://img.shields.io/badge/React-19-7BF1A8?style=for-the-badge&labelColor=111111" alt="React 19" />
-  <img src="https://img.shields.io/badge/TypeScript-5-C4B5FD?style=for-the-badge&labelColor=111111" alt="TypeScript 5" />
-</p>
+**AI-powered interactive whiteboard & study studio for Windows, macOS, and Linux.**
+
+![Download Latest Release](https://img.shields.io/github/v/release/GT0096/vexelBoard?label=Download%20Latest&style=for-the-badge&color=FF5E5B&labelColor=111111)![Apache 2.0 License](https://img.shields.io/badge/License-Apache_2.0-FFE566?style=for-the-badge&labelColor=111111)![Electron 44](https://img.shields.io/badge/Electron-44-67E8F9?style=for-the-badge&labelColor=111111)
+
+![React 19](https://img.shields.io/badge/React-19-7BF1A8?style=for-the-badge&labelColor=111111)
+
+![TypeScript 5](https://img.shields.io/badge/TypeScript-5-C4B5FD?style=for-the-badge&labelColor=111111)
 
 **Vexelboard** is an AI-powered, interactive desktop whiteboard and study studio built with **Electron**, **React**, **TypeScript**, and **Vite** in a bold **Neo-Brutalist** interface.
 
@@ -28,9 +23,9 @@ Download the latest pre-built desktop installer for your platform:
 
 | Platform | Architecture | Installer |
 | --- | --- | --- |
-| **Windows** | 64-bit (`x64`) | [Download Vexelboard-Setup.exe](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-Setup.exe) |
-| **macOS** | Apple Silicon (`arm64` — M1/M2/M3/M4) | [Download Vexelboard-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-arm64.dmg) |
-| **macOS** | Intel (`x64`) | [Download Vexelboard-x64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-x64.dmg) |
+| **Windows** | 64-bit (`x64`) | [Download Vexelboard-Setup.exe](https://github.com/GT0096/vexelBoard/releases/download/v1.0.0/Vexelboard-1.0.0-Setup.exe) |
+| **macOS** | Apple Silicon (`arm64` — M1/M2/M3/M4) | [Download Vexelboard-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/download/v1.0.0/Vexelboard-1.0.0-arm64.dmg) |
+| **macOS** | Intel (`x64`) | [Download Vexelboard-x64.dmg](https://github.com/GT0096/vexelBoard/releases/download/v1.0.0/Vexelboard-1.0.0-x64.dmg) |
 
 > Looking for `.zip` archives, older versions, or release notes? View [All Releases](https://github.com/GT0096/vexelBoard/releases/latest). On macOS, if Gatekeeper warns about an unsigned build, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
 
@@ -49,10 +44,10 @@ Download the latest pre-built desktop installer for your platform:
 - **Code Studio & Video Cards**:
   - **Code Cards**: Movable, resizable code containers on the canvas with CodeMirror editing and local code execution (`src/main/codeRunner.ts`).
   - **YouTube Video Cards**: Embed videos directly on the canvas with timestamped bookmarks and notes.
-- **Knowledge Studio & `@` Book Citations**:
+- **Knowledge Studio &** `@` **Book Citations**:
   - Index `.pdf`, `.txt`, `.md`, code files, YouTube transcripts, and whiteboard snapshots into local SQLite (`better-sqlite3` with automatic `node:sqlite` fallback) + `sqlite-vec` hybrid FTS5/vector RAG.
   - Generate **Study Guides**, **FAQ & Quizzes**, **Podcast Scripts**, **Visual Tutorials**, and **Board Recall** analyses.
-  - Pin specific books or notes directly inside Chat via the **`Books` picker** or **`@` autocomplete** to strictly ground answers in that book, and toggle **Project Context** to let the AI refer to materials across all sections in the project.
+  - Pin specific books or notes directly inside Chat via the `Books` **picker** or `@` **autocomplete** to strictly ground answers in that book, and toggle **Project Context** to let the AI refer to materials across all sections in the project.
 - **Projects, Sections & Multi-Screen AI Chat**: Organize creativity into **Projects** and topic **Sections**, keep multiple persistent chat threads per project, or pop chat out into an always-on-top window for multi-monitor workflows.
 - **Flexible AI Providers**: Connect locally to **Ollama** or bring your own API key (**OpenAI**, **Google Gemini**, **xAI Grok**, **Anthropic Claude**) stored encrypted with Electron `safeStorage`.
 - **Optional Hand Gesture Control**: Local MediaPipe Tasks Vision (`public/mediapipe`) hand-tracking support.
@@ -147,6 +142,7 @@ npm run build:win
 ```
 
 Produces:
+
 - `dist/Vexelboard-<version>-Setup.exe` — Interactive NSIS installer (customizable install directory, Desktop & Start Menu shortcuts, Windows `App Paths` + `PATH` registration for Windows Search / `Win + R` / terminal launch, Windows uninstall entry, auto-launch on finish).
 - `dist/win-unpacked/Vexelboard.exe` — Standalone unpacked Windows executable.
 
@@ -161,10 +157,11 @@ npm run build:mac:universal
 ```
 
 Produces Apple Silicon (`arm64`) and Intel (`x64`) installers in `dist/`:
+
 - `Vexelboard-<version>-arm64.dmg` & `Vexelboard-<version>-x64.dmg` — Drag-and-drop **Vexelboard.app** into `/Applications`.
 - `Vexelboard-<version>-arm64.zip` & `Vexelboard-<version>-x64.zip`
 
-> **Building `.dmg` from Windows or CI:** Apple's `.dmg` packager only runs on macOS. You can build macOS installers automatically on GitHub Actions using [release.yml](.github/workflows/release.yml) (**Actions → Release Installers → Run workflow**, or push a `v*` tag). For unsigned builds on macOS Gatekeeper, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
+> **Building** `.dmg` **from Windows or CI:** Apple's `.dmg` packager only runs on macOS. You can build macOS installers automatically on GitHub Actions using [release.yml](.github/workflows/release.yml) (**Actions → Release Installers → Run workflow**, or push a `v*` tag). For unsigned builds on macOS Gatekeeper, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
 
 ### Linux (`AppImage` & `deb`)
 
