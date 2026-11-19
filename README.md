@@ -1,17 +1,13 @@
-
-<img src="resources/logo.svg" alt="Vexelboard Logo" width="88" />
-
-# Vexelboard
+<img src="resources/logo.svg" alt="Vexelboard Logo" width="88" /># Vexelboard
 
 **AI-powered interactive whiteboard & study studio for Windows, macOS, and Linux.**
 
 ![Download Latest Release](https://img.shields.io/github/v/release/GT0096/vexelBoard?label=Download%20Latest&style=for-the-badge&color=FF5E5B&labelColor=111111)![Apache 2.0 License](https://img.shields.io/badge/License-Apache_2.0-FFE566?style=for-the-badge&labelColor=111111)![Electron 44](https://img.shields.io/badge/Electron-44-67E8F9?style=for-the-badge&labelColor=111111)
+[![Download Latest Release](https://img.shields.io/github/v/release/GT0096/vexelBoard?label=Download%20Latest&style=for-the-badge&color=FF5E5B&labelColor=111111)](https://github.com/GT0096/vexelBoard/releases/latest) [![Apache 2.0 License](https://img.shields.io/badge/License-Apache_2.0-FFE566?style=for-the-badge&labelColor=111111)](LICENSE) ![Electron 44](https://img.shields.io/badge/Electron-44-67E8F9?style=for-the-badge&labelColor=111111) ![React 19](https://img.shields.io/badge/React-19-7BF1A8?style=for-the-badge&labelColor=111111) ![TypeScript 5](https://img.shields.io/badge/TypeScript-5-C4B5FD?style=for-the-badge&labelColor=111111)
 
 ![React 19](https://img.shields.io/badge/React-19-7BF1A8?style=for-the-badge&labelColor=111111)
 
-![TypeScript 5](https://img.shields.io/badge/TypeScript-5-C4B5FD?style=for-the-badge&labelColor=111111)
-
-**Vexelboard** is an AI-powered, interactive desktop whiteboard and study studio built with **Electron**, **React**, **TypeScript**, and **Vite** in a bold **Neo-Brutalist** interface.
+![TypeScript 5](https://img.shields.io/badge/TypeScript-5-C4B5FD?style=for-the-badge&labelColor=111111)**Vexelboard** is an AI-powered, interactive desktop whiteboard and study studio built with **Electron**, **React**, **TypeScript**, and **Vite** in a bold **Neo-Brutalist** interface.
 
 It combines an infinite drawing canvas, background-adaptive color palettes, diagrams and shape libraries, Markdown & LaTeX notes, an embedded multi-language Code Studio, playable YouTube study cards, a local **Knowledge Studio** backed by SQLite + vector search with `@book` chat citations and project-wide context, and flexible AI integrations (local Ollama or BYOK cloud providers).
 
@@ -19,15 +15,20 @@ It combines an infinite drawing canvas, background-adaptive color palettes, diag
 
 ## Download Installers
 
-Download the latest pre-built desktop installer for your platform:
+Download the latest pre-built desktop installer for your platform (always points to the newest release automatically):
+Download the latest pre-built desktop installer for your platform (always points to the newest release automatically):
 
 | Platform | Architecture | Installer |
 | --- | --- | --- |
-| **Windows** | 64-bit (`x64`) | [Download Vexelboard-Setup.exe](https://github.com/GT0096/vexelBoard/releases/download/v1.0.0/Vexelboard-1.0.0-Setup.exe) |
-| **macOS** | Apple Silicon (`arm64` — M1/M2/M3/M4) | [Download Vexelboard-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/download/v1.0.0/Vexelboard-1.0.0-arm64.dmg) |
-| **macOS** | Intel (`x64`) | [Download Vexelboard-x64.dmg](https://github.com/GT0096/vexelBoard/releases/download/v1.0.0/Vexelboard-1.0.0-x64.dmg) |
+| **Windows** | 64-bit (`x64`) | [Download Vexelboard-latest-Setup.exe](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-Setup.exe) |
+| **macOS** | Apple Silicon (`arm64` — M1/M2/M3/M4) | [Download Vexelboard-latest-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-arm64.dmg) |
+| **macOS** | Intel (`x64`) | [Download Vexelboard-latest-x64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-x64.dmg) |
+| **Windows** | 64-bit (`x64`) | [Download Vexelboard-latest-Setup.exe](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-Setup.exe) |
+| **macOS** | Apple Silicon (`arm64` — M1/M2/M3/M4) | [Download Vexelboard-latest-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-arm64.dmg) |
+| **macOS** | Intel (`x64`) | [Download Vexelboard-latest-x64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-x64.dmg) |
 
-> Looking for `.zip` archives, older versions, or release notes? View [All Releases](https://github.com/GT0096/vexelBoard/releases/latest). On macOS, if Gatekeeper warns about an unsigned build, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
+> Looking for `.zip` archives, older versions, or release notes? View [Latest Release](https://github.com/GT0096/vexelBoard/releases/latest). Running the installer when Vexelboard is already installed lets you **update in place** (preserving your local boards & Knowledge Studio) or **uninstall** from the same setup (on macOS, double-click `Update or Uninstall Vexelboard.command` inside the DMG). On macOS, if Gatekeeper warns about an unsigned build, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
+> Looking for `.zip` archives, older versions, or release notes? View [Latest Release](https://github.com/GT0096/vexelBoard/releases/latest). Running the installer when Vexelboard is already installed lets you **update in place** (preserving your local boards & Knowledge Studio) or **uninstall** from the same setup (on macOS, double-click **`Update or Uninstall Vexelboard.command`** inside the DMG). On macOS, if Gatekeeper warns about an unsigned build, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
 
 ---
 
