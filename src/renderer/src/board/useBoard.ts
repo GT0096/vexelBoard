@@ -11,7 +11,7 @@ import {
 
 const HISTORY_LIMIT = 60
 const SETTINGS_KEY = 'vgb.settings'
-const NEOBRUTAL_MIGRATED_KEY = 'vgb.neobrutal_theme_v1'
+const NEOBRUTAL_MIGRATED_KEY = 'vgb.neobrutal_theme_v2'
 
 export interface BoardApi {
   board: BoardState
@@ -259,7 +259,11 @@ export function useSettings(): [AppSettings, (patch: Partial<AppSettings>) => vo
       }
       if (!localStorage.getItem(NEOBRUTAL_MIGRATED_KEY)) {
         localStorage.setItem(NEOBRUTAL_MIGRATED_KEY, '1')
-        if (!p.backgroundColor || p.backgroundColor.toLowerCase() === '#0a0f1a') {
+        if (
+          !p.backgroundColor ||
+          p.backgroundColor.toLowerCase() === '#0a0f1a' ||
+          p.backgroundColor === 'transparent'
+        ) {
           mergedSettings.backgroundColor = DEFAULT_SETTINGS.backgroundColor
           try {
             localStorage.setItem(SETTINGS_KEY, JSON.stringify(mergedSettings))

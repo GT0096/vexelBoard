@@ -233,15 +233,70 @@ export const ANIMATED_LINE_SHAPES: LibraryShapeDef[] = [
   }
 ]
 
+export const ML_ARCHITECTURE_SHAPES: LibraryShapeDef[] = [
+  {
+    id: 'ml-neural-net',
+    name: 'Feed-Forward Neural Net (FFN)',
+    category: 'flowchart',
+    sources: ['essentials'],
+    size: [210, 136],
+    paths: [
+      { d: 'M 8 6 H 92 A 6 6 0 0 1 98 12 V 88 A 6 6 0 0 1 92 94 H 8 A 6 6 0 0 1 2 88 V 12 A 6 6 0 0 1 8 6 Z', fill: 'fill' },
+      { d: 'M 26 24 L 18 50 M 26 24 L 40 50 M 26 24 L 60 50 M 26 24 L 82 50 M 50 24 L 18 50 M 50 24 L 40 50 M 50 24 L 60 50 M 50 24 L 82 50 M 74 24 L 18 50 M 74 24 L 40 50 M 74 24 L 60 50 M 74 24 L 82 50', fill: 'none', sw: 0.45 },
+      { d: 'M 18 50 L 26 76 M 18 50 L 50 76 M 18 50 L 74 76 M 40 50 L 26 76 M 40 50 L 50 76 M 40 50 L 74 76 M 60 50 L 26 76 M 60 50 L 50 76 M 60 50 L 74 76 M 82 50 L 26 76 M 82 50 L 50 76 M 82 50 L 74 76', fill: 'none', sw: 0.45 },
+      { d: 'M 21 24 A 5 5 0 1 0 31 24 A 5 5 0 1 0 21 24 M 45 24 A 5 5 0 1 0 55 24 A 5 5 0 1 0 45 24 M 69 24 A 5 5 0 1 0 79 24 A 5 5 0 1 0 69 24', fill: 'light' },
+      { d: 'M 13 50 A 5 5 0 1 0 23 50 A 5 5 0 1 0 13 50 M 35 50 A 5 5 0 1 0 45 50 A 5 5 0 1 0 35 50 M 55 50 A 5 5 0 1 0 65 50 A 5 5 0 1 0 55 50 M 77 50 A 5 5 0 1 0 87 50 A 5 5 0 1 0 77 50', fill: 'light' },
+      { d: 'M 21 76 A 5 5 0 1 0 31 76 A 5 5 0 1 0 21 76 M 45 76 A 5 5 0 1 0 55 76 A 5 5 0 1 0 45 76 M 69 76 A 5 5 0 1 0 79 76 A 5 5 0 1 0 69 76', fill: 'light' }
+    ],
+    defaultFill: '#E0F2FE',
+    defaultLabel: '',
+    aliases: ['neural net', 'ffn', 'mlp', 'feed forward network', 'expert'],
+    tags: ['ml', 'ai', 'transformer', 'moe', 'neural', 'ffn', 'mlp']
+  },
+  {
+    id: 'ml-token-vector',
+    name: 'Token Embedding Vector [■ ■ ■]',
+    category: 'flowchart',
+    sources: ['essentials'],
+    size: [92, 34],
+    paths: [
+      { d: 'M 4 12 H 96 V 88 H 4 Z', fill: 'fill' },
+      { d: 'M 12 26 H 32 V 74 H 12 Z M 40 26 H 60 V 74 H 40 Z M 68 26 H 88 V 74 H 68 Z', fill: 'shade' }
+    ],
+    defaultFill: '#FCE7F3',
+    defaultLabel: '',
+    aliases: ['token vector', 'embedding vector', 'input token'],
+    tags: ['ml', 'ai', 'token', 'embedding', 'vector', 'transformer']
+  },
+  {
+    id: 'ml-adder',
+    name: 'Residual Adder (⊕)',
+    category: 'flowchart',
+    sources: ['essentials'],
+    size: [44, 44],
+    paths: [
+      { d: 'M 10 50 A 40 40 0 1 0 90 50 A 40 40 0 1 0 10 50', fill: 'fill' },
+      { d: 'M 50 26 V 74 M 26 50 H 74', fill: 'none', sw: 1.2 }
+    ],
+    defaultFill: '#FFFFFF',
+    defaultLabel: '',
+    aliases: ['residual adder', 'plus junction', 'add norm'],
+    tags: ['ml', 'ai', 'adder', 'residual', 'plus', 'transformer']
+  }
+]
+
 export const SHAPE_LIBRARY: ShapeLibraryFile = rawLibrary as unknown as ShapeLibraryFile
 export const SHAPE_CATEGORIES: ShapeCategoryDef[] = SHAPE_LIBRARY.categories.map((cat) => ({
   ...cat,
   description: CATEGORY_DESCRIPTION_OVERRIDES[cat.id] ?? sanitizeDisplayText(cat.description)
 }))
-export const ALL_LIBRARY_SHAPES: LibraryShapeDef[] = SHAPE_LIBRARY.shapes.map((s) => ({
-  ...s,
-  name: sanitizeDisplayText(s.name)
-}))
+export const ALL_LIBRARY_SHAPES: LibraryShapeDef[] = [
+  ...ML_ARCHITECTURE_SHAPES,
+  ...SHAPE_LIBRARY.shapes.map((s) => ({
+    ...s,
+    name: sanitizeDisplayText(s.name)
+  }))
+]
 
 export const SHAPE_BY_ID: Map<string, LibraryShapeDef> = new Map([
   ...ALL_LIBRARY_SHAPES.map((s) => [s.id.toLowerCase(), s] as const),
@@ -321,12 +376,16 @@ export function drawLibraryShapeOnCanvas(
   h: number,
   strokeColor: string,
   fillColor: string,
-  strokeWidth = 3
+  strokeWidth = 3,
+  fillOpacity = 1,
+  animated = false,
+  animTimeMs = 0
 ): { labelX: number; labelY: number } {
   const rx = w < 0 ? x + w : x
   const ry = h < 0 ? y + h : y
   const rw = Math.max(1, Math.abs(w))
   const rh = Math.max(1, Math.abs(h))
+  const clampedOpacity = Math.max(0, Math.min(1, fillOpacity))
 
   const matrix = new DOMMatrix().translate(rx, ry).scale(rw / 100, rh / 100)
 
@@ -339,17 +398,50 @@ export function drawLibraryShapeOnCanvas(
     scaledPath.addPath(new Path2D(p.d), matrix)
 
     const pathFill = resolvePathFill(p.fill, fillColor, strokeColor)
-    if (pathFill !== 'none') {
+    if (pathFill !== 'none' && pathFill !== 'transparent' && clampedOpacity > 0) {
+      ctx.save()
+      ctx.shadowColor = 'transparent'
+      ctx.shadowBlur = 0
+      if (clampedOpacity < 1) {
+        ctx.globalAlpha *= clampedOpacity
+      }
       ctx.fillStyle = pathFill
       ctx.fill(scaledPath, p.rule ?? 'nonzero')
+      ctx.restore()
     }
 
     const pathStroke = p.stroke === 'none' ? 'none' : (p.stroke ?? strokeColor)
     if (pathStroke !== 'none') {
-      ctx.strokeStyle = pathStroke
-      ctx.lineWidth = (p.sw ?? 1) * strokeWidth
-      ctx.setLineDash(resolveDashSegments(p.dash))
-      ctx.stroke(scaledPath)
+      const effectiveSw = (p.sw ?? 1) * strokeWidth
+      if (animated) {
+        // 1. Subtle base contour guide (matches ShapeSvg preview strokeOpacity=0.28)
+        ctx.save()
+        ctx.globalAlpha *= 0.28
+        ctx.strokeStyle = pathStroke
+        ctx.lineWidth = effectiveSw
+        ctx.setLineDash(resolveDashSegments(p.dash))
+        ctx.lineDashOffset = 0
+        ctx.stroke(scaledPath)
+        ctx.restore()
+
+        // 2. Live marching-ants flow overlay
+        const flowDash =
+          p.dash === 'dot' ? [3, 6] : p.dash === 'dashdot' ? [8, 4, 2, 4] : [10, 6]
+        const flowCycle = flowDash.reduce((acc, seg) => acc + seg, 0)
+        ctx.save()
+        ctx.strokeStyle = pathStroke
+        ctx.lineWidth = Math.max(1.5, effectiveSw)
+        ctx.setLineDash(flowDash)
+        ctx.lineDashOffset = -((animTimeMs / 24) % flowCycle)
+        ctx.stroke(scaledPath)
+        ctx.restore()
+      } else {
+        ctx.strokeStyle = pathStroke
+        ctx.lineWidth = effectiveSw
+        ctx.setLineDash(resolveDashSegments(p.dash))
+        ctx.lineDashOffset = 0
+        ctx.stroke(scaledPath)
+      }
     }
   }
 
@@ -377,22 +469,27 @@ export function renderLibraryShapeSvgGroup(
   h: number,
   strokeColor: string,
   fillColor: string,
-  strokeWidth = 2.5
+  strokeWidth = 2.5,
+  fillOpacity = 1
 ): string {
   const rx = w < 0 ? x + w : x
   const ry = h < 0 ? y + h : y
   const rw = Math.max(1, Math.abs(w))
   const rh = Math.max(1, Math.abs(h))
+  const clampedOpacity = Math.max(0, Math.min(1, fillOpacity))
 
   const paths = shape.paths
     .map((p) => {
       const pathStroke = p.stroke === 'none' ? 'none' : (p.stroke ?? strokeColor)
-      const pathFill = resolvePathFill(p.fill, fillColor, strokeColor)
+      const rawFill = resolvePathFill(p.fill, fillColor, strokeColor)
+      const pathFill = rawFill === 'transparent' || clampedOpacity <= 0 ? 'none' : rawFill
       const sw = pathStroke === 'none' ? 0 : (p.sw ?? 1) * strokeWidth
       const dash = resolveDashArray(p.dash)
       const ruleAttr = p.rule ? ` fill-rule="${p.rule}"` : ''
+      const fillOpacityAttr =
+        pathFill !== 'none' && clampedOpacity < 1 ? ` fill-opacity="${clampedOpacity}"` : ''
       const dashAttr = dash ? ` stroke-dasharray="${dash}"` : ''
-      return `    <path d="${escapeAttr(p.d)}" fill="${escapeAttr(pathFill)}"${ruleAttr} stroke="${escapeAttr(pathStroke)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${dashAttr} vector-effect="non-scaling-stroke" />`
+      return `    <path d="${escapeAttr(p.d)}" fill="${escapeAttr(pathFill)}"${fillOpacityAttr}${ruleAttr} stroke="${escapeAttr(pathStroke)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${dashAttr} vector-effect="non-scaling-stroke" />`
     })
     .join('\n')
 

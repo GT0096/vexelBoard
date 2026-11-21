@@ -10,6 +10,15 @@ const glassAPI: GlassAPI = {
   isEncryptionAvailable: () => ipcRenderer.invoke('ai:encryptionAvailable'),
   getOpenAIModelConfig: (model) => ipcRenderer.invoke('ai:getOpenAIModelConfig', model),
   runAI: (request) => ipcRenderer.invoke('ai:run', request),
+  smartBeautify: (request) => ipcRenderer.invoke('canvas:smart-beautify', request),
+  smartBeautifyCritique: (request) => ipcRenderer.invoke('canvas:smart-beautify-critique', request),
+  runAgent: (request) => ipcRenderer.invoke('agent:run', request),
+  cancelAgent: (runId) => ipcRenderer.invoke('agent:cancel', runId),
+  onAgentEvent: (callback) => {
+    const listener = (_e: Electron.IpcRendererEvent, event: any): void => callback(event)
+    ipcRenderer.on('agent:event', listener)
+    return () => ipcRenderer.removeListener('agent:event', listener)
+  },
   runCode: (request) => ipcRenderer.invoke('code:run', request),
   checkCodeRuntimes: () => ipcRenderer.invoke('code:checkRuntimes'),
   saveExportFile: (filename, content, mimeType) =>

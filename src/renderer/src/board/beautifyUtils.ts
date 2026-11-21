@@ -1,7 +1,11 @@
-import type { BoardState, DiagramNode, InkPoint } from '../types/board'
+import type { BoardState, DiagramNode, FontId, InkPoint } from '../types/board'
 import type { Node as RFNode, Edge as RFEdge } from '@xyflow/react'
 import { MarkerType } from '@xyflow/react'
 import { layoutReactFlowElements, preserveAndTidySpatialLayout } from './flowLayout'
+import {
+  compileFlowDiagramToBoardElements,
+  type NativeBoardDiagramResult
+} from './nativeDiagramCompiler'
 import {
   drawLibraryShapeOnCanvas,
   getLibraryShape,
@@ -87,8 +91,9 @@ export interface CleanReactFlowResult {
 export function renderSelectedDiagramToImage(
   board: BoardState,
   selectedIds: string[],
-  _themeTokens?: unknown
+  themeTokens?: unknown
 ): DiagramImageResult | null {
+  void themeTokens
   const idSet = new Set(selectedIds)
   const selStrokes = board.strokes.filter((s) => idSet.has(s.id))
   const selShapes = board.shapeNodes.filter((s) => idSet.has(s.id))
@@ -876,6 +881,146 @@ export function buildDiagramNodeFromData(
   }
 }
 
+function getTemplateRawFlow(templateId: string): { raw: CreateDiagramArgs; bounds: { w: number; h: number } } {
+  if (templateId === 'blank_flow') {
+    return {
+      bounds: { w: 620, h: 420 },
+      raw: {
+        title: 'Flow Diagram',
+        diagramType: 'flowchart',
+        layoutDirection: 'LR',
+        nodes: [
+          { id: 'n1', type: 'startEnd', label: 'Start', description: 'Drag ports to connect' },
+          { id: 'n2', type: 'process', label: 'Next Step', description: 'Double-click to edit' }
+        ],
+        edges: [{ id: 'e1', source: 'n1', target: 'n2', label: 'Flow' }]
+      }
+    }
+  }
+
+  if (templateId === 'microservices') {
+    return {
+      bounds: { w: 760, h: 540 },
+      raw: {
+        title: 'Cloud Microservices Architecture',
+        diagramType: 'architecture',
+        layoutDirection: 'LR',
+        nodes: [
+          { id: 'client', type: 'actor', label: 'Web / Mobile Client', description: 'HTTPS / WSS' },
+          { id: 'gateway', type: 'cloud', label: 'API Gateway', description: 'Reverse Proxy & Rate Limit' },
+          { id: 'auth', type: 'process', label: 'Auth Service', description: 'OAuth2 / JWT' },
+          { id: 'core', type: 'process', label: 'Core Backend API', description: 'Business Logic' },
+          { id: 'db', type: 'database', label: 'PostgreSQL DB', description: 'Relational Store' },
+          { id: 'cache', type: 'database', label: 'Redis Cache', description: 'Session & Hot Data' }
+        ],
+        edges: [
+          { id: 'e1', source: 'client', target: 'gateway', label: 'HTTPS' },
+          { id: 'e2', source: 'gateway', target: 'auth', label: 'Validate Token' },
+          { id: 'e3', source: 'gateway', target: 'core', label: 'Forward Request' },
+          { id: 'e4', source: 'core', target: 'db', label: 'SQL Query' },
+          { id: 'e5', source: 'core', target: 'cache', label: 'Cache Lookup' }
+        ]
+      }
+    }
+  }
+
+  if (templateId === 'mindmap') {
+    return {
+      bounds: { w: 680, h: 480 },
+      raw: {
+        title: 'Brainstorm & Mindmap',
+        diagramType: 'mindmap',
+        layoutDirection: 'LR',
+        nodes: [
+          { id: 'center', type: 'circle', label: 'Core Vision', description: 'Central Theme' },
+          { id: 'branch1', type: 'sticky', label: 'Architecture', description: 'Canvas + Live Connectors' },
+          { id: 'branch2', type: 'sticky', label: 'AI Engine', description: 'Vision & Knowledge Graph' },
+          { id: 'branch3', type: 'sticky', label: 'Canvas Dock UI', description: 'Floating Left Toolbar' },
+          { id: 'branch4', type: 'sticky', label: 'Collaboration', description: 'Live sync & multi-screen' }
+        ],
+        edges: [
+          { id: 'm1', source: 'center', target: 'branch1' },
+          { id: 'm2', source: 'center', target: 'branch2' },
+          { id: 'm3', source: 'center', target: 'branch3' },
+          { id: 'm4', source: 'center', target: 'branch4' }
+        ]
+      }
+    }
+  }
+
+  if (templateId === 'erd') {
+    return {
+      bounds: { w: 720, h: 500 },
+      raw: {
+        title: 'Entity Relationship Diagram (ERD)',
+        diagramType: 'er',
+        layoutDirection: 'TB',
+        nodes: [
+          { id: 'users', type: 'database', label: 'Users Table', description: 'id, email, created_at' },
+          { id: 'orders', type: 'database', label: 'Orders Table', description: 'id, user_id, total_amount' },
+          { id: 'items', type: 'database', label: 'Order Items Table', description: 'id, order_id, product_id' },
+          { id: 'products', type: 'database', label: 'Products Table', description: 'id, title, price_cents' }
+        ],
+        edges: [
+          { id: 'er1', source: 'users', target: 'orders', label: '1 to Many' },
+          { id: 'er2', source: 'orders', target: 'items', label: '1 to Many' },
+          { id: 'er3', source: 'products', target: 'items', label: '1 to Many' }
+        ]
+      }
+    }
+  }
+
+  if (templateId === 'user_journey') {
+    return {
+      bounds: { w: 720, h: 500 },
+      raw: {
+        title: 'User Journey & Onboarding Funnel',
+        diagramType: 'flowchart',
+        layoutDirection: 'TB',
+        nodes: [
+          { id: 'step1', type: 'actor', label: 'Visitor', description: 'Visits Landing Page' },
+          { id: 'step2', type: 'inputOutput', label: 'Sign Up Form', description: 'Email & Password Entry' },
+          { id: 'step3', type: 'decision', label: 'Email Verified?', description: 'OTP Check' },
+          { id: 'step4', type: 'process', label: 'Guided Onboarding', description: 'Product Tour' },
+          { id: 'step5', type: 'startEnd', label: 'Active User', description: 'Completes First Workflow' }
+        ],
+        edges: [
+          { id: 'uj1', source: 'step1', target: 'step2' },
+          { id: 'uj2', source: 'step2', target: 'step3' },
+          { id: 'uj3', source: 'step3', target: 'step4', label: 'Yes' },
+          { id: 'uj4', source: 'step3', target: 'step2', label: 'Resend' },
+          { id: 'uj5', source: 'step4', target: 'step5' }
+        ]
+      }
+    }
+  }
+
+  return {
+    bounds: { w: 720, h: 520 },
+    raw: {
+      title: 'Standard Process Flowchart',
+      diagramType: 'flowchart',
+      layoutDirection: 'TB',
+      nodes: [
+        { id: 'start', type: 'startEnd', label: 'Start Flow', description: 'Event or Trigger' },
+        { id: 'step1', type: 'process', label: 'Process Action', description: 'Execute step logic' },
+        { id: 'decision', type: 'decision', label: 'Condition Check?', description: 'Validate input' },
+        { id: 'success', type: 'process', label: 'Success Handler', description: 'Commit transaction' },
+        { id: 'fallback', type: 'process', label: 'Error / Retry', description: 'Rollback & alert' },
+        { id: 'end', type: 'startEnd', label: 'Finish Process', description: 'Return result' }
+      ],
+      edges: [
+        { id: 'fe1', source: 'start', target: 'step1' },
+        { id: 'fe2', source: 'step1', target: 'decision' },
+        { id: 'fe3', source: 'decision', target: 'success', label: 'Valid' },
+        { id: 'fe4', source: 'decision', target: 'fallback', label: 'Invalid' },
+        { id: 'fe5', source: 'success', target: 'end' },
+        { id: 'fe6', source: 'fallback', target: 'end' }
+      ]
+    }
+  }
+}
+
 /**
  * Generates ready-to-use professional diagram templates (Flowchart, Architecture, Mindmap, ERD, User Journey).
  */
@@ -885,119 +1030,28 @@ export function buildTemplateDiagram(
 ): DiagramNode {
   const posX = targetBounds?.x ?? 150
   const posY = targetBounds?.y ?? 100
+  const { raw, bounds } = getTemplateRawFlow(templateId)
+  const parsed = parseAndCleanReactFlow(JSON.stringify(raw))
+  return buildDiagramNodeFromData(parsed, { x: posX, y: posY, w: bounds.w, h: bounds.h })
+}
 
-  if (templateId === 'microservices') {
-    const raw: CreateDiagramArgs = {
-      title: 'Cloud Microservices Architecture',
-      diagramType: 'architecture',
-      nodes: [
-        { id: 'client', type: 'actor', label: 'Web / Mobile Client', description: 'HTTPS / WSS' },
-        { id: 'gateway', type: 'cloud', label: 'API Gateway', description: 'Reverse Proxy & Rate Limit' },
-        { id: 'auth', type: 'process', label: 'Auth Service', description: 'OAuth2 / JWT' },
-        { id: 'core', type: 'process', label: 'Core Backend API', description: 'Business Logic' },
-        { id: 'db', type: 'database', label: 'PostgreSQL DB', description: 'Relational Store' },
-        { id: 'cache', type: 'database', label: 'Redis Cache', description: 'Session & Hot Data' }
-      ],
-      edges: [
-        { id: 'e1', source: 'client', target: 'gateway', label: 'HTTPS' },
-        { id: 'e2', source: 'gateway', target: 'auth', label: 'Validate Token' },
-        { id: 'e3', source: 'gateway', target: 'core', label: 'Forward Request' },
-        { id: 'e4', source: 'core', target: 'db', label: 'SQL Query' },
-        { id: 'e5', source: 'core', target: 'cache', label: 'Cache Lookup' }
-      ]
-    }
-    const parsed = parseAndCleanReactFlow(JSON.stringify(raw))
-    return buildDiagramNodeFromData(parsed, { x: posX, y: posY, w: 760, h: 540 })
-  }
-
-  if (templateId === 'mindmap') {
-    const raw: CreateDiagramArgs = {
-      title: 'Brainstorm & Mindmap',
-      diagramType: 'mindmap',
-      nodes: [
-        { id: 'center', type: 'circle', label: 'Core Vision', description: 'Central Theme' },
-        { id: 'branch1', type: 'sticky', label: 'Architecture', description: 'React Flow + Dagre' },
-        { id: 'branch2', type: 'sticky', label: 'AI Engine', description: 'Gemma 4 Vision on Cloud' },
-        { id: 'branch3', type: 'sticky', label: 'Canvas Dock UI', description: 'Floating Left Toolbar' },
-        { id: 'branch4', type: 'sticky', label: 'Collaboration', description: 'Live sync & multi-screen' }
-      ],
-      edges: [
-        { id: 'm1', source: 'center', target: 'branch1' },
-        { id: 'm2', source: 'center', target: 'branch2' },
-        { id: 'm3', source: 'center', target: 'branch3' },
-        { id: 'm4', source: 'center', target: 'branch4' }
-      ]
-    }
-    const parsed = parseAndCleanReactFlow(JSON.stringify(raw))
-    return buildDiagramNodeFromData(parsed, { x: posX, y: posY, w: 680, h: 480 })
-  }
-
-  if (templateId === 'erd') {
-    const raw: CreateDiagramArgs = {
-      title: 'Entity Relationship Diagram (ERD)',
-      diagramType: 'er',
-      nodes: [
-        { id: 'users', type: 'database', label: 'Users Table', description: 'id, email, password_hash, created_at' },
-        { id: 'orders', type: 'database', label: 'Orders Table', description: 'id, user_id, total_amount, status' },
-        { id: 'items', type: 'database', label: 'Order Items Table', description: 'id, order_id, product_id, qty' },
-        { id: 'products', type: 'database', label: 'Products Table', description: 'id, title, price_cents, stock' }
-      ],
-      edges: [
-        { id: 'er1', source: 'users', target: 'orders', label: '1 to Many' },
-        { id: 'er2', source: 'orders', target: 'items', label: '1 to Many' },
-        { id: 'er3', source: 'products', target: 'items', label: '1 to Many' }
-      ]
-    }
-    const parsed = parseAndCleanReactFlow(JSON.stringify(raw))
-    return buildDiagramNodeFromData(parsed, { x: posX, y: posY, w: 720, h: 500 })
-  }
-
-  if (templateId === 'user_journey') {
-    const raw: CreateDiagramArgs = {
-      title: 'User Journey & Onboarding Funnel',
-      diagramType: 'flowchart',
-      nodes: [
-        { id: 'step1', type: 'actor', label: 'Visitor', description: 'Visits Landing Page' },
-        { id: 'step2', type: 'inputOutput', label: 'Sign Up Form', description: 'Email & Password Entry' },
-        { id: 'step3', type: 'decision', label: 'Email Verified?', description: 'OTP Check' },
-        { id: 'step4', type: 'process', label: 'Guided Onboarding', description: 'Product Tour & Quick Setup' },
-        { id: 'step5', type: 'startEnd', label: 'Active User', description: 'Completes First Workflow' }
-      ],
-      edges: [
-        { id: 'uj1', source: 'step1', target: 'step2' },
-        { id: 'uj2', source: 'step2', target: 'step3' },
-        { id: 'uj3', source: 'step3', target: 'step4', label: 'Yes' },
-        { id: 'uj4', source: 'step3', target: 'step2', label: 'Resend' },
-        { id: 'uj5', source: 'step4', target: 'step5' }
-      ]
-    }
-    const parsed = parseAndCleanReactFlow(JSON.stringify(raw))
-    return buildDiagramNodeFromData(parsed, { x: posX, y: posY, w: 720, h: 500 })
-  }
-
-  // Default Standard Flowchart template
-  const defaultRaw: CreateDiagramArgs = {
-    title: 'Standard Process Flowchart',
-    diagramType: 'flowchart',
-    nodes: [
-      { id: 'start', type: 'startEnd', label: 'Start Flow', description: 'Event or Trigger' },
-      { id: 'step1', type: 'process', label: 'Process Action', description: 'Execute step logic' },
-      { id: 'decision', type: 'decision', label: 'Condition Check?', description: 'Validate input' },
-      { id: 'success', type: 'process', label: 'Success Handler', description: 'Commit transaction' },
-      { id: 'fallback', type: 'process', label: 'Error / Retry', description: 'Rollback & alert' },
-      { id: 'end', type: 'startEnd', label: 'Finish Process', description: 'Return result' }
-    ],
-    edges: [
-      { id: 'fe1', source: 'start', target: 'step1' },
-      { id: 'fe2', source: 'step1', target: 'decision' },
-      { id: 'fe3', source: 'decision', target: 'success', label: 'Valid' },
-      { id: 'fe4', source: 'decision', target: 'fallback', label: 'Invalid' },
-      { id: 'fe5', source: 'success', target: 'end' },
-      { id: 'fe6', source: 'fallback', target: 'end' }
-    ]
-  }
-  const parsed = parseAndCleanReactFlow(JSON.stringify(defaultRaw))
-  return buildDiagramNodeFromData(parsed, { x: posX, y: posY, w: 720, h: 520 })
+/**
+ * Generates ready-to-use board-native diagram templates composed of native `ShapeNode`s,
+ * frameless immersed `TextNode`s, live bound `polyline` connectors, and `VectorDiagramMeta`.
+ */
+export function buildBoardNativeTemplateDiagram(
+  templateId: string,
+  origin: { x: number; y: number },
+  opts?: { fontFamily?: FontId; layerId?: string; defaultFillColor?: string }
+): NativeBoardDiagramResult {
+  const { raw } = getTemplateRawFlow(templateId)
+  const parsed = parseAndCleanReactFlow(JSON.stringify(raw))
+  return compileFlowDiagramToBoardElements(parsed, origin, {
+    fontFamily: opts?.fontFamily,
+    layerId: opts?.layerId,
+    defaultFillColor: opts?.defaultFillColor,
+    direction: raw.layoutDirection === 'LR' ? 'RIGHT' : 'DOWN'
+  })
 }
 
 
@@ -1008,7 +1062,7 @@ function createDefaultFallbackFlow(rawText: string): CleanReactFlowResult {
   const clean = rawText.replace(/```[\s\S]*?```/g, '').trim()
   const lines = clean
     .split('\n')
-    .map((l) => l.replace(/^[-*•\d\.\s]+/, '').trim())
+    .map((l) => l.replace(/^[-*•\d.\s]+/, '').trim())
     .filter((l) => l.length > 0)
     .slice(0, 6)
 

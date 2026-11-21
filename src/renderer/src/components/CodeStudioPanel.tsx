@@ -1,6 +1,35 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import CodeMirror, { EditorView, type Extension } from '@uiw/react-codemirror'
-import { loadLanguage, langNames, type LanguageName } from '@uiw/codemirror-extensions-langs'
+import type { LanguageName } from '@uiw/codemirror-extensions-langs'
+
+type CmLangsModule = typeof import('@uiw/codemirror-extensions-langs')
+let cachedCmLangs: CmLangsModule | null = null
+let cachedCmLangsPromise: Promise<CmLangsModule> | null = null
+
+function loadCmLangsModule(): Promise<CmLangsModule> {
+  if (cachedCmLangs) return Promise.resolve(cachedCmLangs)
+  if (!cachedCmLangsPromise) {
+    cachedCmLangsPromise = import('@uiw/codemirror-extensions-langs').then((mod) => {
+      cachedCmLangs = mod
+      return mod
+    })
+  }
+  return cachedCmLangsPromise
+}
+
+// Static name index so the language search picker stays responsive without pulling the full grammar bundle eagerly.
+const CM_LANG_NAMES: readonly string[] = [
+  'apl', 'asn', 'asn1', 'bash', 'bzl', 'c', 'c++', 'cc', 'cfg', 'cjs', 'cl', 'clj', 'cljc', 'cljs', 'cmake',
+  'cob', 'coffee', 'cpp', 'cql', 'cr', 'cs', 'css', 'cts', 'cxx', 'cypher', 'd', 'dart', 'diff', 'dtd', 'dylan',
+  'ecl', 'edn', 'elm', 'erl', 'f90', 'f95', 'factor', 'feature', 'forth', 'fs', 'go', 'gradle', 'groovy', 'gss',
+  'h', 'handlebars', 'hbs', 'hpp', 'hs', 'htm', 'html', 'hx', 'ini', 'ino', 'j2', 'jade', 'java', 'jinja',
+  'jinja2', 'jl', 'js', 'json', 'jsonld', 'jsx', 'ksh', 'kt', 'kts', 'less', 'liquid', 'lisp', 'ls', 'lua',
+  'markdown', 'mbox', 'md', 'mjs', 'ml', 'mli', 'mm', 'mo', 'mts', 'nix', 'nt', 'oz', 'pas', 'patch', 'pgp',
+  'php', 'pig', 'pl', 'pls', 'pm', 'pp', 'properties', 'proto', 'ps1', 'pug', 'py', 'python', 'r', 'rb', 'rs',
+  'sas', 'sass', 'scala', 'scm', 'scss', 'sh', 'sieve', 'sml', 'solidity', 'sparql', 'sql', 'st', 'styl', 'sv',
+  'svelte', 'svg', 'swift', 'tcl', 'tex', 'text', 'textile', 'toml', 'ts', 'tsx', 'ttcn', 'ttl', 'v', 'vb',
+  'vbs', 'vhd', 'vhdl', 'vue', 'wast', 'wat', 'webidl', 'xml', 'xquery', 'xsd', 'xsl', 'yaml', 'yml', 'z80'
+]
 import {
   Play,
   Plus,
@@ -23,7 +52,8 @@ import {
   CheckCircle2,
   Clock,
   Globe,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Sparkles
 } from 'lucide-react'
 import type { CodeRuntimeInfo } from '@shared/ipc'
 import type { CodeNode, CodeTabExecutionOutput, CodeTabItem } from '../types/board'
@@ -361,6 +391,8 @@ function getLanguageExtensionBadge(langId: string): string {
 }
 
 function resolveCodeMirrorExtension(langId: string): Extension | null {
+  if (!cachedCmLangs) return null
+  const { loadLanguage, langNames } = cachedCmLangs
   const runnable = getRunnableLanguageDef(langId)
   const target: string = runnable ? runnable.cmLang : langId
   try {
@@ -456,6 +488,14 @@ export interface CodeRunnerWorkspaceProps {
   compact?: boolean
   onPinToBoard?: (tab: CodeTabItem) => void
   onSendOutputToNote?: (markdown: string, title?: string) => void
+  onAskAI?: (ctx: {
+    title: string
+    language: string
+    code: string
+    stdout?: string
+    stderr?: string
+    error?: string
+  }) => void
   onToast?: (kind: 'info' | 'success' | 'error', message: string) => void
 }
 
@@ -466,6 +506,7 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
   compact = false,
   onPinToBoard,
   onSendOutputToNote,
+  onAskAI,
   onToast
 }) => {
   const activeTab = useMemo(
@@ -485,6 +526,22 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
   const [htmlPreviewTick, setHtmlPreviewTick] = useState(0)
   const [htmlLogs, setHtmlLogs] = useState<Array<{ level: string; text: string }>>([])
   const [outputHeightPct, setOutputHeightPct] = useState(38)
+  const [cmLangsReady, setCmLangsReady] = useState<boolean>(() => Boolean(cachedCmLangs))
+
+  useEffect(() => {
+    if (cachedCmLangs) return
+    let cancelled = false
+    void loadCmLangsModule()
+      .then(() => {
+        if (!cancelled) setCmLangsReady(true)
+      })
+      .catch(() => {
+        /* ignore dynamic load failure; editor remains usable */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const langPickerRef = useRef<HTMLDivElement>(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
@@ -685,10 +742,10 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
 
   const editorExtensions = useMemo(() => {
     const exts: Extension[] = [EditorView.lineWrapping]
-    const langExt = resolveCodeMirrorExtension(activeTab?.language || 'python')
+    const langExt = cmLangsReady ? resolveCodeMirrorExtension(activeTab?.language || 'python') : null
     if (langExt) exts.unshift(langExt)
     return exts
-  }, [activeTab?.language])
+  }, [activeTab?.language, cmLangsReady])
 
   const filteredRunnable = useMemo(() => {
     const q = langSearch.trim().toLowerCase()
@@ -704,12 +761,13 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
   const filteredOtherLangs = useMemo(() => {
     const q = langSearch.trim().toLowerCase()
     const runnableCmSet = new Set<string>(RUNNABLE_LANGUAGES.map((l) => l.cmLang))
-    const all = (langNames as readonly string[])
+    const sourceList = (cachedCmLangs?.langNames as readonly string[] | undefined) ?? CM_LANG_NAMES
+    const all = sourceList
       .filter((name) => !runnableCmSet.has(name) && !getRunnableLanguageDef(name))
       .sort((a, b) => a.localeCompare(b))
     if (!q) return all
     return all.filter((name) => name.toLowerCase().includes(q))
-  }, [langSearch])
+  }, [langSearch, cmLangsReady])
 
   const handleCopyCode = async (): Promise<void> => {
     if (!activeTab) return
@@ -911,7 +969,7 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
                 <input
                   type="text"
                   className="code-lang-search-input"
-                  placeholder={`Search ${RUNNABLE_LANGUAGES.length} runnable + ${langNames.length}+ languages...`}
+                  placeholder={`Search ${RUNNABLE_LANGUAGES.length} runnable + ${((cachedCmLangs?.langNames.length ?? CM_LANG_NAMES.length))}+ languages...`}
                   value={langSearch}
                   onChange={(e) => setLangSearch(e.target.value)}
                   onKeyDown={(e) => e.stopPropagation()}
@@ -1039,6 +1097,31 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
             >
               <Pin size={12} />
               {!compact && <span>Pin</span>}
+            </button>
+          )}
+
+          {onAskAI && (
+            <button
+              type="button"
+              className={`code-ai-btn ${out && !out.ok ? 'is-fix' : ''}`}
+              onClick={() =>
+                onAskAI({
+                  title: activeTab.title,
+                  language: activeTab.language,
+                  code: activeTab.code,
+                  stdout: out?.stdout,
+                  stderr: out?.stderr,
+                  error: out?.error
+                })
+              }
+              title={
+                out && !out.ok
+                  ? 'Ask VexelBot Agent to diagnose & fix this error'
+                  : 'Ask VexelBot Agent to explain or improve this code'
+              }
+            >
+              <Sparkles size={12} />
+              {!compact && <span>{out && !out.ok ? 'AI Fix' : 'AI Assist'}</span>}
             </button>
           )}
 
@@ -1375,6 +1458,14 @@ export interface CanvasCodeCardProps {
   onStartMove: (startX: number, startY: number) => void
   onStartResize?: (e: React.PointerEvent, dir: ResizeDirection) => void
   onSendOutputToNote?: (markdown: string, title?: string) => void
+  onAskAI?: (ctx: {
+    title: string
+    language: string
+    code: string
+    stdout?: string
+    stderr?: string
+    error?: string
+  }) => void
   onToast?: (kind: 'info' | 'success' | 'error', message: string) => void
 }
 
@@ -1392,6 +1483,7 @@ export const CanvasCodeCard: React.FC<CanvasCodeCardProps> = ({
   onStartMove,
   onStartResize,
   onSendOutputToNote,
+  onAskAI,
   onToast
 }) => {
   const [isHovered, setIsHovered] = useState(false)
@@ -1525,6 +1617,7 @@ export const CanvasCodeCard: React.FC<CanvasCodeCardProps> = ({
             )
           }
           onSendOutputToNote={onSendOutputToNote}
+          onAskAI={onAskAI}
           onToast={onToast}
         />
       </div>

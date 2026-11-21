@@ -2,6 +2,13 @@ import { app, safeStorage } from 'electron'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { dbManager } from './db'
+import { unescapeLlmCode, unescapeLlmText } from '../shared/textUnescape'
+import {
+  formatDiscoveredAssetsForPrompt,
+  inferPedagogicalApproach,
+  searchBoardAssets
+} from '../shared/boardCatalog'
+import { SpatialSceneSchema, normalizeSpatialSceneInput } from '../shared/beautifySchema'
 import {
   BYOK_PROVIDERS,
   DEFAULT_PROVIDER_MODELS,
@@ -112,7 +119,7 @@ export function hasApiKey(provider: ByokProvider): boolean {
   return false
 }
 
-function loadApiKey(provider: ByokProvider): string {
+export function loadApiKey(provider: ByokProvider): string {
   const vault = readVault()
   const b64 = vault[provider]
   if (b64 && safeStorage.isEncryptionAvailable()) {
@@ -181,14 +188,14 @@ Respond with STRICT JSON only, no markdown: {"recognizedText": "latex formula"}
 If nothing legible is present respond {"recognizedText": ""}.`
 
 const CHAT_SYSTEM_PROMPT = `You are an expert AI Research & Engineering Co-Pilot integrated into an interactive glass whiteboard note-taking app.
-The user is taking notes, designing systems, or studying concepts.
-Answer the user's questions clearly, concisely, and thoroughly.
+The user is studying concepts or solving problems across any field (mathematics, chemistry, biology, atomic/classical physics, quantitative markets, software systems, etc.).
+Reason from first principles and structure your explanation natively for the subject: combine causal mechanisms, governing formulas/stoichiometry, diagrams, or code as appropriate.
 Structure your answers with markdown:
 - Use bullet points, bold keywords, and clear headings.
 - Include code blocks or LaTeX formulas where relevant ($...$ or $$...$$).
 
 AGENTIC TOOL CALL - create_diagram:
-When the user asks you to create, sketch, or generate a diagram, flowchart, architecture map, sequence diagram, ERD, or workflow, call the agentic "create_diagram" tool by outputting a JSON object with this schema:
+When the user asks you to create, sketch, or generate a connected diagram or workflow, call the agentic "create_diagram" tool using the matching shape IDs provided in [DISCOVERED FIRST-PRINCIPLES BOARD PRIMITIVES & ASSETS] by outputting a JSON object:
 \`\`\`json
 {
   "tool": "create_diagram",
@@ -196,142 +203,149 @@ When the user asks you to create, sketch, or generate a diagram, flowchart, arch
     "title": "Clean Descriptive Diagram Title",
     "diagramType": "flowchart",
     "nodes": [
-      { "id": "1", "type": "startEnd", "label": "Start", "description": "Trigger" },
-      { "id": "2", "type": "process", "label": "Service Action", "description": "Processing logic" },
-      { "id": "3", "type": "decision", "label": "Valid Check?", "description": "Yes / No" },
-      { "id": "4", "type": "database", "label": "PostgreSQL", "description": "Primary storage" },
-      { "id": "5", "type": "cloud", "label": "API Gateway", "description": "HTTPS proxy" }
+      { "id": "1", "type": "rounded-rect", "label": "Node Label", "description": "" }
     ],
     "edges": [
-      { "id": "e1-2", "source": "1", "target": "2" },
-      { "id": "e2-3", "source": "2", "target": "3" },
-      { "id": "e3-4", "source": "3", "target": "4", "label": "Yes" }
+      { "id": "e1-2", "source": "1", "target": "2", "label": "relation" }
     ]
   }
 }
-\`\`\`
-Supported node types:
-- "startEnd": Oval pill for entry, start, or finish
-- "process": Standard rectangular action or microservice
-- "decision": Diamond condition or branching logic
-- "database": Cylinder data persistence, table, or cache
-- "cloud": Cloud infra, API gateway, cluster, or external service
-- "document": File, documentation, or report sheet
-- "inputOutput": Parallelogram for user input, display, or client UI
-- "actor": Human user, person, client, or external role
-- "circle": Event circle, state node, or junction
-- "group": Frame container boundary to group related nodes
-- "sticky": Colored sticky note for comments or ideas
-- "custom": Generic card
-- Plus Vexelboard library shape IDs when domain-specific shapes fit better:
-  - Flowchart ("fc-*"): fc-predefined-process, fc-delay, fc-display, fc-stored-data, fc-manual-input, fc-preparation, fc-merge, fc-extract, fc-or, fc-summing-junction, fc-off-page-reference
-  - UML ("uml-*"): uml-class, uml-interface, uml-abstract-class, uml-enumeration, uml-package, uml-component, uml-node, uml-lifeline, uml-state, uml-composite-state, uml-initial-state, uml-final-state, uml-fork-join-h
-  - BPMN ("bpmn-*"): bpmn-task, bpmn-subprocess, bpmn-event-start, bpmn-event-intermediate, bpmn-event-end, bpmn-gateway-exclusive, bpmn-gateway-parallel, bpmn-gateway-inclusive, bpmn-data-store, bpmn-pool
-  - Entity Relation ("er-*"): er-entity, er-weak-entity, er-attribute, er-key-attribute, er-relationship, er-table
-  - Network ("net-*"): net-server, net-router, net-switch, net-firewall, net-load-balancer, net-globe, net-queue, net-container, net-function, net-desktop, net-mobile
-  - Mockup ("mock-*"): mock-browser-window, mock-mobile-frame, mock-button, mock-text-input, mock-modal, mock-card
-  - Basic / 3D / Callouts / Arrows: rectangle, rounded-rectangle, rhombus, parallelogram, hexagon, octagon, star-5, cube, isometric-cube, cylinder-3d, sphere, callout-rect, callout-cloud, chevron, arrow-right\``
+\`\`\``
 
-const TUTORIAL_SYSTEM_PROMPT = `You are a master educator and visual whiteboard lecturer.
-When the user gives a topic, explain it step-by-step using rich explanations, interactive architecture/flow diagrams, and concrete equations or code.
+const TUTORIAL_SYSTEM_PROMPT = `You are a First-Principles Master Educator & Visual Synthesizer for an interactive canvas whiteboard.
+Do NOT force any topic into a rigid preset template. Before drafting a single element, reason from FIRST PRINCIPLES about what the user actually needs in order to deeply understand THIS topic:
+- Identify the fundamental entities, conserved quantities, reactions, state variables, or spatial structures involved.
+- Design the custom visual representation, symbolic formalism (LaTeX equations/reactions), and conceptual explanation natively tailored to the phenomenon (e.g., atomic orbitals + photon emission waves, organic chemical rings + energy profiles, biological cell/organelle membranes + codon chains, differential/algebraic derivations, free-body vectors, market payoffs, memory traces, or distributed topologies).
 
 You MUST respond with a single valid JSON object adhering strictly to this format (no markdown code blocks, just raw JSON):
 {
   "tutorial": {
     "topic": "Topic Name",
-    "overview": "Clear 2-sentence intuition of the core idea.",
+    "approach": "Concise name of the first-principles teaching approach you designed",
+    "pedagogicalRationale": "1-sentence explanation of why these primitives and steps best fit this topic.",
+    "fontFamily": "serif | mono | grotesk | caveat | jakarta",
+    "accentFill": "#hex (optional semantic banner tint matching the phenomenon)",
+    "overview": "Clear 2-sentence first-principles intuition of the core mechanism.",
     "steps": [
       {
-        "title": "1. Core Intuition & Concept",
-        "explanation": "Clear explanation with markdown styling.",
-        "keyPoints": ["Key takeaway 1", "Key takeaway 2"],
-        "diagramMermaid": "graph LR\\n  A[Input] --> B[Processing]\\n  B --> C[Output]",
-        "diagramNodes": [
-          { "id": "n1", "type": "startEnd", "label": "Input", "description": "Initial data" },
-          { "id": "n2", "type": "process", "label": "Processing", "description": "Core transformation" },
-          { "id": "n3", "type": "startEnd", "label": "Output", "description": "Final result" }
-        ],
-        "diagramEdges": [
-          { "source": "n1", "target": "n2", "label": "feeds" },
-          { "source": "n2", "target": "n3", "label": "produces" }
-        ],
-        "equationLatex": "",
+        "title": "1. Focused Step Title",
+        "explanation": "Clear explanation tailored to this step.",
+        "keyPoints": ["Concise key takeaway"],
+        "equations": ["optional step-by-step LaTeX equations, balanced reactions, or formal laws"],
+        "scene": null,
+        "diagramNodes": [],
+        "diagramEdges": [],
         "codeSnippet": null
       }
     ]
   }
 }
 
+UNIVERSAL COMPOSABLE "scene" PRIMITIVES (0..1000 local coordinates — synthesize ANY visual from first principles):
+{"title":"...","elements":[...]}
+1. "shape": {"type":"shape","id":"...","kind":"circle|ellipse|rect|rounded_rect|hexagon|pentagon|octagon|triangle|diamond|star-5|cross|sphere3d|cube3d|cylinder|<libraryId>","cx":500,"cy":500,"r":180} (or "x","y","w","h"), optional "fill":"#hex", "fillOpacity":0.0..1.0, "stroke":"#hex", "strokeStyle":"solid|dashed|dotted", "strokeWidth":2.5, "rotation":deg, "animated":true|false, "label":"...".
+   - Ideal for concentric atomic orbitals, chemical aromatic/sugar rings (hexagon/pentagon), particles, molecules, masses, and translucent cellular compartments.
+2. "svg_path": {"type":"svg_path","id":"...","d":"M ... C ... Q ... Z","fill":"#hex","fillOpacity":0.3,"stroke":"#hex","strokeWidth":3,"label":"...","animated":false} (or "paths":[{d,fill,stroke}]).
+   - Ideal for ANY arbitrary smooth Bezier geometry: cell membranes, chloroplasts/mitochondria, enzymes, optical lenses, waveguides, potential wells, anatomical outlines.
+3. "connector": {"type":"connector","id":"...","points":[[x1,y1],[x2,y2],...],"curved":true|false,"arrowStart":false,"arrowEnd":true|false,"style":"solid|dashed|dotted","stroke":"#hex","strokeWidth":2.5,"animated":true|false,"animationMode":"pulse|dash|both","pulseColor":"#hex","flowStage":0,"label":"..."}.
+   - Use 2 points for vectors/bonds/axes, 3 points with curved:true for quadratic arcs, or 4+ points with curved:true for smooth splines (sine/photon waves, activation energy hills, titration/payoff/trajectory curves).
+4. "cell_strip": {"type":"cell_strip","id":"...","orientation":"horizontal|vertical","x":..,"y":..,"w":..,"h":..,"cells":["..."],"cellGap":24,"connectorArrows":"forward|bidirectional|circular|none","openEnds":["start"]}.
+   - Use contiguous strips for stacks/queues/matrices/orbital spin boxes, OR cellGap + connectorArrows for spaced sequences (mRNA codons, polymer chains, metabolic steps, linked nodes).
+5. "text": {"type":"text","id":"...","x":..,"y":..,"text":"...","fontSize":18,"bold":true,"align":"center","color":"#hex"}.
+
 Guidelines:
-- Create 3 to 5 logical sequential steps.
-- Every step MUST include "diagramNodes" and "diagramEdges" (and/or "diagramMermaid" with "NodeA[Label] --> NodeB[Label]") so an interactive diagram is rendered on the whiteboard.
-- Include KaTeX equations (raw LaTeX, without $ wrappers) when math/physics/CS algorithms benefit from mathematical formulation.
-- Include code snippets (e.g. language: "python", "javascript", or "sql") when technical implementation clarifies the topic.
-- Ensure every step is educational, highly visual, and self-contained.`
+- Generate 2 to 5 focused steps tailored cleanly to the subject.
+- Compose ONLY the primitives each step genuinely needs — leave "diagramNodes": [] and "codeSnippet": null when not relevant.`
+
+function extractFallbackSectionsFromReply(rawReply?: string): {
+  headings: Array<{ title: string; body: string }>
+  equations: string[]
+  codeBlocks: Array<{ language: string; code: string }>
+} {
+  if (!rawReply || !rawReply.trim()) {
+    return { headings: [], equations: [], codeBlocks: [] }
+  }
+  const text = rawReply.trim()
+  const equations: string[] = []
+  const displayEqRe = /\$\$([\s\S]+?)\$\$/g
+  let m: RegExpExecArray | null
+  while ((m = displayEqRe.exec(text)) !== null) {
+    const eq = m[1].trim()
+    if (eq && equations.length < 4) equations.push(eq)
+  }
+
+  const codeBlocks: Array<{ language: string; code: string }> = []
+  const codeRe = /```([a-zA-Z0-9_+-]*)\n([\s\S]*?)```/g
+  while ((m = codeRe.exec(text)) !== null) {
+    const code = m[2].trim()
+    if (code && codeBlocks.length < 2) {
+      codeBlocks.push({ language: m[1] || 'python', code })
+    }
+  }
+
+  const headings: Array<{ title: string; body: string }> = []
+  const sectionParts = text.split(/^#{1,3}\s+/m).map((s) => s.trim()).filter(Boolean)
+  for (const part of sectionParts.slice(0, 4)) {
+    const nl = part.indexOf('\n')
+    if (nl > 0) {
+      const title = part.slice(0, nl).trim().slice(0, 64)
+      const body = part.slice(nl + 1).trim().slice(0, 420)
+      if (title && body) headings.push({ title, body })
+    }
+  }
+
+  return { headings, equations, codeBlocks }
+}
 
 function buildFallbackTutorial(topic: string, rawReply?: string): TutorialPayload {
   const cleanTopic = topic.trim() || 'Topic Overview'
+  const approach = inferPedagogicalApproach(cleanTopic)
+  const discovered = searchBoardAssets({ query: cleanTopic, assetType: 'colors', limit: 1 })
+  const palette = discovered.colorPalettes[0]
+  const parsed = extractFallbackSectionsFromReply(rawReply)
+
+  if (parsed.headings.length > 0) {
+    return {
+      topic: cleanTopic,
+      approach: approach.name,
+      pedagogicalRationale: approach.structureGuide,
+      fontFamily: approach.recommendedFont,
+      accentFill: palette?.noteCardFill || '#FEF9C3',
+      overview:
+        rawReply?.replace(/[#*`]/g, '').trim().slice(0, 320) ||
+        `First-principles breakdown of ${cleanTopic}.`,
+      steps: parsed.headings.map((sec, idx) => ({
+        title: `${idx + 1}. ${sec.title}`,
+        explanation: sec.body,
+        keyPoints: [],
+        equations: idx === 0 && parsed.equations.length > 0 ? parsed.equations : undefined,
+        codeSnippet:
+          idx === parsed.headings.length - 1 && parsed.codeBlocks[0] ? parsed.codeBlocks[0] : null
+      }))
+    }
+  }
+
   return {
     topic: cleanTopic,
-    overview: rawReply
-      ? rawReply.slice(0, 320)
-      : `Structured visual breakdown of ${cleanTopic}: core intuition, architecture flow, and practical application.`,
+    approach: approach.name,
+    pedagogicalRationale: approach.structureGuide,
+    fontFamily: approach.recommendedFont,
+    accentFill: palette?.noteCardFill || '#FEF9C3',
+    overview:
+      rawReply?.slice(0, 320) ||
+      `First-principles conceptual synthesis for ${cleanTopic}. Retry with an active AI provider to generate full spatial visuals and domain formalism.`,
     steps: [
       {
-        title: `1. Core Intuition: ${cleanTopic}`,
-        explanation: rawReply
-          ? rawReply
-          : `**${cleanTopic}** breaks a complex problem into well-defined inputs, transformations, and verifiable outputs.`,
+        title: `1. Core Entities & First Principles of ${cleanTopic}`,
+        explanation:
+          rawReply ||
+          `Decompose **${cleanTopic}** into its fundamental interacting components, state transitions, and governing conservation or causality rules.`,
         keyPoints: [
-          `Identify the primary entities and inputs in ${cleanTopic}`,
-          'Understand how state transitions from input to output'
+          `Identify the constituent components, forces, or state variables of ${cleanTopic}`,
+          'Specify the causal mechanism linking initial state to observed outcome'
         ],
-        diagramMermaid: `graph LR\n  A[Problem & Inputs] --> B[Core ${cleanTopic} Logic]\n  B --> C[Result & Insights]`,
-        diagramNodes: [
-          { id: '1', type: 'startEnd', label: 'Inputs & Context', description: 'Starting conditions' },
-          { id: '2', type: 'process', label: cleanTopic, description: 'Core mechanism' },
-          { id: '3', type: 'startEnd', label: 'Outcome', description: 'Verified output' }
-        ],
-        diagramEdges: [
-          { source: '1', target: '2', label: 'drives' },
-          { source: '2', target: '3', label: 'produces' }
-        ]
-      },
-      {
-        title: '2. Architecture & Component Flow',
-        explanation: `Map how individual building blocks collaborate inside **${cleanTopic}**, separating storage, processing, and feedback loops.`,
-        keyPoints: [
-          'Keep interfaces modular between stages',
-          'Validate intermediate outputs before downstream steps'
-        ],
-        diagramNodes: [
-          { id: '1', type: 'process', label: 'Ingestion / Prep', description: 'Normalize inputs' },
-          { id: '2', type: 'decision', label: 'Validation Gate', description: 'Check constraints' },
-          { id: '3', type: 'database', label: 'State / Knowledge', description: 'Persist key artifacts' },
-          { id: '4', type: 'process', label: 'Synthesis', description: 'Produce final structure' }
-        ],
-        diagramEdges: [
-          { source: '1', target: '2', label: 'validate' },
-          { source: '2', target: '3', label: 'store' },
-          { source: '2', target: '4', label: 'pass' }
-        ]
-      },
-      {
-        title: '3. Practical Summary & Next Steps',
-        explanation: `Apply **${cleanTopic}** iteratively: verify edge cases, connect notes to diagrams on the canvas, and test small examples first.`,
-        keyPoints: [
-          'Verify assumptions with concrete examples',
-          'Link related notes and diagrams spatially on the board'
-        ],
-        diagramNodes: [
-          { id: '1', type: 'process', label: 'Build Prototype', description: 'Start minimal' },
-          { id: '2', type: 'decision', label: 'Meets Goal?', description: 'Inspect results' },
-          { id: '3', type: 'startEnd', label: 'Refine & Document', description: 'Capture patterns' }
-        ],
-        diagramEdges: [
-          { source: '1', target: '2', label: 'evaluate' },
-          { source: '2', target: '3', label: 'yes' }
-        ]
+        equations: parsed.equations.length > 0 ? parsed.equations : undefined,
+        codeSnippet: parsed.codeBlocks[0] ?? null
       }
     ]
   }
@@ -409,8 +423,8 @@ function getRagContextSnippet(
   return { snippet: '', pinnedTitles: [] }
 }
 
-const REACTFLOW_DIAGRAM_SYSTEM_PROMPT = `You are an expert Technical Architecture & Flowchart Generator.
-Convert the provided concept, system design, business process, or workflow into an interactive, beautifully structured React Flow diagram.
+const REACTFLOW_DIAGRAM_SYSTEM_PROMPT = `You are an expert Technical Architecture & Board Diagram Generator.
+Convert the provided concept, system design, business process, or workflow into a structured connected diagram using native board shape IDs from [DISCOVERED FIRST-PRINCIPLES BOARD PRIMITIVES & ASSETS] in the prompt.
 
 Return STRICT JSON ONLY matching:
 {
@@ -419,43 +433,11 @@ Return STRICT JSON ONLY matching:
   "nodes": [
     {
       "id": "1",
-      "type": "startEnd",
-      "label": "Start / End / Entrypoint",
-      "description": "Short explanation",
+      "type": "rounded-rect",
+      "label": "Node Label",
+      "description": "",
       "x": 200,
       "y": 50
-    },
-    {
-      "id": "2",
-      "type": "process",
-      "label": "Process Step",
-      "description": "Details",
-      "x": 200,
-      "y": 170
-    },
-    {
-      "id": "3",
-      "type": "decision",
-      "label": "Condition / Check?",
-      "description": "Yes / No branch",
-      "x": 200,
-      "y": 300
-    },
-    {
-      "id": "4",
-      "type": "database",
-      "label": "Database Store",
-      "description": "Postgres / Redis / MongoDB",
-      "x": 420,
-      "y": 300
-    },
-    {
-      "id": "5",
-      "type": "cloud",
-      "label": "API Gateway / External Cloud",
-      "description": "HTTP / WebSocket",
-      "x": 200,
-      "y": 440
     }
   ],
   "edges": [
@@ -465,59 +447,16 @@ Return STRICT JSON ONLY matching:
       "target": "2",
       "label": "",
       "animated": false
-    },
-    {
-      "id": "e2-3",
-      "source": "2",
-      "target": "3",
-      "label": "",
-      "animated": false
-    },
-    {
-      "id": "e3-4",
-      "source": "3",
-      "target": "4",
-      "label": "Yes",
-      "animated": true
-    },
-    {
-      "id": "e3-5",
-      "source": "3",
-      "target": "5",
-      "label": "No",
-      "animated": false
     }
   ]
 }
-
-Supported Node Types:
-- "startEnd": Start, Finish, Trigger, or Terminal states
-- "process": Standard task, action, service, or computing component
-- "decision": Branching condition, check, or filter
-- "database": Data persistence, cache, or table
-- "cloud": External services, API gateways, queues, cloud infra
-- "document": Specification, file, or report
-- "inputOutput": Input/Output, User UI, display
-- "actor": Person, client, or role
-- "circle": State circle, event connector, or terminal
-- "group": Container frame to group related nodes
-- "sticky": Sticky note for remarks or ideas
-- "custom": General card
-- Full Vexelboard Shape Library IDs (use when the diagram is UML, BPMN, ERD, Network, Mockup, or specialized Flowchart):
-  - Flowchart: fc-predefined-process, fc-delay, fc-display, fc-stored-data, fc-manual-input, fc-preparation, fc-merge, fc-extract, fc-or, fc-summing-junction, fc-off-page-reference
-  - UML: uml-class, uml-interface, uml-abstract-class, uml-package, uml-component, uml-node, uml-lifeline, uml-state, uml-initial-state, uml-final-state, uml-fork-join-h
-  - BPMN: bpmn-task, bpmn-subprocess, bpmn-event-start, bpmn-event-intermediate, bpmn-event-end, bpmn-gateway-exclusive, bpmn-gateway-parallel, bpmn-gateway-inclusive, bpmn-data-store, bpmn-pool
-  - Entity Relation: er-entity, er-weak-entity, er-attribute, er-key-attribute, er-relationship, er-table
-  - Network: net-server, net-router, net-switch, net-firewall, net-load-balancer, net-globe, net-queue, net-container, net-function
-  - Mockup: mock-browser-window, mock-mobile-frame, mock-button, mock-text-input, mock-modal, mock-card
-  - Basic / 3D / Callouts / Arrows: hexagon, octagon, star-5, cube, isometric-cube, cylinder-3d, sphere, callout-rect, callout-cloud, chevron, arrow-right
 
 Respond with STRICT JSON only. Do NOT wrap in markdown code blocks or introductory commentary.`
 
 const BEAUTIFY_DIAGRAM_SYSTEM_PROMPT = `You are a World-Class Technical Diagram Architect & Vision Specialist for an interactive whiteboard application.
 Your task is to analyze a hand-drawn sketch, diagram, or handwritten notes drawn by a user and either:
 A) Convert pure handwritten text/words/notes into clean well-written text, OR
-B) Transform any drawn shapes, flowchart, architecture map, circuit, or UI wireframe into an impeccably structured React Flow JSON using our exact shape library IDs.
+B) Transform any drawn shapes, flowchart, architecture map, circuit, or UI wireframe into an impeccably structured diagram JSON using the matching board shape IDs provided in [DISCOVERED FIRST-PRINCIPLES BOARD PRIMITIVES & ASSETS].
 
 Analyze the user's drawing carefully:
 1. DISTINGUISH HANDWRITTEN TEXT VS SHAPES/DIAGRAMS:
@@ -526,18 +465,8 @@ Analyze the user's drawing carefully:
    - Otherwise, identify every drawn shape, box, icon, container, arrow, and connector line.
 2. PRESERVE EXACT ORIENTATION, SHAPE GEOMETRY, LABELS & TOPOLOGY:
    - NEVER rotate, transpose, or convert a Left-to-Right (LR) diagram into Top-to-Bottom (TB), or vice versa! Preserve the EXACT 2D spatial layout from the image using pixel coordinates relative to top-left (0, 0) ("x", "y", "width", "height"): shapes on the left must have smaller "x", shapes on the right must have larger "x", shapes near the top must have smaller "y", and shapes near the bottom must have larger "y".
-   - Keep the EXACT text written inside each shape in "label" (e.g. if the user wrote "D", output "D", NOT "Decision"; if "A", output "A"). Set "description": "" unless secondary descriptive text is actually written in the drawing—NEVER invent placeholder descriptions like "Document E".
-   - Use "rectangle" or "rounded-rectangle" for plain four-sided boxes (even with slightly hand-drawn lines); ONLY use "fc-document" when the shape clearly has a wavy bottom edge representing a document.
-   - Match each drawn shape to the closest exact ID from our shape library:
-     - Basic: "rectangle", "square", "rounded-rectangle", "stadium", "circle", "ellipse", "triangle", "triangle-down", "right-triangle", "rhombus", "parallelogram", "parallelogram-left", "trapezoid", "trapezoid-inverted", "cross", "x-shape", "half-circle", "donut", "cloud", "shield", "banner", "ribbon", "wave", "can"
-     - Polygons & Stars: "pentagon", "hexagon", "hexagon-vertical", "heptagon", "octagon", "decagon", "star-4", "star-5", "star-6", "star-8", "explosion"
-     - Arrows: "arrow-right", "arrow-left", "arrow-up", "arrow-down", "arrow-left-right", "arrow-up-down", "arrow-quad", "arrow-circular", "chevron", "pentagon-arrow"
-     - Flowchart: "fc-process", "fc-alternate-process", "fc-decision", "fc-terminator", "fc-data", "fc-predefined-process", "fc-internal-storage", "fc-document", "fc-multi-document", "fc-manual-input", "fc-manual-operation", "fc-preparation", "fc-delay", "fc-display", "fc-stored-data", "fc-database", "fc-or", "fc-summing-junction", "fc-off-page-reference"
-     - Callouts: "callout-rect", "callout-rounded-rect", "callout-oval", "callout-cloud"
-     - 3D: "cube", "isometric-cube", "cylinder-3d", "cylinder-horizontal", "cone", "pyramid", "sphere"
-     - Symbols: "heart", "lightning", "drop", "moon", "sun", "checkmark", "gear", "location-pin", "flag", "bookmark", "envelope", "clock", "hourglass", "lock", "key", "lightbulb", "trophy", "puzzle-piece", "crown", "warning-triangle"
-     - UML / BPMN / ER / Network / Mockup: "uml-class", "uml-interface", "uml-package", "uml-component", "uml-actor", "uml-use-case", "uml-note", "uml-lifeline", "uml-state", "bpmn-task", "bpmn-event-start", "bpmn-event-end", "bpmn-gateway-exclusive", "bpmn-gateway-parallel", "bpmn-data-store", "er-entity", "er-relationship", "er-table", "net-server", "net-router", "net-switch", "net-firewall", "net-load-balancer", "net-globe", "net-queue", "net-user", "mock-browser-window", "mock-mobile-frame", "mock-button", "mock-text-input", "mock-modal", "mock-card"
-     - Special React Flow containers: "sticky" (sticky note), "group" (frame/container)
+   - Keep the EXACT text written inside each shape in "label" (e.g. if the user wrote "D", output "D", NOT "Decision"; if "A", output "A"). Set "description": "" unless secondary descriptive text is actually written in the drawing—NEVER invent placeholder descriptions.
+   - Match each drawn shape to the closest matching shape ID from the discovered board asset catalog provided in context (use rectangular box IDs for plain 4-sided boxes, diamond IDs for rhombuses/decisions, cylinder/cloud/server/ml/uml IDs only when visually drawn).
    - Only include "edges" when there are actual connecting lines or arrows linking shapes; do NOT invent edges for standalone unlinked shapes.
    - Trace branching T-junctions carefully: when an outgoing line from node A splits into a vertical spine pointing to D, B, and C, emit A->D, A->B, and A->C (do NOT falsely chain B->C unless an arrow actually connects B to C).
    - If the user wrote labels next to connector lines ("Yes", "No", "HTTP"), transcribe them into the edge "label".
@@ -550,7 +479,7 @@ Return STRICT JSON conforming to EITHER the text-only format above OR:
   "nodes": [
     {
       "id": "1",
-      "type": "rounded-rectangle",
+      "type": "rounded-rect",
       "label": "A",
       "description": "",
       "x": 100,
@@ -571,6 +500,75 @@ Return STRICT JSON conforming to EITHER the text-only format above OR:
 }
 
 Respond with STRICT JSON ONLY. Do NOT add markdown fences or explanation.`
+
+const VECTORIZE_DRAWING_SYSTEM_PROMPT = `You are a Principal Vector Illustrator & Diagram Architect for an infinite digital whiteboard.
+Your task is to analyze ANY hand-drawn sketch, diagram, multi-diagram composition, scientific figure, or handwritten notes and synthesize a clean, crisp, textbook-grade SVG that faithfully redraws EVERYTHING in the image.
+
+FIRST think carefully in "analysis":
+- Inventory EVERY distinct object, sub-diagram, container, compartment, open wall, line, arrow (and its exact direction!), curve, and exact handwritten word/letter in the image.
+- Note their exact spatial relationships (top vs bottom, left vs right, inside vs outside, open vs closed ends, pointing from X to Y).
+
+THEN output a single clean, minimalist, publication-grade SVG in "svg":
+- Set viewBox="0 0 W H" matching the aspect ratio of the user's drawing (e.g. using the exact pixel width & height provided in the prompt, with ~40px clean breathing margin).
+- Use clean, standard SVG primitives so every part is crisp and individually editable:
+  * <rect x y width height rx fill stroke stroke-width /> — use rx="0" for flush/touching compartments, grids, or tiled cells; rx="8" for standalone rounded cards.
+  * <circle cx cy r fill stroke stroke-width /> and <ellipse cx cy rx ry />
+  * <line x1 y1 x2 y2 stroke stroke-width marker-end="url(#arrow)" /> — for straight lines, extension walls, dividers, and straight arrows.
+  * <polyline points="x1,y1 x2,y2 x3,y3" fill="none" stroke stroke-width marker-end="url(#arrow)" /> — for crisp 90° L-shaped or stepped bent arrows!
+  * <polygon points="..." /> — for triangles, diamonds, hexagons.
+  * <path d="M... Q... C... L..." /> — for smooth curves, arcs, waves, clouds, organic illustrations, physics/math curves, or custom icons.
+  * <text x y font-size font-weight="700" text-anchor="middle|start|end">Exact text</text>
+- Define a clean arrowhead marker inside <defs> whenever arrows are used:
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" /></marker></defs>
+  Attach marker-end="url(#arrow)" (and marker-start="url(#arrow)" for bidirectional arrows) to <line>, <polyline>, or <path> elements.
+
+UNIVERSAL VISUAL CRAFTSMANSHIP RULES:
+1. COMPLETENESS: Reproduce EVERY sub-diagram, cell, wall, arrow, and text label visible in the image (e.g. if there are two diagrams, draw BOTH in their exact relative positions!). Never drop elements and NEVER invent extra labels that were not drawn.
+2. GEOMETRIC PRECISION:
+   - Touching/stacked/tiled compartments MUST share exact mathematical edges (zero gaps, zero overlaps, identical widths/heights, rx="0").
+   - Open walls/rails MUST touch the exact corners of their adjacent compartments.
+   - Straight lines & arrows MUST be perfectly horizontal (y1=y2) or vertical (x1=x2) when drawn roughly straight.
+   - Bent arrows MUST use crisp 90° orthogonal <polyline> corners unless a smooth curved arc was clearly intended.
+   - Arrowheads MUST point in the EXACT direction drawn by the user!
+3. CLEAN TYPOGRAPHY & ZERO OVERLAPS:
+   - Text inside a closed cell/shape MUST be centered cleanly inside it (text-anchor="middle", font-size proportional to cell height, ~45% of cell height for single letters).
+   - External labels MUST be upright, horizontal, bold, and placed with clear whitespace (~10–14px) away from strokes and borders — NEVER overlapping any line or rectangle edge!
+4. COLORS & TRANSPARENT CANVAS:
+   - Do NOT draw a background rectangle! Leave the canvas completely transparent so the vector immerses seamlessly into the board.
+   - Preserve any explicit colors drawn by the user, and use fill="none" for hollow wireframe strokes.
+5. PURE HANDWRITTEN TEXT:
+   - If the image contains ONLY handwritten words/notes with NO shapes or arrows, respond with:
+     {"isTextOnly": true, "recognizedText": "Exact transcribed text preserving line breaks"}
+
+Respond with STRICT JSON ONLY:
+{
+  "analysis": "Concise inventory of all elements, text labels, arrow directions, and spatial layout",
+  "svg": "<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 600 500\\">...</svg>"
+}
+No markdown code fences or extra prose outside the JSON.`
+
+const VECTORIZE_CRITIQUE_SYSTEM_PROMPT = `You are a Meticulous Visual QA Critic & SVG Precision Engineer.
+You are given a SIDE-BY-SIDE image:
+- LEFT ("ORIGINAL SKETCH"): The user's original hand-drawn whiteboard sketch.
+- RIGHT ("GENERATED VECTOR"): The live rendered result of the SVG code provided in the prompt.
+
+Carefully compare LEFT vs RIGHT visually and check ALL 5 criteria:
+1. COMPLETENESS: Is EVERY sub-diagram, cell, open wall, divider, arrow, curve, and text label from LEFT present in RIGHT?
+2. FIDELITY: Do ALL arrows point in the EXACT same direction as LEFT? Are ALL text strings spelled identically to LEFT without hallucinated extras?
+3. ALIGNMENT & PROPORTIONS: Are stacked/adjacent cells flush with equal size and rx="0"? Are open walls locked cleanly to cell corners? Are bent arrows crisp 90° polylines?
+4. ZERO OVERLAPS: Does ANY text overlap a shape border, arrow shaft, or another text label? Is every cell label centered cleanly inside its cell?
+5. CLEANLINESS: Is there any stray artifact, broken arrow, or unwanted background rectangle?
+
+If RIGHT is already faithful, complete, crisp, and overlap-free, respond with STRICT JSON:
+{"approved": true}
+
+If ANY issue exists, fix the SVG coordinates/elements surgically and respond with STRICT JSON:
+{
+  "approved": false,
+  "issues": "Concise summary of what was wrong and fixed",
+  "svg": "<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 W H\\">...</svg>"
+}
+Respond with STRICT JSON ONLY. No markdown fences or extra prose.`
 
 /* ------------------------------------------------------------------ */
 /* 4. Provider adapters                                                */
@@ -711,7 +709,8 @@ async function callOllama(p: ChatPayload, host?: string): Promise<string> {
         errMsg.toLowerCase().includes('vision'))
     ) {
       throw new Error(
-        `Ollama model '${activeModel}' cannot process diagram sketches. Ensure vision is enabled or configure Google Gemini in Settings.`
+        `Ollama model '${activeModel}' cannot process diagram sketches. Ensure vision is enabled or configure Google Gemini in Settings.`,
+        { cause: err }
       )
     }
 
@@ -953,15 +952,16 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
       return { ok: true, recognizedText }
     }
 
-    // Task B: Hand-Drawn Diagram Beautification to React Flow Diagram
+    // Task B: Hand-Drawn Diagram Beautification to Native Board Diagram
     if (req.isBeautifyDiagram) {
       if (!req.imageBase64 && !req.prompt) {
         return { ok: false, error: 'No diagram drawing or description provided for beautification.' }
       }
 
+      const discoveredAssets = formatDiscoveredAssetsForPrompt(req.prompt || 'flowchart diagram', 22)
       const userPrompt = req.prompt
-        ? `Analyze this hand-drawn diagram and convert it into a clean, complete React Flow diagram JSON structure.\n\nDrawing elements & extracted labels:\n${req.prompt}`
-        : 'Analyze this hand-drawn diagram and convert it into a clean, complete React Flow diagram JSON structure.'
+        ? `Analyze this hand-drawn diagram and convert it into a clean, complete diagram JSON structure.\n\n${discoveredAssets}\n\nDrawing elements & extracted labels:\n${req.prompt}`
+        : `Analyze this hand-drawn diagram and convert it into a clean, complete diagram JSON structure.\n\n${discoveredAssets}`
 
       const payload: ChatPayload = {
         model,
@@ -979,13 +979,64 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
       }
     }
 
-    // Task C: Explicit diagram generation request (React Flow)
+    // Task B2: Agentic Hand-Drawn Sketch -> Clean Vector SVG Synthesis
+    if (req.isVectorizeDrawing) {
+      if (!req.imageBase64 && !req.prompt) {
+        return { ok: false, error: 'No drawing provided for vectorization.' }
+      }
+
+      const userPrompt = req.prompt
+        ? `Analyze this hand-drawn whiteboard selection carefully and synthesize a clean, complete, textbook-grade SVG redrawing every item faithfully.\n\nContext:\n${req.prompt}`
+        : 'Analyze this hand-drawn whiteboard selection carefully and synthesize a clean, complete, textbook-grade SVG redrawing every item faithfully.'
+
+      const payload: ChatPayload = {
+        model,
+        system: VECTORIZE_DRAWING_SYSTEM_PROMPT,
+        user: userPrompt,
+        temperature: resolvedTemp !== undefined ? Math.min(resolvedTemp, 0.2) : undefined,
+        imageBase64: req.imageBase64,
+        jsonMode: true
+      }
+
+      const raw = await dispatchProvider(provider, payload, req.ollamaHost)
+      return {
+        ok: true,
+        reply: raw.trim()
+      }
+    }
+
+    // Task B3: Agentic Visual Critique & Self-Repair Pass (Original Sketch vs Generated Vector)
+    if (req.isVectorizeCritique) {
+      if (!req.imageBase64) {
+        return { ok: false, error: 'No side-by-side comparison image provided for critique.' }
+      }
+
+      const payload: ChatPayload = {
+        model,
+        system: VECTORIZE_CRITIQUE_SYSTEM_PROMPT,
+        user:
+          req.prompt ||
+          'Compare LEFT (original sketch) with RIGHT (generated vector) and either approve or return a repaired SVG.',
+        temperature: resolvedTemp !== undefined ? Math.min(resolvedTemp, 0.15) : undefined,
+        imageBase64: req.imageBase64,
+        jsonMode: true
+      }
+
+      const raw = await dispatchProvider(provider, payload, req.ollamaHost)
+      return {
+        ok: true,
+        reply: raw.trim()
+      }
+    }
+
+    // Task C: Explicit diagram generation request
     if (!req.isChat && req.prompt?.startsWith('DIAGRAM_GEN:')) {
       const actualPrompt = req.prompt.replace('DIAGRAM_GEN:', '').trim()
+      const discoveredAssets = formatDiscoveredAssetsForPrompt(actualPrompt, 18)
       const payload: ChatPayload = {
         model,
         system: REACTFLOW_DIAGRAM_SYSTEM_PROMPT,
-        user: `Generate an interactive React Flow diagram for this concept:\n\n${actualPrompt}`,
+        user: `Generate a board diagram JSON for this concept using the discovered shapes below:\n\n${discoveredAssets}\n\nConcept:\n${actualPrompt}`,
         temperature: resolvedTemp,
         jsonMode: true
       }
@@ -996,10 +1047,14 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
       }
     }
 
-    // Task D: Structured Whiteboard Tutorial Generation
+    // Task D: Domain-Adaptive Whiteboard Tutorial Generation
     if (req.isTutorial) {
       const topic = req.tutorialTopic || req.prompt || 'System Design'
-      let contextPrefix = ''
+      const discovered = searchBoardAssets({ query: topic, assetType: 'all', limit: 14 })
+      const inferredApproach = discovered.recommendedApproach
+      const discoveredAssetsPrompt = formatDiscoveredAssetsForPrompt(topic, 14)
+
+      let contextPrefix = `${discoveredAssetsPrompt}\n\n`
       if (req.projectId && req.includeProjectContext !== false) {
         const projCtx = dbManager.getProjectContextSummary(req.projectId, req.boardContext ? req.sectionId : undefined)
         if (projCtx) {
@@ -1024,8 +1079,8 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
       const payload: ChatPayload = {
         model,
         system: TUTORIAL_SYSTEM_PROMPT,
-        user: `${contextPrefix}Teach this topic visually for an interactive whiteboard tutorial:\n\n${topic}`,
-        temperature: resolvedTemp ?? 0.2,
+        user: `${contextPrefix}Decompose the topic below from first principles using the discovered primitives, shapes, fonts, and semantic suggestions above, and synthesize a custom visual whiteboard tutorial:\n\n${topic}`,
+        temperature: resolvedTemp ?? 0.25,
         jsonMode: true
       }
 
@@ -1037,14 +1092,96 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
         const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned)
         const tutorialObj = parsed.tutorial || (parsed.steps ? parsed : null)
         if (tutorialObj && Array.isArray(tutorialObj.steps) && tutorialObj.steps.length > 0) {
+          const topPalette = discovered.colorPalettes[0]
+          const sanitizedTutorial: TutorialPayload = {
+            topic: unescapeLlmText(tutorialObj.topic || topic),
+            overview: unescapeLlmText(tutorialObj.overview || `Visual tutorial on ${topic}.`),
+            approach:
+              typeof tutorialObj.approach === 'string' && tutorialObj.approach.trim()
+                ? tutorialObj.approach.trim()
+                : inferredApproach.id,
+            pedagogicalRationale:
+              typeof tutorialObj.pedagogicalRationale === 'string' &&
+              tutorialObj.pedagogicalRationale.trim()
+                ? unescapeLlmText(tutorialObj.pedagogicalRationale)
+                : inferredApproach.structureGuide,
+            fontFamily:
+              typeof tutorialObj.fontFamily === 'string' && tutorialObj.fontFamily.trim()
+                ? tutorialObj.fontFamily.trim()
+                : inferredApproach.recommendedFont,
+            accentFill:
+              typeof tutorialObj.accentFill === 'string' && tutorialObj.accentFill.trim()
+                ? tutorialObj.accentFill.trim()
+                : topPalette?.nodeFill,
+            steps: (tutorialObj.steps as unknown[]).map((rawStep: unknown, idx: number) => {
+              const st =
+                rawStep && typeof rawStep === 'object'
+                  ? (rawStep as Record<string, unknown>)
+                  : {}
+              const rawEquations = Array.isArray(st.equations)
+                ? st.equations.map((eq: unknown) => String(eq ?? '').trim()).filter(Boolean)
+                : []
+              const singleEq = typeof st.equationLatex === 'string' ? st.equationLatex.trim() : ''
+              let validScene: unknown = undefined
+              if (st.scene && typeof st.scene === 'object') {
+                const normalizedScene = normalizeSpatialSceneInput(st.scene)
+                const checkedScene = SpatialSceneSchema.safeParse(normalizedScene)
+                if (checkedScene.success) {
+                  validScene = checkedScene.data
+                }
+              }
+              const snippetObj =
+                st.codeSnippet && typeof st.codeSnippet === 'object'
+                  ? (st.codeSnippet as Record<string, unknown>)
+                  : null
+              return {
+                title: unescapeLlmText(
+                  typeof st.title === 'string' && st.title.trim() ? st.title : `Step ${idx + 1}`
+                ),
+                explanation: unescapeLlmText(
+                  typeof st.explanation === 'string' ? st.explanation : ''
+                ),
+                keyPoints: Array.isArray(st.keyPoints)
+                  ? st.keyPoints.map((k: unknown) => unescapeLlmText(String(k ?? ''))).filter(Boolean)
+                  : [],
+                equations: rawEquations.length > 0 ? rawEquations : singleEq ? [singleEq] : undefined,
+                equationLatex: singleEq || rawEquations[0] || undefined,
+                scene: validScene,
+                diagramMermaid:
+                  typeof st.diagramMermaid === 'string' && st.diagramMermaid.trim()
+                    ? unescapeLlmText(st.diagramMermaid)
+                    : undefined,
+                diagramNodes:
+                  Array.isArray(st.diagramNodes) && st.diagramNodes.length > 0
+                    ? (st.diagramNodes as TutorialPayload['steps'][number]['diagramNodes'])
+                    : undefined,
+                diagramEdges:
+                  Array.isArray(st.diagramEdges) && st.diagramEdges.length > 0
+                    ? (st.diagramEdges as TutorialPayload['steps'][number]['diagramEdges'])
+                    : undefined,
+                codeSnippet:
+                  snippetObj &&
+                  typeof snippetObj.code === 'string' &&
+                  snippetObj.code.trim()
+                    ? {
+                        language:
+                          typeof snippetObj.language === 'string' && snippetObj.language.trim()
+                            ? snippetObj.language
+                            : 'python',
+                        code: unescapeLlmCode(snippetObj.code)
+                      }
+                    : null
+              }
+            })
+          }
           return {
             ok: true,
-            reply: tutorialObj.overview || `Tutorial on ${topic}`,
-            tutorial: tutorialObj
+            reply: sanitizedTutorial.overview,
+            tutorial: sanitizedTutorial
           }
         }
       } catch (tutErr) {
-        console.warn('[Tutorial] Using structured local tutorial fallback:', tutErr)
+        console.warn('[Tutorial] Using domain-adaptive local tutorial fallback:', tutErr)
       }
 
       const fallback = buildFallbackTutorial(topic, raw.trim() || undefined)
@@ -1061,9 +1198,9 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
       return { ok: false, error: 'Empty question prompt.' }
     }
 
-    // Process attachments & multi-source context
-    let enrichedPrompt = prompt
+    // Process attachments & multi-source context while keeping the user's question anchored first & last
     let imageBase64 = req.imageBase64
+    const contextBlocks: string[] = []
 
     if (req.attachments && req.attachments.length > 0) {
       const imgAttachment = req.attachments.find((a) => a.type === 'image' && a.imageBase64)
@@ -1077,7 +1214,7 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
         .join('\n\n')
 
       if (textAttachments) {
-        enrichedPrompt = `[ATTACHED SOURCES & KNOWLEDGE GROUNDING]\n${textAttachments}\n\n[USER QUERY]\n${prompt}`
+        contextBlocks.push(`[ATTACHED SOURCES & KNOWLEDGE GROUNDING]\n${textAttachments}`)
       }
     }
 
@@ -1091,11 +1228,13 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
         pinnedTitles.length > 0
           ? `[EXPLICITLY REFERENCED KNOWLEDGE STUDIO BOOKS / SOURCES: ${pinnedTitles.join(', ')}]`
           : '[INDEXED NOTEBOOK SOURCES (SQLite RAG)]'
-      enrichedPrompt = `${ragLabel}\n${ragSnippet}\n\n${enrichedPrompt}`
+      contextBlocks.push(`${ragLabel}\n${ragSnippet}`)
     }
 
     if (req.boardContext) {
-      enrichedPrompt = `[CURRENT WHITEBOARD BOARD CONTEXT]\n${req.boardContext}\n\n${enrichedPrompt}`
+      contextBlocks.push(
+        `[CURRENT WHITEBOARD BOARD CONTEXT (background reference only — do NOT review or summarize unrelated board cards unless the user explicitly asks about them)]\n${req.boardContext}`
+      )
     }
 
     let projectContext = ''
@@ -1105,9 +1244,20 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
         req.boardContext ? req.sectionId : undefined
       )
       if (projectContext) {
-        enrichedPrompt = `[PROJECT WORKSPACE CONTEXT (Previous Sections, Materials & Books)]\n${projectContext}\n\n${enrichedPrompt}`
+        contextBlocks.push(
+          `[PROJECT WORKSPACE CONTEXT (Previous Sections, Materials & Books — background reference only)]\n${projectContext}`
+        )
       }
     }
+
+    if (/\b(diagram|flow|chart|architecture|draw|plot|graph|explain|tutorial|schema|erd|uml)\b/i.test(prompt)) {
+      contextBlocks.push(formatDiscoveredAssetsForPrompt(prompt, 12))
+    }
+
+    const enrichedPrompt =
+      contextBlocks.length > 0
+        ? `[USER QUESTION — ANSWER THIS DIRECTLY AND THOROUGHLY]\n${prompt}\n\n${contextBlocks.join('\n\n')}\n\n[USER QUESTION REMINDER]\n${prompt}`
+        : prompt
 
     let systemPrompt = CHAT_SYSTEM_PROMPT
     if (pinnedTitles.length > 0) {
@@ -1134,6 +1284,54 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
   } catch (err) {
     return { ok: false, error: errorMessage(err) }
   }
+}
+
+export async function callVisionJsonProvider(args: {
+  provider: ProviderId
+  model: string
+  system: string
+  user: string
+  imageBase64: string
+  ollamaHost?: string
+  temperature?: number
+}): Promise<string> {
+  return dispatchProvider(
+    args.provider,
+    {
+      model: args.model,
+      system: args.system,
+      user: args.user,
+      imageBase64: args.imageBase64,
+      temperature: args.temperature ?? 0.2,
+      jsonMode: true
+    },
+    args.ollamaHost
+  )
+}
+
+export async function callAgentJsonStep(args: {
+  provider: ProviderId
+  model: string
+  system: string
+  user: string
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>
+  imageBase64?: string
+  ollamaHost?: string
+  temperature?: number
+}): Promise<string> {
+  return dispatchProvider(
+    args.provider,
+    {
+      model: args.model,
+      system: args.system,
+      user: args.user,
+      history: args.history,
+      imageBase64: args.imageBase64,
+      temperature: args.temperature ?? 0.2,
+      jsonMode: true
+    },
+    args.ollamaHost
+  )
 }
 
 async function dispatchProvider(

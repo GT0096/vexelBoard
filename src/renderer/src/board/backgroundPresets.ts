@@ -458,10 +458,22 @@ function tuneColorContrast(hue: number, sat: number, bgHex: string, preferDark: 
  * using WCAG relative luminance so even vivid mid-tones (yellow, coral, sky, lime) get crisp dark text.
  */
 export function isLightColor(color?: string | null): boolean {
-  if (!color || color === 'transparent') return false
+  if (!color || color === 'transparent' || color === 'none') return false
   const norm = normalizeHex(color)
-  if (!norm) return false
-  return relativeLuminance(norm) > 0.179
+  if (norm) {
+    return relativeLuminance(norm) > 0.179
+  }
+  const rgba = /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d*(?:\.\d+)?))?\s*\)$/i.exec(
+    color.trim()
+  )
+  if (rgba) {
+    const r = Math.min(255, Math.max(0, Number(rgba[1])))
+    const g = Math.min(255, Math.max(0, Number(rgba[2])))
+    const b = Math.min(255, Math.max(0, Number(rgba[3])))
+    const hex = `#${Math.round(r).toString(16).padStart(2, '0')}${Math.round(g).toString(16).padStart(2, '0')}${Math.round(b).toString(16).padStart(2, '0')}`
+    return relativeLuminance(hex) > 0.179
+  }
+  return false
 }
 
 const CANDIDATE_PEN_COLORS = [

@@ -5,7 +5,8 @@ import type {
   TextNode,
   EquationNode,
   DiagramNode,
-  CodeNode
+  CodeNode,
+  VectorArtNode
 } from '../types/board'
 
 export interface BoundsRect {
@@ -148,6 +149,33 @@ export function eraseStrokesAlongPath(
   return currentStrokes
 }
 
+export function getShapeBoundingRect(s: ShapeNode): BoundsRect {
+  if (s.points && s.points.length > 0) {
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const [px, py] of s.points) {
+      if (px < minX) minX = px
+      if (py < minY) minY = py
+      if (px > maxX) maxX = px
+      if (py > maxY) maxY = py
+    }
+    return { minX, minY, maxX, maxY, x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+  }
+  let minX = Math.min(s.x, s.x + s.w)
+  let maxX = Math.max(s.x, s.x + s.w)
+  let minY = Math.min(s.y, s.y + s.h)
+  let maxY = Math.max(s.y, s.y + s.h)
+  if (s.controlPoint) {
+    minX = Math.min(minX, s.controlPoint[0])
+    maxX = Math.max(maxX, s.controlPoint[0])
+    minY = Math.min(minY, s.controlPoint[1])
+    maxY = Math.max(maxY, s.controlPoint[1])
+  }
+  return { minX, minY, maxX, maxY, x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+}
+
 /**
  * Erases shapes whose bounding bounds or borders are touched by the eraser circle.
  */
@@ -160,10 +188,23 @@ export function eraseShapesAlongPath(
   radius: number
 ): ShapeNode[] {
   return shapes.filter((s) => {
-    const minX = Math.min(s.x, s.x + s.w)
-    const maxX = Math.max(s.x, s.x + s.w)
-    const minY = Math.min(s.y, s.y + s.h)
-    const maxY = Math.max(s.y, s.y + s.h)
+    const b = getShapeBoundingRect(s)
+    const { minX, maxX, minY, maxY } = b
+
+    // For polylines, check distance to actual segments
+    if (s.points && s.points.length >= 2) {
+      for (let i = 1; i < s.points.length; i++) {
+        const [x1, y1] = s.points[i - 1]
+        const [x2, y2] = s.points[i]
+        if (
+          pointToSegmentDistance(toX, toY, x1, y1, x2, y2) <= radius + 4 ||
+          pointToSegmentDistance(fromX, fromY, x1, y1, x2, y2) <= radius + 4
+        ) {
+          return false
+        }
+      }
+      return true
+    }
 
     // Check if either end of the sweep or midpoints touch the shape
     const distToShape = (px: number, py: number): boolean => {
@@ -204,11 +245,8 @@ export function normalizeRect(x1: number, y1: number, x2: number, y2: number): B
 }
 
 export function isShapeInRect(s: ShapeNode, r: BoundsRect): boolean {
-  const sMinX = Math.min(s.x, s.x + s.w)
-  const sMaxX = Math.max(s.x, s.x + s.w)
-  const sMinY = Math.min(s.y, s.y + s.h)
-  const sMaxY = Math.max(s.y, s.y + s.h)
-  return !(sMaxX < r.minX || sMinX > r.maxX || sMaxY < r.minY || sMinY > r.maxY)
+  const b = getShapeBoundingRect(s)
+  return !(b.maxX < r.minX || b.minX > r.maxX || b.maxY < r.minY || b.minY > r.maxY)
 }
 
 export function isStrokeInRect(s: Stroke, r: BoundsRect): boolean {
@@ -216,8 +254,14 @@ export function isStrokeInRect(s: Stroke, r: BoundsRect): boolean {
 }
 
 export function isTextInRect(t: TextNode, r: BoundsRect): boolean {
-  const w = t.w || 240
-  const h = t.h || 120
+  const estW = t.immersed
+    ? Math.max(40, Math.min(600, Math.max(...t.text.split('\n').map((l) => l.length), 4) * (t.fontSize || 20) * 0.6))
+    : 240
+  const estH = t.immersed
+    ? Math.max(28, (t.text.split('\n').length || 1) * (t.fontSize || 20) * 1.4)
+    : 120
+  const w = t.w || estW
+  const h = t.h || estH
   return !(t.x + w < r.minX || t.x > r.maxX || t.y + h < r.minY || t.y > r.maxY)
 }
 
@@ -237,4 +281,35 @@ export function isCodeInRect(c: CodeNode, r: BoundsRect): boolean {
   const w = Math.max(260, c.w || 560)
   const h = Math.max(200, c.h || 420)
   return !(c.x + w < r.minX || c.x > r.maxX || c.y + h < r.minY || c.y > r.maxY)
+}
+
+export function isVectorArtInRect(v: VectorArtNode, r: BoundsRect): boolean {
+  const minX = Math.min(v.x, v.x + v.width)
+  const maxX = Math.max(v.x, v.x + v.width)
+  const minY = Math.min(v.y, v.y + v.height)
+  const maxY = Math.max(v.y, v.y + v.height)
+  return !(maxX < r.minX || minX > r.maxX || maxY < r.minY || minY > r.maxY)
+}
+
+export function eraseVectorArtAlongPath(
+  arts: VectorArtNode[],
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+  radius: number
+): VectorArtNode[] {
+  return arts.filter((v) => {
+    const minX = Math.min(v.x, v.x + v.width)
+    const maxX = Math.max(v.x, v.x + v.width)
+    const minY = Math.min(v.y, v.y + v.height)
+    const maxY = Math.max(v.y, v.y + v.height)
+    const touches = (px: number, py: number): boolean => {
+      if (px >= minX && px <= maxX && py >= minY && py <= maxY) return true
+      const nx = Math.max(minX, Math.min(px, maxX))
+      const ny = Math.max(minY, Math.min(py, maxY))
+      return Math.hypot(px - nx, py - ny) <= radius
+    }
+    return !touches(toX, toY) && !touches(fromX, fromY)
+  })
 }

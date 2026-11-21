@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Loader2,
   Minus,
@@ -39,7 +39,7 @@ interface TopBarProps {
   onClose: () => void
 }
 
-export function TopBar(p: TopBarProps): React.JSX.Element {
+export const TopBar = React.memo(function TopBar(p: TopBarProps): React.JSX.Element {
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [addingSection, setAddingSection] = useState(false)
   const [newSectionTitle, setNewSectionTitle] = useState('')
@@ -274,4 +274,4 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
       </div>
     </header>
   )
-}
+})

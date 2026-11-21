@@ -28,7 +28,9 @@ import {
   Zap,
   Code2,
   Video,
-  BookOpen
+  BookOpen,
+  Wand2,
+  Loader2
 } from 'lucide-react'
 import type { CodeTabItem, PenType, ToolType } from '../types/board'
 import type { BoardPalette } from '../board/backgroundPresets'
@@ -61,6 +63,8 @@ export interface LeftDockToolbarProps {
   onAddTemplate: (templateId: string) => void
   onBeautify: () => void
   isBeautifying?: boolean
+  onVectorize?: () => void
+  isVectorizing?: boolean
   isAiConfigured?: boolean
   hasSelection?: boolean
   onAddCodeNode?: (initialTab?: CodeTabItem) => void
@@ -110,6 +114,18 @@ const STICKY_COLORS = [
 
 const TEMPLATES = [
   {
+    id: 'transformer_vs_moe',
+    title: 'Transformer vs. MoE (Animated)',
+    desc: 'Stage-synchronized neural signal flow with residual bypass & MoE router',
+    icon: <Zap size={16} className="text-accent" />
+  },
+  {
+    id: 'blank_flow',
+    title: 'Blank Flow Canvas',
+    desc: 'Connected board shapes with live ports & auto-layout',
+    icon: <Workflow size={16} className="text-accent" />
+  },
+  {
     id: 'flowchart',
     title: 'Standard Flowchart',
     desc: 'Start -> Action -> Decision -> Success/Error -> Finish',
@@ -141,7 +157,7 @@ const TEMPLATES = [
   }
 ]
 
-export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
+export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
   activeTool,
   onSelectTool,
   onAddShapeNode,
@@ -149,6 +165,8 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
   onAddTemplate,
   onBeautify,
   isBeautifying,
+  onVectorize,
+  isVectorizing,
   isAiConfigured = true,
   hasSelection,
   onAddCodeNode,
@@ -165,8 +183,20 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
   themeAccent
 }) => {
   const [openFlyout, setOpenFlyout] = useState<'pen' | 'shapes' | 'stickies' | 'templates' | null>(null)
+  const [selectedDockItem, setSelectedDockItem] = useState<string>(activeTool)
   const resolvedPenColor = resolvePenColorHex(penColor, themeInk, themeAccent)
   const [searchQuery, setSearchQuery] = useState('')
+
+  useEffect(() => {
+    if (
+      activeTool === 'select' ||
+      activeTool === 'pan' ||
+      activeTool === 'pen' ||
+      activeTool === 'eraser'
+    ) {
+      setSelectedDockItem(activeTool)
+    }
+  }, [activeTool])
   const [animFilter, setAnimFilter] = useState<'all' | 'animated'>('all')
   const [activeCategory, setActiveCategory] = useState<string>('all')
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
@@ -380,8 +410,9 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
       {/* 1. Selection Tool */}
       <button
         type="button"
-        className={`vx-dock-btn ${activeTool === 'select' ? 'active' : ''}`}
+        className={`vx-dock-btn ${selectedDockItem === 'select' && activeTool === 'select' ? 'active' : ''}`}
         onClick={() => {
+          setSelectedDockItem('select')
           onSelectTool('select')
           setOpenFlyout(null)
         }}
@@ -393,8 +424,9 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
       {/* 2. Hand / Pan Canvas Tool */}
       <button
         type="button"
-        className={`vx-dock-btn ${activeTool === 'pan' ? 'active' : ''}`}
+        className={`vx-dock-btn ${selectedDockItem === 'pan' && activeTool === 'pan' ? 'active' : ''}`}
         onClick={() => {
+          setSelectedDockItem('pan')
           onSelectTool('pan')
           setOpenFlyout(null)
         }}
@@ -405,16 +437,22 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
 
       <div className="vx-dock-divider" />
 
-      {/* 3. Pen Drawing Tool */}
+      {/* 3. Pen Drawing Tool (Click = Select Pen · Double-click = Open Pen Style Tab) */}
       <button
         type="button"
-        className={`vx-dock-btn vx-pen-btn ${activeTool === 'pen' ? 'active' : ''}`}
+        className={`vx-dock-btn vx-pen-btn ${selectedDockItem === 'pen' || openFlyout === 'pen' ? 'active' : ''}`}
         onClick={() => {
-          const wasPen = activeTool === 'pen'
+          setSelectedDockItem('pen')
           onSelectTool('pen')
-          setOpenFlyout((prev) => (wasPen && prev === 'pen' ? null : 'pen'))
+          setOpenFlyout((prev) => (prev === 'pen' ? prev : null))
         }}
-        title="Pen / Whiteboard Ink (P) — Color, Thickness & Pen Type"
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          setSelectedDockItem('pen')
+          onSelectTool('pen')
+          toggleFlyout('pen')
+        }}
+        title="Pen (P) — Click to select · Double-click to open Color & Brush tab"
       >
         <PenTool size={18} />
         <span
@@ -427,8 +465,9 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
       {/* 4. Eraser Tool */}
       <button
         type="button"
-        className={`vx-dock-btn ${activeTool === 'eraser' ? 'active' : ''}`}
+        className={`vx-dock-btn ${selectedDockItem === 'eraser' && activeTool === 'eraser' ? 'active' : ''}`}
         onClick={() => {
+          setSelectedDockItem('eraser')
           onSelectTool('eraser')
           setOpenFlyout(null)
         }}
@@ -439,95 +478,174 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
 
       <div className="vx-dock-divider" />
 
-      {/* 5. Shapes & Flowchart Nodes Flyout */}
+      {/* 5. Shapes & Flowchart Nodes (Click = Select · Double-click = Open Shapes Tab) */}
       <button
         type="button"
-        className={`vx-dock-btn ${openFlyout === 'shapes' ? 'active' : ''}`}
-        onClick={() => toggleFlyout('shapes')}
-        title="All Shapes & Flowchart Components"
+        className={`vx-dock-btn ${openFlyout === 'shapes' ? 'active' : selectedDockItem === 'shapes' ? 'selected-item' : ''}`}
+        onClick={() => {
+          setSelectedDockItem('shapes')
+          setOpenFlyout((prev) => (prev === 'shapes' ? prev : null))
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          setSelectedDockItem('shapes')
+          toggleFlyout('shapes')
+        }}
+        title="Shapes & Components — Click to select · Double-click to open tab"
       >
         <Square size={18} />
+        <span className="vx-dock-expand-dot" aria-hidden="true" />
       </button>
 
-      {/* 6. Sticky Notes Flyout */}
+      {/* 6. Sticky Notes (Click = Select · Double-click = Open Notes Tab) */}
       <button
         type="button"
-        className={`vx-dock-btn ${openFlyout === 'stickies' ? 'active' : ''}`}
-        onClick={() => toggleFlyout('stickies')}
-        title="Sticky Notes"
+        className={`vx-dock-btn ${openFlyout === 'stickies' ? 'active' : selectedDockItem === 'stickies' ? 'selected-item' : ''}`}
+        onClick={() => {
+          setSelectedDockItem('stickies')
+          setOpenFlyout((prev) => (prev === 'stickies' ? prev : null))
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          setSelectedDockItem('stickies')
+          toggleFlyout('stickies')
+        }}
+        title="Sticky Notes — Click to select · Double-click to open tab"
       >
         <StickyNote size={18} />
+        <span className="vx-dock-expand-dot" aria-hidden="true" />
       </button>
 
-      {/* 7. Templates Flyout */}
+      {/* 7. Templates (Click = Select · Double-click = Open Templates Tab) */}
       <button
         type="button"
-        className={`vx-dock-btn ${openFlyout === 'templates' ? 'active' : ''}`}
-        onClick={() => toggleFlyout('templates')}
-        title="Diagram & Architecture Templates"
+        className={`vx-dock-btn ${openFlyout === 'templates' ? 'active' : selectedDockItem === 'templates' ? 'selected-item' : ''}`}
+        onClick={() => {
+          setSelectedDockItem('templates')
+          setOpenFlyout((prev) => (prev === 'templates' ? prev : null))
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          setSelectedDockItem('templates')
+          toggleFlyout('templates')
+        }}
+        title="Diagram Templates — Click to select · Double-click to open tab"
       >
         <LayoutTemplate size={18} />
+        <span className="vx-dock-expand-dot" aria-hidden="true" />
       </button>
 
-      {/* 8. Add Coding Tab Container onto Board */}
+      {/* 8. Coding Container (Click = Select · Double-click = Open Coding Tab) */}
       <button
         type="button"
-        className="vx-dock-btn code-tab-btn"
+        className={`vx-dock-btn code-tab-btn ${selectedDockItem === 'code' ? 'selected-item' : ''}`}
         onClick={() => {
+          setSelectedDockItem('code')
+          setOpenFlyout(null)
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          setSelectedDockItem('code')
           setOpenFlyout(null)
           onAddCodeNode?.()
         }}
-        title="Add Coding Tab Container — Place anywhere, drag, resize & run code in any language"
+        title="Coding Tab Container — Click to select · Double-click to add & open"
       >
         <Code2 size={18} />
+        <span className="vx-dock-expand-dot" aria-hidden="true" />
       </button>
 
-      {/* 8b. Add YouTube Interactive Video Card to Board */}
+      {/* 8b. Interactive YouTube Video Card (Click = Select · Double-click = Open Video Tab) */}
       <button
         type="button"
-        className="vx-dock-btn"
+        className={`vx-dock-btn ${selectedDockItem === 'video' ? 'selected-item' : ''}`}
         onClick={() => {
+          setSelectedDockItem('video')
+          setOpenFlyout(null)
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          setSelectedDockItem('video')
           setOpenFlyout(null)
           onAddYouTubeVideo?.()
         }}
-        title="Add Interactive YouTube Video Card — Play on board & take timestamped notes"
+        title="YouTube Video Card — Click to select · Double-click to open"
         style={{ color: '#ef4444' }}
       >
         <Video size={18} />
+        <span className="vx-dock-expand-dot" aria-hidden="true" />
       </button>
 
-      {/* 8c. Open Knowledge Studio */}
+      {/* 8c. Knowledge Studio (Click = Select · Double-click = Open Knowledge Studio Tab) */}
       <button
         type="button"
-        className="vx-dock-btn"
+        className={`vx-dock-btn ${selectedDockItem === 'knowledge' ? 'selected-item' : ''}`}
         onClick={() => {
+          setSelectedDockItem('knowledge')
+          setOpenFlyout(null)
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          setSelectedDockItem('knowledge')
           setOpenFlyout(null)
           onOpenKnowledgeHub?.()
         }}
-        title="Open Knowledge Studio — Multi-source study, tutorials & recall"
+        title="Knowledge Studio — Click to select · Double-click to open"
         style={{ color: '#a78bfa' }}
       >
         <BookOpen size={18} />
+        <span className="vx-dock-expand-dot" aria-hidden="true" />
       </button>
 
       <div className="vx-dock-divider" />
 
-      {/* 9. AI Diagram Beautifier / Sketch Recognizer */}
+      {/* 9. AI Diagram Beautifier (Click = Select · Double-click = Run Beautify) */}
       <button
         type="button"
-        className={`vx-dock-btn magic-ai ${isBeautifying ? 'active' : ''}`}
-        onClick={onBeautify}
+        className={`vx-dock-btn magic-ai ${isBeautifying ? 'active' : selectedDockItem === 'beautify' ? 'selected-item' : ''}`}
+        onClick={() => {
+          setSelectedDockItem('beautify')
+          setOpenFlyout(null)
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          setSelectedDockItem('beautify')
+          if (isAiConfigured && !isBeautifying) onBeautify()
+        }}
         disabled={!isAiConfigured || isBeautifying}
         title={
           !isAiConfigured
             ? 'AI Beautify disabled — configure AI Settings first'
             : hasSelection
-              ? 'Beautify selected sketch into interactive React Flow diagram'
-              : 'AI Beautify Diagram (Auto-detect drawing strokes)'
+              ? 'Beautify Diagram — Click to select · Double-click to run (Ctrl+B)'
+              : 'Beautify Diagram — Click to select · Double-click to run (Ctrl+B)'
         }
       >
-        <Sparkles size={18} />
+        {isBeautifying ? <Loader2 size={18} className="spin-animate" /> : <Sparkles size={18} />}
+        <span className="vx-dock-expand-dot" aria-hidden="true" />
       </button>
+
+      {/* 10. Vectorizer (Click = Select · Double-click = Run Vectorize) */}
+      {onVectorize && (
+        <button
+          type="button"
+          className={`vx-dock-btn magic-vector ${isVectorizing ? 'active' : selectedDockItem === 'vectorize' ? 'selected-item' : ''}`}
+          onClick={() => {
+            setSelectedDockItem('vectorize')
+            setOpenFlyout(null)
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation()
+            setSelectedDockItem('vectorize')
+            if (!isVectorizing) onVectorize()
+          }}
+          disabled={isVectorizing}
+          title="Vectorize — Click to select · Double-click to run (Ctrl+Shift+B)"
+        >
+          {isVectorizing ? <Loader2 size={18} className="spin-animate" /> : <Wand2 size={18} />}
+          <span className="vx-dock-expand-dot" aria-hidden="true" />
+        </button>
+      )}
 
       {/* ---------------- Flyout Panels ---------------- */}
 
@@ -909,4 +1027,4 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = ({
       )}
     </div>
   )
-}
+})

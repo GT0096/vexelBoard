@@ -32,6 +32,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
+  Ban,
   GripHorizontal,
   Trash2,
   Copy,
@@ -68,6 +69,8 @@ import {
   type LibraryShapeDef
 } from '../shapes/shapeLibrary'
 import { ShapeSvg } from '../shapes/ShapeSvg'
+import { FONTS, FONT_ORDER, resolveFontCss } from '../themes'
+import type { FontId } from '../types/board'
 
 /* ------------------------------------------------------------------ */
 /* Custom Node Types & Data Interfaces                                */
@@ -78,6 +81,8 @@ export interface CustomNodeData extends Record<string, unknown> {
   description?: string
   color?: string
   bg?: string
+  textColor?: string
+  fontFamily?: FontId
   w?: number
   h?: number
   shapeId?: string
@@ -116,13 +121,54 @@ interface DiagramActionsContextValue {
 const DiagramActionsContext = createContext<DiagramActionsContextValue | null>(null)
 
 const COLOR_SWATCHES = [
+  { name: 'Ink', hex: '#111111' },
   { name: 'Cyan', hex: '#00f0ff' },
   { name: 'Emerald', hex: '#10b981' },
   { name: 'Amber', hex: '#f59e0b' },
   { name: 'Violet', hex: '#a855f7' },
-  { name: 'Rose', hex: '#f43f5e' },
-  { name: 'Slate', hex: '#64748b' }
+  { name: 'Rose', hex: '#f43f5e' }
 ]
+
+const RF_FILL_SWATCHES = [
+  '#FFFFFF',
+  '#FFE566',
+  '#7BF1A8',
+  '#67E8F9',
+  '#C4B5FD',
+  '#FDA4AF',
+  '#FDBA74',
+  '#1E293B'
+]
+
+function resolveRfNodeStyle(data: CustomNodeData): React.CSSProperties | undefined {
+  const bg = typeof data.bg === 'string' && data.bg ? data.bg : undefined
+  const border = typeof data.color === 'string' && data.color ? data.color : undefined
+  const explicitText =
+    typeof data.textColor === 'string' && data.textColor && data.textColor !== 'auto'
+      ? data.textColor
+      : undefined
+  const fontCss =
+    typeof data.fontFamily === 'string' && data.fontFamily in FONTS
+      ? resolveFontCss(data.fontFamily as FontId)
+      : undefined
+  if (!bg && !border && !explicitText && !fontCss) return undefined
+  if (bg === 'transparent' || bg === 'none') {
+    return {
+      backgroundColor: 'transparent',
+      ...(border ? { borderColor: border } : {}),
+      ...(explicitText ? { color: explicitText } : {}),
+      ...(fontCss ? { fontFamily: fontCss } : {})
+    }
+  }
+  const autoText = bg ? (isLightColor(bg) ? '#111111' : '#FFFDF7') : undefined
+  const resolvedText = explicitText ?? autoText
+  return {
+    ...(bg ? { backgroundColor: bg } : {}),
+    ...(resolvedText ? { color: resolvedText } : {}),
+    ...(border ? { borderColor: border } : {}),
+    ...(fontCss ? { fontFamily: fontCss } : {})
+  }
+}
 
 const RF_PRO_OPTIONS = { hideAttribution: true }
 
@@ -237,19 +283,127 @@ function NodeActionBar({
           </button>
           {showPalette && (
             <div className="rf-node-palette-popover">
-              {COLOR_SWATCHES.map((sw) => (
+              <div className="rf-palette-row">
+                <span className="rf-palette-label">Fill</span>
                 <button
-                  key={sw.name}
                   type="button"
-                  className="rf-palette-swatch"
-                  style={{ background: sw.hex }}
-                  title={sw.name}
+                  className="rf-palette-swatch none-swatch"
+                  title="No Fill (Transparent)"
                   onClick={() => {
-                    updateNodeData(id, { color: sw.hex })
+                    updateNodeData(id, { bg: 'transparent' })
                     setShowPalette(false)
                   }}
-                />
-              ))}
+                >
+                  <Ban size={10} />
+                </button>
+                {RF_FILL_SWATCHES.map((hex) => (
+                  <button
+                    key={`bg-${hex}`}
+                    type="button"
+                    className="rf-palette-swatch"
+                    style={{ background: hex }}
+                    title={`Fill ${hex}`}
+                    onClick={() => {
+                      updateNodeData(id, { bg: hex })
+                      setShowPalette(false)
+                    }}
+                  />
+                ))}
+                <label className="rf-palette-custom" title="Custom Fill Color">
+                  <Palette size={10} />
+                  <input
+                    type="color"
+                    className="rf-palette-color-input"
+                    value={
+                      typeof currentNode?.data?.bg === 'string' &&
+                      /^#[0-9a-f]{6}$/i.test(currentNode.data.bg)
+                        ? currentNode.data.bg
+                        : '#ffe566'
+                    }
+                    onChange={(e) => updateNodeData(id, { bg: e.target.value })}
+                  />
+                </label>
+              </div>
+              <div className="rf-palette-row">
+                <span className="rf-palette-label">Line</span>
+                {COLOR_SWATCHES.map((sw) => (
+                  <button
+                    key={sw.name}
+                    type="button"
+                    className="rf-palette-swatch"
+                    style={{ background: sw.hex }}
+                    title={`Border ${sw.name}`}
+                    onClick={() => {
+                      updateNodeData(id, { color: sw.hex })
+                      setShowPalette(false)
+                    }}
+                  />
+                ))}
+                <label className="rf-palette-custom" title="Custom Border Color">
+                  <Edit2 size={10} />
+                  <input
+                    type="color"
+                    className="rf-palette-color-input"
+                    value={
+                      typeof currentNode?.data?.color === 'string' &&
+                      /^#[0-9a-f]{6}$/i.test(currentNode.data.color)
+                        ? currentNode.data.color
+                        : '#111111'
+                    }
+                    onChange={(e) => updateNodeData(id, { color: e.target.value })}
+                  />
+                </label>
+              </div>
+              <div className="rf-palette-row">
+                <span className="rf-palette-label">Text</span>
+                {['#111111', '#FFFFFF', '#EF4444', '#2563EB', '#10B981', '#8B5CF6'].map((hex) => (
+                  <button
+                    key={`txt-${hex}`}
+                    type="button"
+                    className="rf-palette-swatch"
+                    style={{ background: hex }}
+                    title={`Text ${hex}`}
+                    onClick={() => {
+                      updateNodeData(id, { textColor: hex })
+                      setShowPalette(false)
+                    }}
+                  />
+                ))}
+                <label className="rf-palette-custom" title="Custom Text Color">
+                  <Edit2 size={10} />
+                  <input
+                    type="color"
+                    className="rf-palette-color-input"
+                    value={
+                      typeof currentNode?.data?.textColor === 'string' &&
+                      /^#[0-9a-f]{6}$/i.test(currentNode.data.textColor)
+                        ? currentNode.data.textColor
+                        : '#111111'
+                    }
+                    onChange={(e) => updateNodeData(id, { textColor: e.target.value })}
+                  />
+                </label>
+              </div>
+              <div className="rf-palette-row">
+                <span className="rf-palette-label">Font</span>
+                <select
+                  className="shape-font-select"
+                  value={
+                    typeof currentNode?.data?.fontFamily === 'string' &&
+                    currentNode.data.fontFamily in FONTS
+                      ? currentNode.data.fontFamily
+                      : 'jakarta'
+                  }
+                  onChange={(e) => updateNodeData(id, { fontFamily: e.target.value })}
+                  title="Select font for node text"
+                >
+                  {FONT_ORDER.map((fid) => (
+                    <option key={fid} value={fid}>
+                      {FONTS[fid].shortLabel} · {FONTS[fid].label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
         </div>
@@ -310,7 +464,7 @@ function ProcessNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): R
   return (
     <div
       className={`rf-custom-node rf-node-process ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
-      style={data.color ? { borderColor: accentColor } : undefined}
+      style={resolveRfNodeStyle(data)}
       onDoubleClick={() => setEditing(true)}
     >
       {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} />}
@@ -378,6 +532,7 @@ function DecisionNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): 
   return (
     <div
       className={`rf-custom-node rf-node-decision ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
+      style={resolveRfNodeStyle(data)}
       onDoubleClick={() => setEditing(true)}
     >
       {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} />}
@@ -430,6 +585,7 @@ function DatabaseNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): 
   return (
     <div
       className={`rf-custom-node rf-node-database ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
+      style={resolveRfNodeStyle(data)}
       onDoubleClick={() => setEditing(true)}
     >
       {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} />}
@@ -497,6 +653,7 @@ function CloudNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): Rea
   return (
     <div
       className={`rf-custom-node rf-node-cloud ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
+      style={resolveRfNodeStyle(data)}
       onDoubleClick={() => setEditing(true)}
     >
       {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} />}
@@ -562,6 +719,7 @@ function StartEndNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): 
   return (
     <div
       className={`rf-custom-node rf-node-startend ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
+      style={resolveRfNodeStyle(data)}
       onDoubleClick={() => setEditing(true)}
     >
       {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} />}
@@ -607,6 +765,7 @@ function DocumentNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): 
   return (
     <div
       className={`rf-custom-node rf-node-document ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
+      style={resolveRfNodeStyle(data)}
       onDoubleClick={() => setEditing(true)}
     >
       {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} />}
@@ -657,6 +816,7 @@ function InputOutputNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>
   return (
     <div
       className={`rf-custom-node rf-node-io ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
+      style={resolveRfNodeStyle(data)}
       onDoubleClick={() => setEditing(true)}
     >
       {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} />}
@@ -697,6 +857,7 @@ function ActorNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): Rea
   return (
     <div
       className={`rf-custom-node rf-node-actor ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
+      style={resolveRfNodeStyle(data)}
       onDoubleClick={() => setEditing(true)}
     >
       {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} />}
@@ -737,6 +898,7 @@ function CircleNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): Re
   return (
     <div
       className={`rf-custom-node rf-node-circle ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
+      style={resolveRfNodeStyle(data)}
       onDoubleClick={() => setEditing(true)}
     >
       {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} />}
@@ -773,9 +935,12 @@ function GroupNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): Rea
   }
 
   return (
-    <div className={`rf-group-frame ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}>
+    <div
+      className={`rf-group-frame ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
+      style={resolveRfNodeStyle(data)}
+    >
       <NodeResizer minWidth={220} minHeight={160} isVisible={selected} lineClassName="border-accent" />
-      {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} showColors={false} />}
+      {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} showColors={true} />}
       <div className="rf-group-header" onDoubleClick={() => setEditing(true)}>
         <Layers size={13} className="text-accent" />
         {editing ? (
@@ -807,12 +972,17 @@ function StickyNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>): Re
     updateNodeData(id, { label: label.trim() || 'Idea note' })
   }
 
-  const bgColor = (data.bg as string) || '#fef08a' // Default sticky yellow
+  const isTransparent = data.bg === 'transparent' || data.bg === 'none'
+  const bgColor = isTransparent ? 'transparent' : ((data.bg as string) || '#fef08a') // Default sticky yellow
 
   return (
     <div
       className={`rf-sticky-note ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
-      style={{ backgroundColor: bgColor }}
+      style={{
+        backgroundColor: bgColor,
+        ...(data.color ? { borderColor: data.color } : {}),
+        ...(!isTransparent ? { color: isLightColor(bgColor) ? '#111111' : '#FFFDF7' } : {})
+      }}
       onDoubleClick={() => setEditing(true)}
     >
       <NodeResizer minWidth={140} minHeight={120} isVisible={selected} />
@@ -853,6 +1023,7 @@ function CustomCardNode({ id, data, selected }: NodeProps<Node<CustomNodeData>>)
   return (
     <div
       className={`rf-custom-node rf-node-custom-card ${selected ? 'selected' : ''} ${data.animated ? 'rf-node-animated' : ''}`}
+      style={resolveRfNodeStyle(data)}
       onDoubleClick={() => setEditing(true)}
     >
       {selected && !editing && <NodeActionBar id={id} onStartEdit={() => setEditing(true)} />}
@@ -930,13 +1101,25 @@ function LibraryShapeNode({
   const diagramActions = useContext(DiagramActionsContext)
   const palette = diagramActions?.palette
   const accentColor = (data.color as string) || palette?.shapeStroke || '#111111'
-  const fillColor = (data.bg as string) || shapeDef.defaultFill || palette?.shapeFill || '#FFE566'
-  const textColor =
-    fillColor === '#fef08a'
+  const isTransparentBg = data.bg === 'transparent' || data.bg === 'none'
+  const fillColor = isTransparentBg
+    ? 'none'
+    : ((data.bg as string) || shapeDef.defaultFill || palette?.shapeFill || '#FFE566')
+  const autoTextColor = isTransparentBg
+    ? (palette?.ink ?? '#111111')
+    : fillColor === '#fef08a'
       ? '#422006'
       : isLightColor(fillColor)
         ? '#111111'
         : '#FFFDF7'
+  const textColor =
+    typeof data.textColor === 'string' && data.textColor && data.textColor !== 'auto'
+      ? data.textColor
+      : autoTextColor
+  const textFontCss =
+    typeof data.fontFamily === 'string' && data.fontFamily in FONTS
+      ? resolveFontCss(data.fontFamily as FontId)
+      : undefined
   const [tx, ty, tw, th] = shapeDef.text ?? [8, 8, 84, 84]
 
   const isAnimated =
@@ -947,7 +1130,10 @@ function LibraryShapeNode({
   return (
     <div
       className={`rf-node-library-shape ${selected ? 'selected' : ''} ${isAnimated ? 'rf-node-animated' : ''}`}
-      style={!width && !height ? { width: `${defaultW}px`, height: `${defaultH}px` } : undefined}
+      style={{
+        width: width ? '100%' : `${defaultW}px`,
+        height: height ? '100%' : `${defaultH}px`
+      }}
       onDoubleClick={startEditing}
     >
       <NodeResizer minWidth={36} minHeight={24} isVisible={selected} />
@@ -971,7 +1157,8 @@ function LibraryShapeNode({
           top: `${ty}%`,
           width: `${tw}%`,
           height: `${th}%`,
-          color: textColor
+          color: textColor,
+          ...(textFontCss ? { fontFamily: textFontCss } : {})
         }}
       >
         {editing ? (
@@ -1029,7 +1216,8 @@ function CustomFlowEdge({
   label,
   style,
   markerEnd,
-  selected
+  selected,
+  animated
 }: EdgeProps): React.JSX.Element {
   const [isEditing, setIsEditing] = useState(false)
   const [edgeLabel, setEdgeLabel] = useState(label ? String(label) : '')
@@ -1057,9 +1245,27 @@ function CustomFlowEdge({
     setEdges((edges) => edges.filter((e) => e.id !== id))
   }
 
+  const pulseColor =
+    typeof style?.stroke === 'string' && style.stroke !== '#111111'
+      ? style.stroke
+      : '#3B82F6'
+
   return (
     <>
       <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
+      {animated && (
+        <g style={{ pointerEvents: 'none' }}>
+          <circle r="8" fill={pulseColor} opacity="0.28">
+            <animateMotion dur="1.6s" repeatCount="indefinite" path={edgePath} />
+          </circle>
+          <circle r="4.5" fill={pulseColor} stroke="#FFFFFF" strokeWidth="1.4">
+            <animateMotion dur="1.6s" repeatCount="indefinite" path={edgePath} />
+          </circle>
+          <circle r="1.8" fill="#FFFFFF">
+            <animateMotion dur="1.6s" repeatCount="indefinite" path={edgePath} />
+          </circle>
+        </g>
+      )}
       <EdgeLabelRenderer>
         <div
           style={{
@@ -1184,14 +1390,15 @@ function DiagramViewportSync({
 
     if (!Number.isFinite(minX) || !Number.isFinite(minY)) return
 
-    // Include safety margin for curved/step edge bends and arrowheads
-    const contentW = Math.max(60, maxX - minX + 36)
-    const contentH = Math.max(60, maxY - minY + 36)
-    const pad = Math.min(20, Math.max(8, Math.round(Math.min(boxW, boxH) * 0.05)))
+    // Include generous margin for strokes, handles, action bars, and curved edge arrowheads
+    const contentW = Math.max(80, maxX - minX + 72)
+    const contentH = Math.max(80, maxY - minY + 84)
+    const pad = Math.min(44, Math.max(24, Math.round(Math.min(boxW, boxH) * 0.08)))
     const availW = Math.max(40, boxW - pad * 2)
     const availH = Math.max(40, boxH - pad * 2)
 
-    const zoom = Math.max(0.05, Math.min(3.0, Math.min(availW / contentW, availH / contentH)))
+    // Cap auto-fit zoom at 1.0 so small diagrams never zoom up and clip inside the container
+    const zoom = Math.max(0.05, Math.min(1.0, Math.min(availW / contentW, availH / contentH)))
     const centerX = (minX + maxX) / 2
     const centerY = (minY + maxY) / 2
     const vpX = Math.round(boxW / 2 - centerX * zoom)

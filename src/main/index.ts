@@ -17,6 +17,7 @@ import icon from '../../resources/icon.png?asset'
 import winIcon from '../../resources/icon.ico?asset'
 const windowIcon = process.platform === 'win32' ? winIcon : icon
 import {
+  callAgentJsonStep,
   checkOllamaStatus,
   deleteApiKey,
   fetchOpenAIModelConfig,
@@ -25,10 +26,21 @@ import {
   runAIRequest,
   saveApiKey
 } from './llmRouter'
+import { cancelAgentRun, runAgentLoop } from './agent/agentHarness'
+import { createAgentTools } from './agent/toolRegistry'
 import { checkCodeRuntimes, runCodeSnippet } from './codeRunner'
+import { runSmartBeautify, runSmartBeautifyCritique } from './smartBeautify'
 import { dbManager } from './db'
 import { fetchYouTubeInfo, parseDocumentBuffer, parseDocumentFile } from './mediaService'
-import type { AIRequest, ByokProvider, CodeExecutionRequest, DisplayMode } from '../shared/ipc'
+import { AgentRunRequestSchema } from '../shared/agentSchema'
+import type {
+  AIRequest,
+  ByokProvider,
+  CodeExecutionRequest,
+  DisplayMode,
+  SmartBeautifyRequest,
+  VectorCritiqueRequest
+} from '../shared/ipc'
 
 /* ---------------- Hardware & WebGPU flags (must precede app ready) ---------------- */
 app.commandLine.appendSwitch('enable-unsafe-webgpu')
@@ -377,6 +389,59 @@ function registerIpc(): void {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.setSize(Math.round(width), Math.round(height))
     }
+  })
+
+  // --- Smart Sketch-to-Vector Converter (Content-Aware Router + Spatial Compiler + Critique + VTracer + SVGO) ---
+  ipcMain.handle('canvas:smart-beautify', async (_e, req: SmartBeautifyRequest) => {
+    return await runSmartBeautify(req)
+  })
+  ipcMain.handle('canvas:smart-beautify-critique', async (_e, req: VectorCritiqueRequest) => {
+    return await runSmartBeautifyCritique(req)
+  })
+
+  // --- Multi-Step Unified AI Agent Harness ---
+  const agentTools = createAgentTools()
+  ipcMain.handle('agent:run', async (event, rawReq: unknown) => {
+    const parsed = AgentRunRequestSchema.safeParse(rawReq)
+    if (!parsed.success) {
+      return {
+        ok: false,
+        runId: (rawReq as any)?.runId || 'invalid',
+        answer: '',
+        stepsCount: 0,
+        mutations: [],
+        usedTools: [],
+        error: `Invalid agent request: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`
+      }
+    }
+    const reqData = parsed.data
+    const srcCount =
+      reqData.boardSnapshot.knowledgeSourceCount > 0
+        ? reqData.boardSnapshot.knowledgeSourceCount
+        : dbManager.getKnowledgeSources(
+            reqData.boardSnapshot.boardId,
+            reqData.boardSnapshot.projectId
+          ).length
+    const enrichedRequest = {
+      ...reqData,
+      boardSnapshot: {
+        ...reqData.boardSnapshot,
+        knowledgeSourceCount: srcCount
+      }
+    }
+    return await runAgentLoop({
+      request: enrichedRequest,
+      tools: agentTools,
+      callLlmStep: callAgentJsonStep,
+      onEvent: (stepEvent) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('agent:event', stepEvent)
+        }
+      }
+    })
+  })
+  ipcMain.handle('agent:cancel', (_e, runId: string) => {
+    return { ok: cancelAgentRun(runId) }
   })
 
   // --- Media & YouTube Transcript IPC ---
