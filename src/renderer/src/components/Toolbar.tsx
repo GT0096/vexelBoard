@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   MousePointer2,
   Hand,
@@ -19,16 +19,17 @@ import {
   Square,
   Grid2x2,
   Grid3x3,
-  Pipette,
-  Loader2
+  Pipette
 } from 'lucide-react'
 import type {
   BackgroundPattern,
   EraserMode,
+  FontId,
   PenType,
   ToolType,
   WritingPadDetection
 } from '../types/board'
+import { FONTS, FONT_ORDER } from '../themes'
 import {
   BACKGROUND_PRESETS,
   hasReadableContrast,
@@ -73,18 +74,24 @@ interface ToolbarProps {
   onSelectBackgroundPattern: (pattern: BackgroundPattern) => void
   onBeautify?: () => void
   isBeautifying?: boolean
+  onVectorize?: () => void
+  isVectorizing?: boolean
+  vectorFont?: FontId
+  onVectorFontChange?: (font: FontId) => void
   isAiConfigured?: boolean
   hasSelection?: boolean
   boardPalette?: BoardPalette
 }
 
-export function Toolbar(p: ToolbarProps): React.JSX.Element {
+export const Toolbar = React.memo(function Toolbar(p: ToolbarProps): React.JSX.Element {
   const [padDetectionMenuOpen, setPadDetectionMenuOpen] = useState(false)
   const [eraserMenuOpen, setEraserMenuOpen] = useState(false)
   const [bgMenuOpen, setBgMenuOpen] = useState(false)
+  const [fontMenuOpen, setFontMenuOpen] = useState(false)
   const padPopRef = useRef<HTMLDivElement>(null)
   const eraserPopRef = useRef<HTMLDivElement>(null)
   const bgPopRef = useRef<HTMLDivElement>(null)
+  const fontPopRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const close = (e: PointerEvent): void => {
@@ -96,6 +103,9 @@ export function Toolbar(p: ToolbarProps): React.JSX.Element {
       }
       if (bgPopRef.current && !bgPopRef.current.contains(e.target as Node)) {
         setBgMenuOpen(false)
+      }
+      if (fontPopRef.current && !fontPopRef.current.contains(e.target as Node)) {
+        setFontMenuOpen(false)
       }
     }
     window.addEventListener('pointerdown', close)
@@ -129,10 +139,14 @@ export function Toolbar(p: ToolbarProps): React.JSX.Element {
           <button
             className={`tool-combo-btn ${p.activeTool === 'pen' ? 'active' : ''}`}
             onClick={() => p.onSelectTool('pen')}
-            title="Writing Pad / Stylus Drawing"
+            title={`Writing Pad / Pen (P) — Recognition: ${p.writingPadDetection.toUpperCase()}`}
           >
             <Pen size={16} />
-            <span>Pad: {p.writingPadDetection.toUpperCase()}</span>
+            <span>
+              {p.writingPadDetection === 'none'
+                ? 'Pen'
+                : `Pen·${p.writingPadDetection === 'text' ? 'Text' : 'Math'}`}
+            </span>
             <span
               className="combo-arrow"
               onClick={(e) => {
@@ -220,23 +234,78 @@ export function Toolbar(p: ToolbarProps): React.JSX.Element {
         <button
           className={p.activeTool === 'text' ? 'active' : ''}
           onClick={() => p.onSelectTool('text')}
-          title="Insert Text Note"
+          title="Insert Text Note (T)"
         >
           <Type size={16} />
-          <span>Note</span>
+          <span>Text</span>
         </button>
+
+        {/* Decoupled Board Typography Picker (Notes, Text, Shapes & Vectors) */}
+        {p.onVectorFontChange && (
+          <div className="dropdown-parent-wrap" ref={fontPopRef}>
+            <button
+              type="button"
+              className={`tool-combo-btn tool-font-btn ${fontMenuOpen ? 'active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                setFontMenuOpen((o) => !o)
+                setBgMenuOpen(false)
+                setPadDetectionMenuOpen(false)
+                setEraserMenuOpen(false)
+              }}
+              title={`Board Typography: ${FONTS[p.vectorFont ?? 'jakarta'].label} (Applies to Text Areas, Notes, Shapes & Vectors)`}
+              style={{ fontFamily: FONTS[p.vectorFont ?? 'jakarta'].css }}
+            >
+              <span className="font-btn-aa" style={{ fontFamily: FONTS[p.vectorFont ?? 'jakarta'].css }}>
+                Aa
+              </span>
+              <span>{FONTS[p.vectorFont ?? 'jakarta'].shortLabel}</span>
+              <span className="combo-arrow">
+                <ChevronDown size={12} />
+              </span>
+            </button>
+
+            {fontMenuOpen && (
+              <div className="vector-font-popover" onPointerDown={(e) => e.stopPropagation()}>
+                <div className="vector-font-popover-title">Board Font</div>
+                <div className="vector-font-popover-sub">Notes, Text Areas, Shapes & Vectors</div>
+                {FONT_ORDER.map((fid) => {
+                  const meta = FONTS[fid]
+                  const active = (p.vectorFont ?? 'jakarta') === fid
+                  return (
+                    <button
+                      key={fid}
+                      type="button"
+                      className={`vector-font-option ${active ? 'active' : ''}`}
+                      onClick={() => {
+                        p.onVectorFontChange?.(fid)
+                        setFontMenuOpen(false)
+                      }}
+                    >
+                      <span className="vector-font-option-sample" style={{ fontFamily: meta.css }}>
+                        {meta.sample}
+                      </span>
+                      <span className="vector-font-option-label" style={{ fontFamily: meta.css }}>
+                        {meta.label}
+                      </span>
+                      {active && <Check size={13} className="vector-font-check" />}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Eraser with circle size & section delete popover */}
         <div className="dropdown-parent-wrap" ref={eraserPopRef}>
           <button
             className={`tool-combo-btn ${p.activeTool === 'eraser' ? 'active' : ''}`}
             onClick={() => p.onSelectTool('eraser')}
-            title="Eraser (Paper Eraser or Section Delete)"
+            title={`Eraser (${p.eraserMode === 'section' ? 'Section Delete' : `${p.eraserSize}px Paper Eraser`})`}
           >
             <Eraser size={16} />
-            <span>
-              {p.eraserMode === 'section' ? 'Area Erase' : `Erase: ${p.eraserSize}px`}
-            </span>
+            <span>{p.eraserMode === 'section' ? 'Area' : 'Erase'}</span>
             <span
               className="combo-arrow"
               onClick={(e) => {
@@ -354,7 +423,7 @@ export function Toolbar(p: ToolbarProps): React.JSX.Element {
                 borderColor: isLightColor(p.backgroundColor) ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.45)'
               }}
             />
-            <span>Background</span>
+            <span>Bg</span>
             <span className="combo-arrow">
               <ChevronDown size={12} />
             </span>
@@ -510,30 +579,6 @@ export function Toolbar(p: ToolbarProps): React.JSX.Element {
             </div>
           )}
         </div>
-
-        {/* Beautify AI Button */}
-        {p.onBeautify && (
-          <button
-            type="button"
-            className={`tool-beautify-btn ${p.isBeautifying ? 'loading' : ''} ${p.hasSelection && p.isAiConfigured !== false ? 'active-pulse' : ''}`}
-            onClick={p.onBeautify}
-            disabled={p.isAiConfigured === false || p.isBeautifying}
-            title={
-              p.isAiConfigured === false
-                ? 'AI Beautify disabled — configure AI Settings first'
-                : p.hasSelection
-                  ? '✨ Beautify selected drawing into interactive React Flow diagram (Flowchart, Architecture, Electronic, UI)'
-                  : '✨ Beautify diagram: Draw with pen, select diagram, and click here'
-            }
-          >
-            {p.isBeautifying ? (
-              <Loader2 size={16} className="spin-animate" />
-            ) : (
-              <Sparkles size={16} />
-            )}
-            <span>Beautify</span>
-          </button>
-        )}
       </div>
 
       <span className="dock-divider" />
@@ -585,4 +630,4 @@ export function Toolbar(p: ToolbarProps): React.JSX.Element {
       </div>
     </nav>
   )
-}
+})

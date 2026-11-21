@@ -1,4 +1,6 @@
-import { EMPTY_BOARD, type BoardState, type CanvasTransform, type ChatMessage } from '../types/board'
+import { EMPTY_BOARD, type BoardLayer, type BoardState, type CanvasTransform, type ChatMessage } from '../types/board'
+import { ensureBoardLayers } from './layerUtils'
+import { unescapeLlmCode, unescapeLlmText } from '@shared/textUnescape'
 import type {
   OverallHistoryEntry,
   OverallHistorySummary,
@@ -31,14 +33,71 @@ export const PROJECT_COLORS = [
 
 export function normalizeBoardState(parsed?: Partial<BoardState> | null): BoardState {
   if (!parsed) return EMPTY_BOARD
+  const { layers, activeLayerId } = ensureBoardLayers({
+    layers: parsed.layers,
+    activeLayerId: parsed.activeLayerId
+  })
+
+  // Auto-heal any legacy spatial cell-strip connectors that drew arrows through cell text
+  const rawShapes = parsed.shapeNodes ?? []
+  const cellBoundsByGroup = new Map<
+    string,
+    { minX: number; minY: number; maxX: number; maxY: number }
+  >()
+  for (const s of rawShapes) {
+    if (!s.vectorGroupId || !s.id.startsWith('vsp-cell-')) continue
+    const prev = cellBoundsByGroup.get(s.vectorGroupId)
+    const x1 = Math.min(s.x, s.x + s.w)
+    const y1 = Math.min(s.y, s.y + s.h)
+    const x2 = Math.max(s.x, s.x + s.w)
+    const y2 = Math.max(s.y, s.y + s.h)
+    if (!prev) {
+      cellBoundsByGroup.set(s.vectorGroupId, { minX: x1, minY: y1, maxX: x2, maxY: y2 })
+    } else {
+      prev.minX = Math.min(prev.minX, x1)
+      prev.minY = Math.min(prev.minY, y1)
+      prev.maxX = Math.max(prev.maxX, x2)
+      prev.maxY = Math.max(prev.maxY, y2)
+    }
+  }
+  const cleanedShapes = rawShapes.filter((s) => {
+    if (!s.vectorGroupId || !s.id.startsWith('vsp-conn-')) return true
+    const cb = cellBoundsByGroup.get(s.vectorGroupId)
+    if (!cb) return true
+    const x1 = s.x
+    const y1 = s.y
+    const x2 = s.x + s.w
+    const y2 = s.y + s.h
+    const startInside =
+      x1 >= cb.minX - 4 && x1 <= cb.maxX + 4 && y1 >= cb.minY + 4 && y1 <= cb.maxY - 4
+    const endInside =
+      x2 >= cb.minX - 4 && x2 <= cb.maxX + 4 && y2 >= cb.minY + 4 && y2 <= cb.maxY - 4
+    return !(startInside && endInside)
+  })
+
   return {
     strokes: parsed.strokes ?? [],
-    textNodes: parsed.textNodes ?? [],
+    textNodes: (parsed.textNodes ?? []).map((t) =>
+      typeof t.text === 'string' && (t.text.includes('\\n') || t.text.includes('\\t'))
+        ? { ...t, text: unescapeLlmText(t.text) }
+        : t
+    ),
     equationNodes: parsed.equationNodes ?? [],
-    shapeNodes: parsed.shapeNodes ?? [],
+    shapeNodes: cleanedShapes,
     diagramNodes: parsed.diagramNodes ?? [],
-    codeNodes: parsed.codeNodes ?? [],
-    videoNodes: parsed.videoNodes ?? []
+    vectorArtNodes: parsed.vectorArtNodes ?? [],
+    vectorDiagramMeta: parsed.vectorDiagramMeta ?? {},
+    codeNodes: (parsed.codeNodes ?? []).map((c) => ({
+      ...c,
+      tabs: (c.tabs ?? []).map((tab) =>
+        typeof tab.code === 'string' && (tab.code.includes('\\n') || tab.code.includes('\\t'))
+          ? { ...tab, code: unescapeLlmCode(tab.code) }
+          : tab
+      )
+    })),
+    videoNodes: parsed.videoNodes ?? [],
+    layers,
+    activeLayerId
   }
 }
 
@@ -49,6 +108,7 @@ export function isBoardEmpty(board: BoardState): boolean {
     board.equationNodes.length === 0 &&
     board.shapeNodes.length === 0 &&
     board.diagramNodes.length === 0 &&
+    (board.vectorArtNodes?.length ?? 0) === 0 &&
     (board.codeNodes?.length ?? 0) === 0 &&
     (board.videoNodes?.length ?? 0) === 0
   )
@@ -400,6 +460,18 @@ export function buildElementsForDb(
   board.shapeNodes.forEach((n) =>
     elements.push({ id: n.id, kind: 'shape', x: n.x, y: n.y, w: n.w, h: n.h, text: n.label, raw: n })
   )
+  board.vectorArtNodes?.forEach((n) =>
+    elements.push({
+      id: n.id,
+      kind: 'vector_art',
+      x: n.x,
+      y: n.y,
+      w: n.width,
+      h: n.height,
+      text: n.sourceMeta?.brief?.subject || 'Vector Artwork',
+      raw: n
+    })
+  )
   board.codeNodes?.forEach((n) =>
     elements.push({
       id: n.id,
@@ -436,6 +508,21 @@ export function buildElementsForDb(
     })
   })
 
+  if (board.layers && board.layers.length > 0) {
+    elements.push({
+      id: '__board_layers__',
+      kind: 'board_meta',
+      x: 0,
+      y: 0,
+      text: '',
+      raw: {
+        kind: 'board_meta',
+        layers: board.layers,
+        activeLayerId: board.activeLayerId
+      }
+    })
+  }
+
   return elements
 }
 
@@ -447,6 +534,8 @@ export function reconstructBoardFromDbElements(rows: unknown[]): BoardState {
     equationNodes: [],
     shapeNodes: [],
     diagramNodes: [],
+    vectorArtNodes: [],
+    vectorDiagramMeta: {},
     codeNodes: [],
     videoNodes: []
   }
@@ -454,7 +543,14 @@ export function reconstructBoardFromDbElements(rows: unknown[]): BoardState {
   for (const rawItem of rows) {
     if (!rawItem || typeof rawItem !== 'object') continue
     const item = rawItem as Record<string, unknown>
-    if (Array.isArray(item.points) && typeof item.size === 'number') {
+    if (item.kind === 'board_meta' && Array.isArray(item.layers)) {
+      board.layers = item.layers as BoardLayer[]
+      if (typeof item.activeLayerId === 'string') {
+        board.activeLayerId = item.activeLayerId
+      }
+    } else if (item.kind === 'vector_art' && Array.isArray(item.layers)) {
+      board.vectorArtNodes!.push(rawItem as NonNullable<BoardState['vectorArtNodes']>[number])
+    } else if (Array.isArray(item.points) && typeof item.size === 'number') {
       board.strokes.push(rawItem as BoardState['strokes'][number])
     } else if (typeof item.text === 'string' && typeof item.fontSize === 'number' && 'source' in item) {
       board.textNodes.push(rawItem as BoardState['textNodes'][number])
@@ -470,7 +566,7 @@ export function reconstructBoardFromDbElements(rows: unknown[]): BoardState {
       board.videoNodes!.push(rawItem as NonNullable<BoardState['videoNodes']>[number])
     }
   }
-  return board
+  return normalizeBoardState(board)
 }
 
 export function computeSectionBreakdown(board: BoardState): {

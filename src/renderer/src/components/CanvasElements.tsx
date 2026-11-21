@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { Suspense, lazy, memo, useState, useEffect } from 'react'
 import {
   Trash2,
   Heading1,
@@ -16,13 +16,17 @@ import {
   Code,
   Table,
   Sigma,
-  FoldVertical
+  FoldVertical,
+  Minus,
+  Plus
 } from 'lucide-react'
 import type {
+  BoardLayer,
   CanvasTransform,
   CodeNode,
   DiagramNode,
   EquationNode,
+  FontId,
   InkPoint,
   Stroke,
   TextNode,
@@ -30,13 +34,22 @@ import type {
   ToolType,
   VideoNode
 } from '../types/board'
+import { isItemEditable, isItemVisible, resolveItemLayerId } from '../board/layerUtils'
+import { FONTS, FONT_ORDER, resolveFontCss } from '../themes'
 import katex from 'katex'
 import getStroke from 'perfect-freehand'
 import { Markdown } from './Markdown'
-import { ReactFlowDiagram } from './ReactFlowDiagram'
-import { CanvasCodeCard } from './CodeStudioPanel'
-import { CanvasVideoCard } from './CanvasVideoCard'
 import { isLightColor, type BoardPalette } from '../board/backgroundPresets'
+
+const ReactFlowDiagram = lazy(() =>
+  import('./ReactFlowDiagram').then((m) => ({ default: m.ReactFlowDiagram }))
+)
+const CanvasCodeCard = lazy(() =>
+  import('./CodeStudioPanel').then((m) => ({ default: m.CanvasCodeCard }))
+)
+const CanvasVideoCard = lazy(() =>
+  import('./CanvasVideoCard').then((m) => ({ default: m.CanvasVideoCard }))
+)
 
 const MERMAID_TEMPLATE = '\n```mermaid\ngraph TD\n  A[Start] --> B{Decision}\n  B -->|Yes| C[Do it]\n  B -->|No| D[Skip]\n```\n'
 const TABLE_TEMPLATE = '\n| Col A | Col B |\n| --- | --- |\n| 1 | 2 |\n'
@@ -88,6 +101,17 @@ interface CanvasElementsProps {
   onAddCodeNode?: () => void
   onAddVideoNode?: () => void
   onCreateTutorialFromVideo?: (topic: string, transcriptText?: string) => void
+  onAskAICode?: (
+    cardId: string,
+    ctx: {
+      title: string
+      language: string
+      code: string
+      stdout?: string
+      stderr?: string
+      error?: string
+    }
+  ) => void
   isAiConfigured?: boolean
   onDeleteElement: (id: string) => void
   onDuplicateElement: (id: string) => void
@@ -102,9 +126,25 @@ interface CanvasElementsProps {
   view: CanvasTransform
   activeTool?: ToolType
   activeThemeAccent: string
+  defaultFont?: FontId
   penColor: string
   penSize: number
+  boardLayers?: BoardLayer[]
+  cardsVisible?: boolean
+  cardsLocked?: boolean
+  cardsOpacity?: number
+  onElementContextMenu?: (e: React.MouseEvent, elementId: string) => void
 }
+
+const IMMERSED_INK_COLORS = [
+  { label: 'Board Ink', value: 'ink' },
+  { label: 'Accent', value: 'accent' },
+  { label: 'Crimson', value: '#EF4444' },
+  { label: 'Cobalt', value: '#2563EB' },
+  { label: 'Emerald', value: '#059669' },
+  { label: 'Violet', value: '#7C3AED' },
+  { label: 'Amber', value: '#D97706' }
+]
 
 const NOTE_PALETTES = [
   { label: 'Auto Theme', bg: '' },
@@ -116,7 +156,7 @@ const NOTE_PALETTES = [
   { label: 'Coral Pink', bg: '#FECDD3' }
 ]
 
-export const CanvasElements: React.FC<CanvasElementsProps> = ({
+export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
   textNodes,
   equationNodes,
   diagramNodes,
@@ -133,6 +173,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
   onAddCodeNode,
   onAddVideoNode,
   onCreateTutorialFromVideo,
+  onAskAICode,
   isAiConfigured = true,
   onDeleteElement,
   onDuplicateElement,
@@ -147,8 +188,14 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
   view,
   activeTool,
   activeThemeAccent,
+  defaultFont = 'jakarta',
   penColor,
-  penSize
+  penSize,
+  boardLayers,
+  cardsVisible = true,
+  cardsLocked = false,
+  cardsOpacity = 1,
+  onElementContextMenu
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
@@ -521,18 +568,220 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
     onUpdateText(selectedTextNode.id, { style, fontSize, bold })
   }
 
+  const isInkPassThroughTool =
+    activeTool === 'eraser' || activeTool === 'pen' || activeTool === 'pan' || cardsLocked
+
   return (
     <div
       className="canvas-dom-overlay"
-      style={{
-        transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
-        transformOrigin: '0 0'
-      }}
+      style={
+        {
+          transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
+          transformOrigin: '0 0',
+          '--cards-layer-opacity': cardsOpacity
+        } as React.CSSProperties
+      }
     >
-      {/* 1. Text & Sticky Notes */}
+      {/* 1. Text, Board-Immersed Typography & Sticky Notes */}
       {textNodes.map((t) => {
+        if (t.immersed) {
+          if (boardLayers && !isItemVisible(t.layerId, boardLayers)) return null
+        } else if (!cardsVisible) {
+          return null
+        }
         const isSelected = selectedIds ? selectedIds.includes(t.id) : t.id === selectedId
         const isEditing = t.id === editingId
+
+        // 1A. Board-Immersed Frameless Typography (NO textbox / card border / padding)
+        if (t.immersed) {
+          const activeFontId: FontId =
+            t.fontFamily && t.fontFamily in FONTS ? t.fontFamily : defaultFont
+          const resolvedImmersedColor =
+            t.color === 'ink'
+              ? (boardPalette?.ink ?? (isLightTheme ? '#111111' : '#FFFDF7'))
+              : t.color === 'accent'
+                ? activeThemeAccent
+                : t.color
+          const textLayerLocked = boardLayers ? !isItemEditable(t.layerId, boardLayers) : false
+          const passThrough = isInkPassThroughTool || textLayerLocked
+          const textOpacity = boardLayers
+            ? (boardLayers.find((l) => l.id === resolveItemLayerId(t.layerId, boardLayers))?.opacity ?? 1)
+            : 1
+          const linesCount = Math.max(1, (isEditing ? editText : t.text).split('\n').length)
+          const longestLine = Math.max(
+            4,
+            ...(isEditing ? editText : t.text).split('\n').map((l) => l.length)
+          )
+
+          return (
+            <div
+              key={t.id}
+              id={t.id}
+              className={`canvas-immersed-text ${isSelected ? 'selected' : ''} ${isEditing ? 'editing' : ''}`}
+              style={{
+                left: `${t.x}px`,
+                top: `${t.y}px`,
+                fontSize: `${t.fontSize || 20}px`,
+                fontWeight: t.bold ? 700 : 500,
+                fontStyle: t.italic ? 'italic' : 'normal',
+                fontFamily: resolveFontCss(activeFontId, defaultFont),
+                textAlign: t.align ?? 'left',
+                color: resolvedImmersedColor,
+                opacity: textOpacity,
+                pointerEvents: passThrough ? 'none' : 'auto'
+              }}
+              onPointerDown={(e) => handlePointerDown(e, t.id, 'text', t.x, t.y)}
+              onContextMenu={(e) => onElementContextMenu?.(e, t.id)}
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                handleStartEdit(t.id, t.text)
+              }}
+            >
+              {isEditing ? (
+                <textarea
+                  className="immersed-inline-editor"
+                  autoFocus
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  onBlur={handleFinishEdit}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      handleFinishEdit()
+                    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault()
+                      handleFinishEdit()
+                    }
+                  }}
+                  rows={linesCount}
+                  style={{
+                    fontFamily: resolveFontCss(activeFontId, defaultFont),
+                    fontSize: `${t.fontSize || 20}px`,
+                    fontWeight: t.bold ? 700 : 500,
+                    fontStyle: t.italic ? 'italic' : 'normal',
+                    textAlign: t.align ?? 'left',
+                    color: resolvedImmersedColor,
+                    width: `${Math.max(120, Math.min(720, Math.round(longestLine * (t.fontSize || 20) * 0.65 + 24)))}px`
+                  }}
+                />
+              ) : (
+                <span className="immersed-text-span">{t.text}</span>
+              )}
+
+              {/* Compact floating typography bar (visible ONLY when selected) */}
+              {isSelected && !isEditing && (
+                <div
+                  className="element-quick-bar immersed-quick-bar"
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  {/* Font family switcher */}
+                  <div className="immersed-font-group" title="Switch font">
+                    {FONT_ORDER.map((fid) => (
+                      <button
+                        key={fid}
+                        type="button"
+                        className={`immersed-font-chip ${activeFontId === fid ? 'active' : ''}`}
+                        style={{ fontFamily: FONTS[fid].css }}
+                        onClick={() => onUpdateText(t.id, { fontFamily: fid })}
+                        title={`Font: ${FONTS[fid].label}`}
+                      >
+                        {FONTS[fid].shortLabel}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="bar-separator" />
+                  {/* Font size stepper */}
+                  <button
+                    type="button"
+                    className="bar-btn"
+                    onClick={() =>
+                      onUpdateText(t.id, { fontSize: Math.max(12, (t.fontSize || 20) - 2) })
+                    }
+                    title="Decrease font size"
+                  >
+                    <Minus size={12} />
+                  </button>
+                  <span className="immersed-size-pill">{Math.round(t.fontSize || 20)}</span>
+                  <button
+                    type="button"
+                    className="bar-btn"
+                    onClick={() =>
+                      onUpdateText(t.id, { fontSize: Math.min(72, (t.fontSize || 20) + 2) })
+                    }
+                    title="Increase font size"
+                  >
+                    <Plus size={12} />
+                  </button>
+                  <div className="bar-separator" />
+                  <button
+                    type="button"
+                    className={`bar-btn ${t.bold ? 'active' : ''}`}
+                    onClick={() => onUpdateText(t.id, { bold: !t.bold })}
+                    title="Bold"
+                  >
+                    <Bold size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    className={`bar-btn ${t.italic ? 'active' : ''}`}
+                    onClick={() => onUpdateText(t.id, { italic: !t.italic })}
+                    title="Italic"
+                  >
+                    <Italic size={13} />
+                  </button>
+                  <div className="bar-separator" />
+                  {/* Ink color swatches */}
+                  <div className="immersed-color-dots">
+                    {IMMERSED_INK_COLORS.map((c) => {
+                      const dotBg =
+                        c.value === 'ink'
+                          ? (boardPalette?.ink ?? '#111111')
+                          : c.value === 'accent'
+                            ? activeThemeAccent
+                            : c.value
+                      return (
+                        <button
+                          key={c.value}
+                          type="button"
+                          className={`immersed-color-dot ${t.color === c.value ? 'active' : ''}`}
+                          style={{ backgroundColor: dotBg }}
+                          onClick={() => onUpdateText(t.id, { color: c.value })}
+                          title={`Color: ${c.label}`}
+                        />
+                      )
+                    })}
+                  </div>
+                  <div className="bar-separator" />
+                  <button
+                    type="button"
+                    className="bar-btn"
+                    onClick={() => handleStartEdit(t.id, t.text)}
+                    title="Edit text (Double-click)"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    className="bar-btn"
+                    onClick={() => onDuplicateElement(t.id)}
+                    title="Duplicate"
+                  >
+                    <Copy size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    className="bar-btn danger"
+                    onClick={() => onDeleteElement(t.id)}
+                    title="Delete"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        }
 
         const isDrawing = t.id === drawingId
         const hasInk = (t.ink?.length ?? 0) > 0
@@ -551,6 +800,10 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
               ? '#111111'
               : (boardPalette?.noteText ?? '#FFFDF7')
 
+        const noteFontId: FontId =
+          t.fontFamily && t.fontFamily in FONTS ? t.fontFamily : defaultFont
+        const resolvedNoteFontCss = resolveFontCss(noteFontId, defaultFont)
+
         return (
           <div
             key={t.id}
@@ -565,15 +818,19 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
               height: t.h ? `${t.h}px` : undefined,
               maxWidth: t.w ? 'none' : undefined,
               fontSize: `${t.fontSize}px`,
+              fontFamily: resolvedNoteFontCss,
               fontWeight: t.bold ? 700 : 500,
               fontStyle: t.italic ? 'italic' : 'normal',
               background: resolvedBg,
               color: resolvedTextColor,
               borderColor: isSelected ? activeThemeAccent : undefined,
               minWidth: isDrawing || hasInk ? 260 : 160,
-              minHeight: isDrawing || hasInk ? 160 : undefined
+              minHeight: isDrawing || hasInk ? 160 : undefined,
+              opacity: cardsOpacity,
+              pointerEvents: isInkPassThroughTool ? 'none' : 'auto'
             }}
             onPointerDown={(e) => handlePointerDown(e, t.id, 'text', t.x, t.y)}
+            onContextMenu={(e) => onElementContextMenu?.(e, t.id)}
             onDoubleClick={(e) => {
               e.stopPropagation()
               if (!isDrawing) handleStartEdit(t.id, t.text)
@@ -706,6 +963,21 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
                   <button className="bar-btn" title="Diagram (Mermaid)" onClick={() => insertSnippet(MERMAID_TEMPLATE)}>
                     <Workflow size={13} />
                   </button>
+                  <div className="bar-separator" />
+                  <div className="immersed-font-group" title="Note / Text Area Font">
+                    {FONT_ORDER.map((fid) => (
+                      <button
+                        key={fid}
+                        type="button"
+                        className={`immersed-font-chip ${noteFontId === fid ? 'active' : ''}`}
+                        style={{ fontFamily: FONTS[fid].css }}
+                        onClick={() => onUpdateText(t.id, { fontFamily: fid })}
+                        title={`Font: ${FONTS[fid].label}`}
+                      >
+                        {FONTS[fid].shortLabel}
+                      </button>
+                    ))}
+                  </div>
                   <button className="bar-btn" title="Done (Esc)" onClick={handleFinishEdit}>
                     <Check size={13} />
                   </button>
@@ -716,6 +988,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
                   value={editText}
                   onChange={(e) => setEditText(e.target.value)}
                   onBlur={handleFinishEdit}
+                  style={{ fontFamily: resolvedNoteFontCss }}
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') handleFinishEdit()
                   }}
@@ -780,6 +1053,21 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
                 >
                   <Type size={14} />
                 </button>
+                <div className="bar-separator" />
+                <div className="immersed-font-group" title="Switch Font">
+                  {FONT_ORDER.map((fid) => (
+                    <button
+                      key={fid}
+                      type="button"
+                      className={`immersed-font-chip ${noteFontId === fid ? 'active' : ''}`}
+                      style={{ fontFamily: FONTS[fid].css }}
+                      onClick={() => onUpdateText(t.id, { fontFamily: fid })}
+                      title={`Font: ${FONTS[fid].label}`}
+                    >
+                      {FONTS[fid].shortLabel}
+                    </button>
+                  ))}
+                </div>
                 <div className="bar-separator" />
                 <button
                   className="bar-btn"
@@ -913,7 +1201,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
       })}
 
       {/* 2. Math Equation Nodes (KaTeX) */}
-      {equationNodes.map((eq) => {
+      {cardsVisible && equationNodes.map((eq) => {
         const isSelected = selectedIds ? selectedIds.includes(eq.id) : eq.id === selectedId
         const isEditing = eq.id === editingId
 
@@ -938,9 +1226,12 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
               width: eq.w ? `${eq.w}px` : undefined,
               height: eq.h ? `${eq.h}px` : undefined,
               fontSize: `${eq.fontSize}px`,
-              borderColor: isSelected ? activeThemeAccent : undefined
+              borderColor: isSelected ? activeThemeAccent : undefined,
+              opacity: cardsOpacity,
+              pointerEvents: isInkPassThroughTool ? 'none' : 'auto'
             }}
             onPointerDown={(e) => handlePointerDown(e, eq.id, 'equation', eq.x, eq.y)}
+            onContextMenu={(e) => onElementContextMenu?.(e, eq.id)}
             onDoubleClick={(e) => {
               e.stopPropagation()
               handleStartEdit(eq.id, eq.latex)
@@ -1056,141 +1347,175 @@ export const CanvasElements: React.FC<CanvasElementsProps> = ({
       })}
 
       {/* 3. React Flow Interactive Diagrams */}
-      {(diagramNodes ?? []).map((diag) => {
+      <Suspense fallback={null}>
+      {cardsVisible && (diagramNodes ?? []).map((diag) => {
         const isSelected = selectedIds ? selectedIds.includes(diag.id) : diag.id === selectedId
-        const isPointerDisabled =
-          activeTool === 'eraser' || activeTool === 'pen' || activeTool === 'pan'
+        const isPointerDisabled = isInkPassThroughTool
         return (
-          <ReactFlowDiagram
+          <div
             key={diag.id}
-            diagram={diag}
-            isSelected={isSelected}
-            isResizing={resizeState?.id === diag.id}
-            disabledPointerEvents={isPointerDisabled}
-            palette={boardPalette}
-            onSelect={() => onSelect(diag.id)}
-            onUpdate={(patch) => onUpdateDiagram?.(diag.id, patch)}
-            onDelete={() => onDeleteElement(diag.id)}
-            onDuplicate={() => onDuplicateElement(diag.id)}
-            onStartMove={(startX, startY) => {
-              const isMulti = Boolean(selectedIds && selectedIds.includes(diag.id) && selectedIds.length > 1)
-              if (isMulti && selectedIds) {
-                onStartMoveSelection?.(selectedIds, startX, startY)
-              } else {
-                onSelect(diag.id)
-                onPushHistory?.()
-              }
-              setDragState({
-                id: diag.id,
-                kind: 'diagram',
-                startX,
-                startY,
-                initX: diag.x,
-                initY: diag.y,
-                isMulti
-              })
+            style={{ display: 'contents' }}
+            onContextMenu={(e) => {
+              if (!isPointerDisabled) onElementContextMenu?.(e, diag.id)
             }}
-            onStartResize={(e, dir) => handleResizeStart(e, diag.id, 'diagram', dir)}
-          />
+          >
+            <ReactFlowDiagram
+              diagram={diag}
+              isSelected={isSelected}
+              isResizing={resizeState?.id === diag.id}
+              disabledPointerEvents={isPointerDisabled}
+              palette={boardPalette}
+              onSelect={() => onSelect(diag.id)}
+              onUpdate={(patch) => onUpdateDiagram?.(diag.id, patch)}
+              onDelete={() => onDeleteElement(diag.id)}
+              onDuplicate={() => onDuplicateElement(diag.id)}
+              onStartMove={(startX, startY) => {
+                const isMulti = Boolean(selectedIds && selectedIds.includes(diag.id) && selectedIds.length > 1)
+                if (isMulti && selectedIds) {
+                  onStartMoveSelection?.(selectedIds, startX, startY)
+                } else {
+                  onSelect(diag.id)
+                  onPushHistory?.()
+                }
+                setDragState({
+                  id: diag.id,
+                  kind: 'diagram',
+                  startX,
+                  startY,
+                  initX: diag.x,
+                  initY: diag.y,
+                  isMulti
+                })
+              }}
+              onStartResize={(e, dir) => handleResizeStart(e, diag.id, 'diagram', dir)}
+            />
+          </div>
         )
       })}
+      </Suspense>
 
       {/* 4. Interactive Pinned Code Runner Cards */}
-      {(codeNodes ?? []).map((codeNode) => {
+      <Suspense fallback={null}>
+      {cardsVisible && (codeNodes ?? []).map((codeNode) => {
         const isSelected = selectedIds ? selectedIds.includes(codeNode.id) : codeNode.id === selectedId
-        const isPointerDisabled =
-          activeTool === 'eraser' || activeTool === 'pen' || activeTool === 'pan'
+        const isPointerDisabled = isInkPassThroughTool
         return (
-          <CanvasCodeCard
+          <div
             key={codeNode.id}
-            node={codeNode}
-            isSelected={isSelected}
-            isResizing={resizeState?.id === codeNode.id}
-            isLightTheme={isLightTheme}
-            disabledPointerEvents={isPointerDisabled}
-            onSelect={() => onSelect(codeNode.id)}
-            onUpdate={(patch, opts) => onUpdateCode?.(codeNode.id, patch, opts)}
-            onDelete={() => onDeleteElement(codeNode.id)}
-            onDuplicate={() => onDuplicateElement(codeNode.id)}
-            onAddContainer={onAddCodeNode}
-            onStartMove={(startX, startY) => {
-              const isMulti = Boolean(
-                selectedIds && selectedIds.includes(codeNode.id) && selectedIds.length > 1
-              )
-              if (isMulti && selectedIds) {
-                onStartMoveSelection?.(selectedIds, startX, startY)
-              } else {
-                onSelect(codeNode.id)
-                onPushHistory?.()
-              }
-              setDragState({
-                id: codeNode.id,
-                kind: 'code',
-                startX,
-                startY,
-                initX: codeNode.x,
-                initY: codeNode.y,
-                isMulti
-              })
+            style={{ display: 'contents' }}
+            onContextMenu={(e) => {
+              if (isPointerDisabled) return
+              const targetEl = e.target as HTMLElement | null
+              // Preserve native copy/paste inside CodeMirror text editor; show card menu on header/frame
+              if (targetEl?.closest('.cm-content')) return
+              onElementContextMenu?.(e, codeNode.id)
             }}
-            onStartResize={(e, dir) => handleResizeStart(e, codeNode.id, 'code', dir)}
-            onSendOutputToNote={onInsertToNotes}
-            onToast={onToast}
-          />
+          >
+            <CanvasCodeCard
+              node={codeNode}
+              isSelected={isSelected}
+              isResizing={resizeState?.id === codeNode.id}
+              isLightTheme={isLightTheme}
+              disabledPointerEvents={isPointerDisabled}
+              onSelect={() => onSelect(codeNode.id)}
+              onUpdate={(patch, opts) => onUpdateCode?.(codeNode.id, patch, opts)}
+              onDelete={() => onDeleteElement(codeNode.id)}
+              onDuplicate={() => onDuplicateElement(codeNode.id)}
+              onAddContainer={onAddCodeNode}
+              onStartMove={(startX, startY) => {
+                const isMulti = Boolean(
+                  selectedIds && selectedIds.includes(codeNode.id) && selectedIds.length > 1
+                )
+                if (isMulti && selectedIds) {
+                  onStartMoveSelection?.(selectedIds, startX, startY)
+                } else {
+                  onSelect(codeNode.id)
+                  onPushHistory?.()
+                }
+                setDragState({
+                  id: codeNode.id,
+                  kind: 'code',
+                  startX,
+                  startY,
+                  initX: codeNode.x,
+                  initY: codeNode.y,
+                  isMulti
+                })
+              }}
+              onStartResize={(e, dir) => handleResizeStart(e, codeNode.id, 'code', dir)}
+              onSendOutputToNote={onInsertToNotes}
+              onAskAI={
+                onAskAICode && isAiConfigured
+                  ? (ctx) => onAskAICode(codeNode.id, ctx)
+                  : undefined
+              }
+              onToast={onToast}
+            />
+          </div>
         )
       })}
+      </Suspense>
 
       {/* 5. In-Board Interactive YouTube Video Cards */}
-      {(videoNodes ?? []).map((videoNode) => {
+      <Suspense fallback={null}>
+      {cardsVisible && (videoNodes ?? []).map((videoNode) => {
         const isSelected = selectedIds ? selectedIds.includes(videoNode.id) : videoNode.id === selectedId
-        const isPointerDisabled =
-          activeTool === 'eraser' || activeTool === 'pen' || activeTool === 'pan'
+        const isPointerDisabled = isInkPassThroughTool
         return (
-          <CanvasVideoCard
+          <div
             key={videoNode.id}
-            node={videoNode}
-            isSelected={isSelected}
-            isResizing={resizeState?.id === videoNode.id}
-            disabledPointerEvents={isPointerDisabled}
-            onSelect={() => onSelect(videoNode.id)}
-            onUpdate={(patch, opts) => onUpdateVideo?.(videoNode.id, patch, opts)}
-            onDelete={() => onDeleteElement(videoNode.id)}
-            onDuplicate={() => onDuplicateElement(videoNode.id)}
-            onAddContainer={onAddVideoNode}
-            onStartMove={(startX, startY) => {
-              const isMulti = Boolean(
-                selectedIds && selectedIds.includes(videoNode.id) && selectedIds.length > 1
-              )
-              if (isMulti && selectedIds) {
-                onStartMoveSelection?.(selectedIds, startX, startY)
-              } else {
-                onSelect(videoNode.id)
-                onPushHistory?.()
-              }
-              setDragState({
-                id: videoNode.id,
-                kind: 'video',
-                startX,
-                startY,
-                initX: videoNode.x,
-                initY: videoNode.y,
-                isMulti
-              })
+            style={{ display: 'contents' }}
+            onContextMenu={(e) => {
+              if (!isPointerDisabled) onElementContextMenu?.(e, videoNode.id)
             }}
-            onStartResize={(e, dir) => handleResizeStart(e, videoNode.id, 'video', dir)}
-            onAddTimestampNote={(timestampSec, videoTitle, videoUrl) => {
-              const mins = Math.floor(timestampSec / 60)
-              const secs = Math.floor(timestampSec % 60)
-              const formatted = `${mins}:${secs < 10 ? '0' : ''}${secs}`
-              const noteText = `### Notes on [${videoTitle}](${videoUrl || '#'}) at \`${formatted}\`\n\n- Key Insight:\n- Action Item:`
-              onInsertToNotes?.(noteText, `${videoTitle} @ ${formatted}`)
-            }}
-            onCreateTutorialFromVideo={onCreateTutorialFromVideo}
-            isAiConfigured={isAiConfigured}
-            onToast={onToast}
-          />
+          >
+            <CanvasVideoCard
+              node={videoNode}
+              isSelected={isSelected}
+              isResizing={resizeState?.id === videoNode.id}
+              disabledPointerEvents={isPointerDisabled}
+              onSelect={() => onSelect(videoNode.id)}
+              onUpdate={(patch, opts) => onUpdateVideo?.(videoNode.id, patch, opts)}
+              onDelete={() => onDeleteElement(videoNode.id)}
+              onDuplicate={() => onDuplicateElement(videoNode.id)}
+              onAddContainer={onAddVideoNode}
+              onStartMove={(startX, startY) => {
+                const isMulti = Boolean(
+                  selectedIds && selectedIds.includes(videoNode.id) && selectedIds.length > 1
+                )
+                if (isMulti && selectedIds) {
+                  onStartMoveSelection?.(selectedIds, startX, startY)
+                } else {
+                  onSelect(videoNode.id)
+                  onPushHistory?.()
+                }
+                setDragState({
+                  id: videoNode.id,
+                  kind: 'video',
+                  startX,
+                  startY,
+                  initX: videoNode.x,
+                  initY: videoNode.y,
+                  isMulti
+                })
+              }}
+              onStartResize={(e, dir) => handleResizeStart(e, videoNode.id, 'video', dir)}
+              onAddTimestampNote={(timestampSec, videoTitle, videoUrl) => {
+                const mins = Math.floor(timestampSec / 60)
+                const secs = Math.floor(timestampSec % 60)
+                const formatted = `${mins}:${secs < 10 ? '0' : ''}${secs}`
+                const noteText = `### Notes on [${videoTitle}](${videoUrl || '#'}) at \`${formatted}\`\n\n- Key Insight:\n- Action Item:`
+                onInsertToNotes?.(noteText, `${videoTitle} @ ${formatted}`)
+              }}
+              onCreateTutorialFromVideo={onCreateTutorialFromVideo}
+              isAiConfigured={isAiConfigured}
+              onToast={onToast}
+            />
+          </div>
         )
       })}
+      </Suspense>
     </div>
   )
-}
+})
+CanvasElements.displayName = 'CanvasElements'

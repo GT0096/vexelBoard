@@ -22,10 +22,15 @@ import {
   Layout,
   MessageSquare,
   ChevronDown,
+  ChevronRight,
   Plus,
-  Pencil
+  Pencil,
+  Cpu,
+  StopCircle,
+  RotateCcw
 } from 'lucide-react'
 import type { ChatMessage, AISettings } from '../types/board'
+import type { AgentMode, AgentStepEvent } from '@shared/agentSchema'
 import type { ChatAttachment, ProjectChatThread } from '@shared/ipc'
 import { estimateThreadTokens } from '../board/workspaceStore'
 import { useAutoGrowTextarea } from '../board/useAutoGrowTextarea'
@@ -74,6 +79,15 @@ interface RightPanelProps {
   onChangeAI?: (ai: AISettings) => void
   onToast?: (kind: 'info' | 'success' | 'error', message: string) => void
   openSettingsTrigger?: number
+  onRunAgent?: (
+    prompt: string,
+    opts?: { mode?: AgentMode; selectedSourceIds?: string[] }
+  ) => Promise<void> | void
+  onCancelAgent?: () => void
+  agentRunning?: boolean
+  agentSteps?: AgentStepEvent[]
+  canUndoLastAgent?: boolean
+  onUndoLastAgent?: () => void
 }
 
 const CHAT_RECT_KEY = 'vgb.chatPanelRect'
@@ -114,7 +128,7 @@ function loadInitialChatRect(): { x: number; y: number; width: number; height: n
   }
 }
 
-export const RightPanel: React.FC<RightPanelProps> = ({
+export const RightPanel: React.FC<RightPanelProps> = React.memo(({
   isOpen,
   onToggle,
   messages,
@@ -145,9 +159,17 @@ export const RightPanel: React.FC<RightPanelProps> = ({
   aiSettings,
   onChangeAI,
   onToast,
-  openSettingsTrigger
+  openSettingsTrigger,
+  onRunAgent,
+  onCancelAgent,
+  agentRunning = false,
+  agentSteps,
+  canUndoLastAgent = false,
+  onUndoLastAgent
 }) => {
   const [showAiSettings, setShowAiSettings] = useState(false)
+  const [agentMode, setAgentMode] = useState<boolean>(Boolean(onRunAgent))
+  const [traceExpanded, setTraceExpanded] = useState<boolean>(true)
 
   useEffect(() => {
     if (openSettingsTrigger) {
@@ -222,7 +244,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
     // Scroll only the chat list to latest message
     const list = chatEndRef.current?.parentElement
     if (list) list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' })
-  }, [messages, isAiBusy, isOpen, isDetached])
+  }, [messages, isAiBusy, agentRunning, agentSteps?.length, isOpen, isDetached])
 
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [showYtInput, setShowYtInput] = useState(false)
@@ -382,12 +404,30 @@ export const RightPanel: React.FC<RightPanelProps> = ({
       return
     }
     const query = (textOverride ?? input).trim()
-    if ((!query && attachments.length === 0) || isAiBusy) return
+    if ((!query && attachments.length === 0) || isAiBusy || agentRunning) return
     const sourceIds = knowledge.pinnedSources.map((s) => s.id)
-    onSendMessage(query || 'Analyze the attached context and summarize key insights.', attachments, {
-      sourceIds: sourceIds.length > 0 ? sourceIds : undefined,
-      includeProjectContext: knowledge.includeProjectContext
-    })
+    const hasBoardActionIntent =
+      /\b(board|canvas|diagram|flowchart|visual|visually|draw|sketch|illustrate|tutorial|step[- ]by[- ]step|note|card|sticky|code|implement|python|javascript|typescript|sql|equation|formula|latex|annotate|highlight|layer|fix|debug|run|youtube|video|create|build|add|place)\b/i.test(
+        query
+      ) ||
+      (/\b(explain|teach|compare)\b/i.test(query) && (query.includes(',') || /\band\b/i.test(query)))
+    const isSimpleConceptualQuestion =
+      !hasBoardActionIntent &&
+      /^(what|why|how|when|where|who|which|is|are|can|does|do|define|explain|describe|difference)\b/i.test(
+        query
+      )
+
+    if (agentMode && onRunAgent && attachments.length === 0 && query && !isSimpleConceptualQuestion) {
+      void onRunAgent(query, {
+        mode: 'general',
+        selectedSourceIds: sourceIds.length > 0 ? sourceIds : undefined
+      })
+    } else {
+      onSendMessage(query || 'Analyze the attached context and summarize key insights.', attachments, {
+        sourceIds: sourceIds.length > 0 ? sourceIds : undefined,
+        includeProjectContext: knowledge.includeProjectContext
+      })
+    }
     if (!textOverride) setInput('')
     setAttachments([])
     knowledge.closeAtMention()
@@ -1114,7 +1154,69 @@ export const RightPanel: React.FC<RightPanelProps> = ({
               ))
             )}
 
-            {isAiBusy && (
+            {(agentRunning || (agentSteps && agentSteps.length > 0)) && (
+              <div className="agent-trace-card">
+                <div className="agent-trace-header">
+                  <button
+                    type="button"
+                    className="agent-trace-toggle"
+                    onClick={() => setTraceExpanded((v) => !v)}
+                  >
+                    {traceExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    <Cpu size={13} className="text-accent" />
+                    <span>
+                      {agentRunning
+                        ? 'Agent running...'
+                        : (() => {
+                            const toolCount =
+                              agentSteps?.filter((e) => e.kind === 'tool_call').length ?? 0
+                            const mutCount =
+                              agentSteps?.filter((e) => e.kind === 'mutation').length ?? 0
+                            const hasErr = agentSteps?.some((e) => e.kind === 'error')
+                            const summary = `${toolCount} tool${toolCount === 1 ? '' : 's'} · ${mutCount} update${mutCount === 1 ? '' : 's'}`
+                            return hasErr ? `Agent Error (${summary})` : `Agent Trace (${summary})`
+                          })()}
+                    </span>
+                  </button>
+                  <div className="agent-trace-actions">
+                    {agentRunning && onCancelAgent && (
+                      <button
+                        type="button"
+                        className="agent-stop-btn"
+                        onClick={onCancelAgent}
+                        title="Stop agent run"
+                      >
+                        <StopCircle size={12} />
+                        <span>Stop</span>
+                      </button>
+                    )}
+                    {!agentRunning && canUndoLastAgent && onUndoLastAgent && (
+                      <button
+                        type="button"
+                        className="agent-undo-btn"
+                        onClick={onUndoLastAgent}
+                        title="Undo all board changes from last agent run"
+                      >
+                        <RotateCcw size={12} />
+                        <span>Undo AI Changes</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {traceExpanded && agentSteps && agentSteps.length > 0 && (
+                  <div className="agent-trace-steps">
+                    {agentSteps.map((ev, idx) => (
+                      <div key={`${ev.runId}-${idx}`} className={`agent-step-row kind-${ev.kind}`}>
+                        <span className="agent-step-badge">{ev.toolName || ev.mutationType || ev.kind}</span>
+                        <span className="agent-step-msg">{ev.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isAiBusy && !agentRunning && (
               <div className="chat-message-row assistant">
                 <div className="assistant-avatar pulse">
                   <Bot size={15} />
@@ -1309,18 +1411,46 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                     hasProject={Boolean(projectId)}
                     onOpenKnowledgeHub={onOpenKnowledgeHub}
                   />
+
+                  {onRunAgent && !isDetached && (
+                    <button
+                      type="button"
+                      className={`agent-mode-toggle ${agentMode ? 'active' : ''}`}
+                      onClick={() => setAgentMode((v) => !v)}
+                      title={
+                        agentMode
+                          ? 'Agent Mode ON: AI can inspect board, search docs, run code, draw diagrams & annotate layers'
+                          : 'Agent Mode OFF: Standard conversational chat'
+                      }
+                    >
+                      <Cpu size={12} />
+                      <span>Agent</span>
+                    </button>
+                  )}
                 </div>
 
-                <button
-                  type="button"
-                  className="chat-send-btn"
-                  onClick={() => handleSend()}
-                  disabled={!isAiConfigured || (!input.trim() && attachments.length === 0) || isAiBusy}
-                  title={isAiConfigured ? 'Send (Enter)' : 'Configure AI Settings to send messages'}
-                  aria-label="Send message"
-                >
-                  <Send size={15} />
-                </button>
+                {agentRunning && onCancelAgent ? (
+                  <button
+                    type="button"
+                    className="chat-send-btn is-stop"
+                    onClick={onCancelAgent}
+                    title="Stop active agent run"
+                    aria-label="Stop agent"
+                  >
+                    <StopCircle size={15} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="chat-send-btn"
+                    onClick={() => handleSend()}
+                    disabled={!isAiConfigured || (!input.trim() && attachments.length === 0) || isAiBusy}
+                    title={isAiConfigured ? 'Send (Enter)' : 'Configure AI Settings to send messages'}
+                    aria-label="Send message"
+                  >
+                    <Send size={15} />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1367,4 +1497,4 @@ export const RightPanel: React.FC<RightPanelProps> = ({
       )}
     </>
   )
-}
+})

@@ -6,7 +6,7 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        external: ['better-sqlite3', 'sqlite-vec', 'node:sqlite']
+        external: ['better-sqlite3', 'sqlite-vec', 'node:sqlite', '@visioncortex/vtracer', 'svgo']
       }
     }
   },
@@ -25,6 +25,46 @@ export default defineConfig({
     },
     optimizeDeps: {
       exclude: ['@huggingface/transformers']
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id: string) {
+            if (id.includes('node_modules')) {
+              if (id.includes('@xyflow/')) return 'vendor-xyflow'
+              if (
+                id.includes('codemirror') ||
+                id.includes('@codemirror/') ||
+                id.includes('@lezer/')
+              ) {
+                return 'vendor-codemirror'
+              }
+              if (id.includes('katex') || id.includes('rehype-katex') || id.includes('remark-math')) {
+                return 'vendor-katex'
+              }
+              if (
+                id.includes('react-markdown') ||
+                id.includes('remark-') ||
+                id.includes('rehype-') ||
+                id.includes('unified') ||
+                id.includes('mdast') ||
+                id.includes('hast')
+              ) {
+                return 'vendor-markdown'
+              }
+              if (
+                id.includes('/react/') ||
+                id.includes('/react-dom/') ||
+                id.includes('\\react\\') ||
+                id.includes('\\react-dom\\')
+              ) {
+                return 'vendor-react'
+              }
+            }
+            return undefined
+          }
+        }
+      }
     },
     plugins: [react()]
   }

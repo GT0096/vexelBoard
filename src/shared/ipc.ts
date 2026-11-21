@@ -2,6 +2,23 @@
  * Shared IPC contracts between the Electron main process, preload bridge and renderer.
  * Pure types + constants only (no runtime imports) so every tsconfig can include it.
  */
+import type {
+  SmartBeautifyRequest,
+  SmartBeautifyResponse,
+  VectorCritiqueRequest,
+  VectorCritiqueResponse
+} from './beautifySchema'
+import type { AgentRunRequest, AgentRunResult, AgentStepEvent } from './agentSchema'
+
+export type {
+  SmartBeautifyRequest,
+  SmartBeautifyResponse,
+  VectorCritiqueRequest,
+  VectorCritiqueResponse,
+  AgentRunRequest,
+  AgentRunResult,
+  AgentStepEvent
+}
 
 export type ProviderId = 'ollama' | 'openai' | 'gemini' | 'grok' | 'claude'
 export type ByokProvider = Exclude<ProviderId, 'ollama'>
@@ -176,6 +193,10 @@ export interface AIRequest {
   isEquationOCR?: boolean
   /** true => convert hand-drawn diagram sketch to React Flow diagram */
   isBeautifyDiagram?: boolean
+  /** true => convert hand-drawn sketches & handwriting into board-immersed vector shapes/paths + immersed text */
+  isVectorizeDrawing?: boolean
+  /** true => agentic visual critic pass comparing original sketch vs synthesized vector SVG */
+  isVectorizeCritique?: boolean
   /** true => conversational AI chat for the Right Panel */
   isChat?: boolean
   /** Prompt or question */
@@ -350,17 +371,23 @@ export interface OverallHistorySummary {
 export interface TutorialStep {
   title: string
   explanation: string
+  keyPoints?: string[]
+  equations?: string[]
+  equationLatex?: string
+  scene?: unknown
   diagramMermaid?: string
   diagramNodes?: any[]
   diagramEdges?: any[]
-  equationLatex?: string
-  codeSnippet?: { language: string; code: string }
-  keyPoints?: string[]
+  codeSnippet?: { language: string; code: string } | null
 }
 
 export interface TutorialPayload {
   topic: string
   overview: string
+  approach?: string
+  pedagogicalRationale?: string
+  fontFamily?: string
+  accentFill?: string
   steps: TutorialStep[]
 }
 
@@ -414,6 +441,8 @@ export interface GlassAPI {
   isEncryptionAvailable: () => Promise<boolean>
   getOpenAIModelConfig: (model: string) => Promise<OpenAIModelProfile>
   runAI: (request: AIRequest) => Promise<AIResponse>
+  smartBeautify?: (request: SmartBeautifyRequest) => Promise<SmartBeautifyResponse>
+  smartBeautifyCritique?: (request: VectorCritiqueRequest) => Promise<VectorCritiqueResponse>
   runCode?: (request: CodeExecutionRequest) => Promise<CodeExecutionResult>
   checkCodeRuntimes?: () => Promise<Record<string, CodeRuntimeInfo>>
   saveExportFile?: (filename: string, content: string, mimeType: string) => Promise<{ success: boolean; filePath?: string }>
@@ -487,4 +516,9 @@ export interface GlassAPI {
   saveProjectChat?: (projectId: string, messages: StoredChatMessage[]) => Promise<{ ok: boolean }>
   getProjectChatStore?: (projectId: string) => Promise<ProjectChatStore>
   saveProjectChatStore?: (projectId: string, store: ProjectChatStore) => Promise<{ ok: boolean }>
+
+  // Multi-Step AI Agent Harness
+  runAgent?: (req: AgentRunRequest) => Promise<AgentRunResult>
+  cancelAgent?: (runId: string) => Promise<{ ok: boolean }>
+  onAgentEvent?: (callback: (event: AgentStepEvent) => void) => () => void
 }

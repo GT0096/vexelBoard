@@ -1,31 +1,57 @@
+/* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/explicit-function-return-type */
 const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
-function collectMachOBinaries(dir, out = []) {
-  if (!fs.existsSync(dir)) return out
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name)
-    if (entry.isSymbolicLink()) continue
-    if (entry.isDirectory()) {
-      collectMachOBinaries(full, out)
-    } else if (entry.isFile() && /\.(dylib|node|so)$/i.test(entry.name)) {
-      out.push(full)
+function collectMachOAndBundles(dir) {
+  const binaries = []
+  const executables = []
+  const appHelpers = []
+  const frameworks = []
+
+  function walk(cur) {
+    if (!fs.existsSync(cur)) return
+    for (const entry of fs.readdirSync(cur, { withFileTypes: true })) {
+      const full = path.join(cur, entry.name)
+      if (entry.isSymbolicLink()) continue
+      if (entry.isDirectory()) {
+        walk(full)
+        if (/\.app$/i.test(entry.name)) {
+          appHelpers.push(full)
+        } else if (/\.framework$/i.test(entry.name)) {
+          frameworks.push(full)
+        }
+      } else if (entry.isFile()) {
+        if (/\.(dylib|node|so)$/i.test(entry.name)) {
+          binaries.push(full)
+        } else {
+          try {
+            const st = fs.statSync(full)
+            if ((st.mode & 0o111) !== 0 && !/\.(json|js|cjs|mjs|txt|md|pak|bin|dat|icns|plist)$/i.test(entry.name)) {
+              executables.push(full)
+            }
+          } catch {
+            /* ignore stat errors */
+          }
+        }
+      }
     }
   }
-  return out
+
+  walk(dir)
+  return { binaries, executables, appHelpers, frameworks }
 }
 
 /**
- * Ensures unsigned macOS builds (especially Apple Silicon arm64 on M1–M5+) receive a
- * valid bottom-up ad-hoc code signature before DMG/ZIP packaging. Without this,
- * modifying Electron's Info.plist / app.asar invalidates Electron's prebuilt signature,
- * causing macOS Gatekeeper / AMFI to report the app as "damaged / corrupted".
+ * Ensures unsigned macOS builds (including Apple Silicon arm64 on M1-M5+) receive a
+ * valid inside-out Hardened Runtime ad-hoc code signature with entitlements before
+ * DMG/ZIP packaging. Without this, modifying Electron's Info.plist / app.asar invalidates
+ * Electron's prebuilt signature, causing macOS Gatekeeper / AMFI to reject the app.
  */
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') return
   if (process.env.CSC_LINK) {
-    console.log('[afterPack] Developer ID certificate detected; skipping ad-hoc sign.')
+    console.log('[afterPack] Developer ID certificate detected; delegating signing to electron-builder.')
     return
   }
 
@@ -36,7 +62,12 @@ exports.default = async function afterPack(context) {
     return
   }
 
-  console.log(`[afterPack] Applying clean ad-hoc code signature for ${appPath} (${context.arch})...`)
+  const entitlementsPath = path.resolve(__dirname, '..', 'build', 'entitlements.mac.plist')
+  const hasEntitlements = fs.existsSync(entitlementsPath)
+
+  console.log(
+    `[afterPack] Applying inside-out Hardened Runtime ad-hoc signature for ${appPath} (${context.arch})...`
+  )
 
   // Clear any extended attributes / resource forks before signing
   try {
@@ -45,23 +76,53 @@ exports.default = async function afterPack(context) {
     /* ignore if no xattrs */
   }
 
-  // 1. Sign all unpacked native binaries (.node, .dylib, .so) first
-  const unpackedDir = path.join(appPath, 'Contents', 'Resources', 'app.asar.unpacked')
-  const nativeBins = collectMachOBinaries(unpackedDir)
-  for (const bin of nativeBins) {
+  const signTarget = (target, withEntitlements) => {
+    const args = ['--force', '--options', 'runtime', '--timestamp=none']
+    if (withEntitlements && hasEntitlements) {
+      args.push('--entitlements', entitlementsPath)
+    }
+    args.push('--sign', '-', target)
     try {
-      execFileSync('codesign', ['--force', '--sign', '-', bin], { stdio: 'inherit' })
+      execFileSync('codesign', args, { stdio: 'inherit' })
     } catch (err) {
-      console.warn(`[afterPack] Warning signing ${bin}:`, err?.message || err)
+      console.warn(`[afterPack] Warning signing ${target}:`, err?.message || err)
     }
   }
 
-  // 2. Deep ad-hoc sign the entire .app bundle (frameworks, helpers, main binary)
-  execFileSync('codesign', ['--force', '--deep', '--sign', '-', appPath], { stdio: 'inherit' })
+  // 1. Sign all unpacked native addons & shared libraries first (.node, .dylib, .so)
+  const unpackedDir = path.join(appPath, 'Contents', 'Resources', 'app.asar.unpacked')
+  const frameworksDir = path.join(appPath, 'Contents', 'Frameworks')
+  const unpackedAssets = collectMachOAndBundles(unpackedDir)
+  const frameworkAssets = collectMachOAndBundles(frameworksDir)
 
-  // 3. Verify signature integrity so CI fails fast if anything is invalid
+  for (const bin of [...unpackedAssets.binaries, ...frameworkAssets.binaries]) {
+    signTarget(bin, false)
+  }
+
+  // 2. Sign standalone helper Mach-O executables (e.g. chrome_crashpad_handler, ShipIt)
+  for (const exe of [...unpackedAssets.executables, ...frameworkAssets.executables]) {
+    signTarget(exe, true)
+  }
+
+  // 3. Sign nested .framework bundles and Electron Helper .app bundles inside-out
+  for (const fw of frameworkAssets.frameworks) {
+    signTarget(fw, false)
+  }
+  for (const helperApp of frameworkAssets.appHelpers) {
+    signTarget(helperApp, true)
+  }
+
+  // 4. Sign top-level .app bundle with Hardened Runtime + entitlements
+  const topArgs = ['--force', '--options', 'runtime', '--timestamp=none']
+  if (hasEntitlements) {
+    topArgs.push('--entitlements', entitlementsPath)
+  }
+  topArgs.push('--sign', '-', appPath)
+  execFileSync('codesign', topArgs, { stdio: 'inherit' })
+
+  // 5. Strict verification so CI fails fast if any nested binary or signature is invalid
   execFileSync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], {
     stdio: 'inherit'
   })
-  console.log(`[afterPack] Ad-hoc signature verified successfully for ${appPath}`)
+  console.log(`[afterPack] Hardened Runtime ad-hoc signature verified successfully for ${appPath}`)
 }

@@ -60,13 +60,22 @@ export const THEMES: Record<ThemeId, ThemeTokens> = {
 
 export const THEME_ORDER: ThemeId[] = ['neon', 'chalk', 'blueprint', 'overlay']
 
-export const FONTS: Record<FontId, { label: string; css: string; sample: string }> = {
-  caveat: { label: 'Caveat', css: '"Caveat", cursive', sample: 'Aa' },
-  jakarta: { label: 'Plus Jakarta Sans', css: '"Plus Jakarta Sans", sans-serif', sample: 'Aa' },
-  mono: { label: 'JetBrains Mono', css: '"JetBrains Mono", monospace', sample: '{}' }
+export const FONTS: Record<FontId, { label: string; shortLabel: string; css: string; sample: string }> = {
+  jakarta: { label: 'Plus Jakarta Sans', shortLabel: 'Sans', css: '"Plus Jakarta Sans", sans-serif', sample: 'Aa' },
+  caveat: { label: 'Caveat', shortLabel: 'Hand', css: '"Caveat", cursive', sample: 'Aa' },
+  grotesk: { label: 'Space Grotesk', shortLabel: 'Tech', css: '"Space Grotesk", sans-serif', sample: 'Aa' },
+  mono: { label: 'JetBrains Mono', shortLabel: 'Mono', css: '"JetBrains Mono", monospace', sample: '{}' },
+  serif: { label: 'Georgia Serif', shortLabel: 'Serif', css: '"Georgia", "Times New Roman", serif', sample: 'Aa' }
 }
 
-export const FONT_ORDER: FontId[] = ['caveat', 'jakarta', 'mono']
+export const FONT_ORDER: FontId[] = ['jakarta', 'caveat', 'grotesk', 'mono', 'serif']
+
+export function resolveFontCss(fontId?: FontId | string, fallback: FontId = 'jakarta'): string {
+  if (fontId && fontId in FONTS) {
+    return FONTS[fontId as FontId].css
+  }
+  return FONTS[fallback].css
+}
 
 /**
  * Resolves live ThemeTokens tailored to the current board background color
@@ -86,7 +95,7 @@ export function resolveThemeTokens(
     accent: p.accent,
     glow: 0,
     exportBg: isTransparent ? null : p.bg,
-    contrastShadow: isTransparent,
+    contrastShadow: false,
     swatch: [p.bg === 'transparent' ? '#FFFDF7' : p.bg, p.ink, p.accent]
   }
 }

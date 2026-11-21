@@ -189,7 +189,9 @@ class DatabaseManager {
 
     // Performance & durability settings (compatible with both engines)
     try {
-      this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;')
+      this.db.exec(
+        'PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA temp_store = MEMORY; PRAGMA cache_size = -16000; PRAGMA foreign_keys = ON;'
+      )
     } catch (err) {
       console.warn('[DB] PRAGMA setup warning:', err)
     }
@@ -259,6 +261,9 @@ class DatabaseManager {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
+
+      CREATE INDEX IF NOT EXISTS idx_board_elements_board_kind
+        ON board_elements(board_id, kind);
 
       CREATE TABLE IF NOT EXISTS knowledge_sources (
         id TEXT PRIMARY KEY,
@@ -399,6 +404,11 @@ class DatabaseManager {
         const text = el.text || ''
         const createdAt =
           typeof el.raw?.createdAt === 'number' && Number.isFinite(el.raw.createdAt) ? el.raw.createdAt : now
+        // Guardrail: never persist raw base64 PNGs inside canvas board_elements rows
+        const safeRaw =
+          el.raw && typeof el.raw === 'object'
+            ? { ...el.raw, base64Png: undefined, imageBase64: undefined }
+            : el.raw
         insertElement.run(
           el.id,
           boardId,
@@ -408,7 +418,7 @@ class DatabaseManager {
           el.w ?? null,
           el.h ?? null,
           text,
-          JSON.stringify(el.raw),
+          JSON.stringify(safeRaw),
           createdAt,
           now
         )
