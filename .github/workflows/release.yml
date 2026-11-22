@@ -229,6 +229,11 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
+          for var in CSC_LINK CSC_KEY_PASSWORD CSC_INSTALLER_LINK CSC_INSTALLER_KEY_PASSWORD WIN_CSC_LINK WIN_CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            if [ -z "${!var:-}" ]; then
+              unset "$var"
+            fi
+          done
           if [ -n "${CSC_LINK:-}" ] || [ -n "${WIN_CSC_LINK:-}" ]; then
             export CSC_IDENTITY_AUTO_DISCOVERY=true
           else

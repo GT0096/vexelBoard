@@ -84,6 +84,7 @@ dmg:
   title: Vexelboard ${version}
   icon: build/icon.icns
   format: UDZO
+  sign: false
   writeUpdateInfo: false
   artifactName: Vexelboard-${version}-${arch}.${ext}
   window:

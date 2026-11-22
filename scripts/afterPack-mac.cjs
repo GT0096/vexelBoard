@@ -49,8 +49,28 @@ function collectMachOAndBundles(dir) {
  * Electron's prebuilt signature, causing macOS Gatekeeper / AMFI to reject the app.
  */
 exports.default = async function afterPack(context) {
+  for (const key of [
+    'CSC_LINK',
+    'CSC_KEY_PASSWORD',
+    'CSC_NAME',
+    'CSC_INSTALLER_LINK',
+    'CSC_INSTALLER_KEY_PASSWORD',
+    'WIN_CSC_LINK',
+    'WIN_CSC_KEY_PASSWORD',
+    'APPLE_ID',
+    'APPLE_APP_SPECIFIC_PASSWORD',
+    'APPLE_TEAM_ID',
+    'APPLE_API_KEY',
+    'APPLE_API_KEY_ID',
+    'APPLE_API_ISSUER'
+  ]) {
+    if (typeof process.env[key] === 'string' && process.env[key].trim() === '') {
+      delete process.env[key]
+    }
+  }
+
   if (context.electronPlatformName !== 'darwin') return
-  if (process.env.CSC_LINK) {
+  if (process.env.CSC_LINK && process.env.CSC_LINK.trim().length > 0) {
     console.log('[afterPack] Developer ID certificate detected; delegating signing to electron-builder.')
     return
   }

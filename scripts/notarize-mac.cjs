@@ -13,6 +13,21 @@ const path = require('path')
  * otherwise logs clearly and returns without failing ad-hoc or unsigned builds.
  */
 exports.default = async function notarizeMac(context) {
+  for (const key of [
+    'CSC_LINK',
+    'CSC_KEY_PASSWORD',
+    'APPLE_ID',
+    'APPLE_APP_SPECIFIC_PASSWORD',
+    'APPLE_TEAM_ID',
+    'APPLE_API_KEY',
+    'APPLE_API_KEY_ID',
+    'APPLE_API_ISSUER'
+  ]) {
+    if (typeof process.env[key] === 'string' && process.env[key].trim() === '') {
+      delete process.env[key]
+    }
+  }
+
   if (context.electronPlatformName !== 'darwin') return
 
   const hasAppleIdCreds = Boolean(
@@ -26,7 +41,7 @@ exports.default = async function notarizeMac(context) {
       process.env.APPLE_API_ISSUER
   )
 
-  if (!process.env.CSC_LINK || (!hasAppleIdCreds && !hasApiKeyCreds)) {
+  if (!process.env.CSC_LINK || process.env.CSC_LINK.trim().length === 0 || (!hasAppleIdCreds && !hasApiKeyCreds)) {
     console.log(
       '[notarize] No Apple Developer signing/notarization credentials detected; skipping Apple notarytool submission.'
     )
