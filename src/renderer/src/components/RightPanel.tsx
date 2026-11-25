@@ -27,15 +27,20 @@ import {
   Pencil,
   Cpu,
   StopCircle,
-  RotateCcw
+  RotateCcw,
+  Search,
+  Globe,
+  Blocks
 } from 'lucide-react'
 import type { ChatMessage, AISettings } from '../types/board'
 import type { AgentMode, AgentStepEvent } from '@shared/agentSchema'
-import type { ChatAttachment, ProjectChatThread } from '@shared/ipc'
+import { DEFAULT_WEB_SEARCH_SETTINGS, type ChatAttachment, type ProjectChatThread } from '@shared/ipc'
 import { estimateThreadTokens } from '../board/workspaceStore'
 import { useAutoGrowTextarea } from '../board/useAutoGrowTextarea'
 import { Markdown } from './Markdown'
 import { ChatAiSettings } from './ChatAiSettings'
+import { ChatSearchBar } from './ChatSearchBar'
+import { TabColorPicker, getReadableTabStyle } from './TabColorPicker'
 import {
   ChatAtMentionPopover,
   ChatPinnedSourcesBar,
@@ -52,6 +57,7 @@ interface RightPanelProps {
   onSelectThread?: (threadId: string) => void
   onCreateThread?: (title?: string) => void
   onRenameThread?: (threadId: string, title: string) => void
+  onUpdateThreadColor?: (threadId: string, color: string | undefined) => void
   onDeleteThread?: (threadId: string) => void
   onSendMessage: (
     query: string,
@@ -62,6 +68,7 @@ interface RightPanelProps {
   onInsertDiagram: (text: string) => void
   onClearChat: () => void
   onOpenKnowledgeHub?: () => void
+  onOpenSkills?: () => void
   onGenerateTutorial?: (topic: string) => void
   onAddYouTubeToCanvas?: (url: string, title?: string) => void
   isAiBusy: boolean
@@ -137,12 +144,14 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
   onSelectThread,
   onCreateThread,
   onRenameThread,
+  onUpdateThreadColor,
   onDeleteThread,
   onSendMessage,
   onInsertToNotes,
   onInsertDiagram,
   onClearChat,
   onOpenKnowledgeHub,
+  onOpenSkills,
   onGenerateTutorial,
   onAddYouTubeToCanvas,
   isAiBusy,
@@ -168,8 +177,20 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
   onUndoLastAgent
 }) => {
   const [showAiSettings, setShowAiSettings] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchMatches, setSearchMatches] = useState<{
+    activeMessageId: string | null
+    matchedMessageIds: Set<string>
+    highlightTerms: string[]
+  }>({ activeMessageId: null, matchedMessageIds: new Set(), highlightTerms: [] })
+  const pendingJumpMsgIdRef = useRef<string | null>(null)
   const [agentMode, setAgentMode] = useState<boolean>(Boolean(onRunAgent))
   const [traceExpanded, setTraceExpanded] = useState<boolean>(true)
+  const webSearchConfig = {
+    ...DEFAULT_WEB_SEARCH_SETTINGS,
+    ...(aiSettings?.webSearch ?? {})
+  }
+  const webSearchEnabled = webSearchConfig.enabled !== false
 
   useEffect(() => {
     if (openSettingsTrigger) {
@@ -277,6 +298,39 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
   const activeThread =
     threads?.find((t) => t.id === activeThreadId) || threads?.[0] || null
   const estimatedCtxTokens = estimateThreadTokens(messages)
+
+  const scrollToMessageById = React.useCallback((messageId: string) => {
+    window.setTimeout(() => {
+      const container = messagesScrollRef.current
+      const el = container?.querySelector(`[data-chat-msg-id="${messageId}"]`) as HTMLElement | null
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 45)
+  }, [])
+
+  useEffect(() => {
+    if (pendingJumpMsgIdRef.current) {
+      const targetId = pendingJumpMsgIdRef.current
+      if (messages.some((m) => m.id === targetId)) {
+        pendingJumpMsgIdRef.current = null
+        scrollToMessageById(targetId)
+      }
+    }
+  }, [messages, scrollToMessageById])
+
+  const handleJumpToSearchMessage = React.useCallback(
+    (targetThreadId: string, messageId: string) => {
+      const curId = activeThread?.id || activeThreadId
+      if (targetThreadId && targetThreadId !== curId && onSelectThread) {
+        pendingJumpMsgIdRef.current = messageId
+        onSelectThread(targetThreadId)
+      } else {
+        scrollToMessageById(messageId)
+      }
+    },
+    [activeThread?.id, activeThreadId, onSelectThread, scrollToMessageById]
+  )
 
   const handleAddFileAttachment = (): void => {
     fileInputRef.current?.click()
@@ -411,15 +465,20 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
         query
       ) ||
       (/\b(explain|teach|compare)\b/i.test(query) && (query.includes(',') || /\band\b/i.test(query)))
+    const hasWebIntent =
+      /\b(search|google|look\s?up|browse|web|internet|online|latest|newest|recent|today|current|news|released?|version|price|20[2-3]\d)\b/i.test(
+        query
+      )
     const isSimpleConceptualQuestion =
       !hasBoardActionIntent &&
+      !hasWebIntent &&
       /^(what|why|how|when|where|who|which|is|are|can|does|do|define|explain|describe|difference)\b/i.test(
         query
       )
 
     if (agentMode && onRunAgent && attachments.length === 0 && query && !isSimpleConceptualQuestion) {
       void onRunAgent(query, {
-        mode: 'general',
+        mode: hasWebIntent && !hasBoardActionIntent ? 'research' : 'general',
         selectedSourceIds: sourceIds.length > 0 ? sourceIds : undefined
       })
     } else {
@@ -721,6 +780,13 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
           onMouseUp={handleMouseUp}
           onPointerDown={(e) => e.stopPropagation()}
           onWheel={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+              e.preventDefault()
+              e.stopPropagation()
+              setSearchOpen(true)
+            }
+          }}
         >
           {/* Header & Window Drag Handle */}
           <div
@@ -768,6 +834,17 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
             </div>
 
             <div className="floating-header-actions" onPointerDown={(e) => e.stopPropagation()}>
+              {/* Search in Chat (BM25 + Fuzzy + Knowledge) */}
+              <button
+                type="button"
+                className={`header-action-btn ${searchOpen ? 'active' : ''}`}
+                onClick={() => setSearchOpen((prev) => !prev)}
+                title="Search in Chat & Threads (Ctrl+F)"
+                aria-label="Search in Chat"
+              >
+                <Search size={14} />
+              </button>
+
               {/* Settings toggle */}
               {aiSettings && onChangeAI && (
                 <button
@@ -849,19 +926,35 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
           {threads && onCreateThread && onSelectThread && (
             <div className="chat-thread-bar" ref={threadMenuRef} onPointerDown={(e) => e.stopPropagation()}>
               <div className="chat-thread-picker-wrap">
-                <button
-                  type="button"
+                <div
+                  role="button"
+                  tabIndex={0}
                   className={`chat-thread-picker-btn ${threadMenuOpen ? 'open' : ''}`}
+                  style={getReadableTabStyle(activeThread?.color)}
                   onClick={() => setThreadMenuOpen((v) => !v)}
-                  title="Switch between chat threads in this project"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setThreadMenuOpen((v) => !v)
+                    }
+                  }}
+                  title="Switch between chat threads or change chat tab color"
                 >
                   <MessageSquare size={12} className="chat-thread-icon" />
                   <span className="chat-thread-name">{activeThread?.title || 'Chat 1'}</span>
                   <span className="chat-thread-meta">
                     {messages.length} msgs · ~{estimatedCtxTokens} tok
                   </span>
+                  {onUpdateThreadColor && activeThread && (
+                    <TabColorPicker
+                      size="xs"
+                      color={activeThread.color}
+                      onChange={(c) => onUpdateThreadColor(activeThread.id, c)}
+                      title="Change active chat tab color"
+                    />
+                  )}
                   <ChevronDown size={12} />
-                </button>
+                </div>
 
                 {threadMenuOpen && (
                   <div className="chat-thread-dropdown glass">
@@ -877,6 +970,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                           <div
                             key={t.id}
                             className={`chat-thread-item ${isCur ? 'active' : ''}`}
+                            style={getReadableTabStyle(t.color, { isActive: isCur, subtleInactive: true })}
                             onClick={() => {
                               if (!isEditing) {
                                 onSelectThread(t.id)
@@ -923,6 +1017,14 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                                   className="chat-thread-item-actions"
                                   onClick={(e) => e.stopPropagation()}
                                 >
+                                  {onUpdateThreadColor && (
+                                    <TabColorPicker
+                                      size="xs"
+                                      color={t.color}
+                                      onChange={(c) => onUpdateThreadColor(t.id, c)}
+                                      title={`Change "${t.title}" tab color`}
+                                    />
+                                  )}
                                   {onRenameThread && (
                                     <button
                                       type="button"
@@ -971,38 +1073,84 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
             </div>
           )}
 
+          {/* Open-Source MiniSearch BM25 + Fuzzy Chat Search Bar */}
+          <ChatSearchBar
+            isOpen={searchOpen}
+            onClose={() => setSearchOpen(false)}
+            threads={
+              threads && threads.length > 0
+                ? threads
+                : [
+                    {
+                      id: activeThreadId || 'thread-default',
+                      title: 'Current Chat',
+                      messages,
+                      createdAt: 0,
+                      updatedAt: 0
+                    }
+                  ]
+            }
+            activeThreadId={activeThread?.id || activeThreadId || 'thread-default'}
+            onJumpToMessage={handleJumpToSearchMessage}
+            onInsertKnowledgeSnippet={onInsertToNotes}
+            onActiveMatchesChange={setSearchMatches}
+          />
+
           {/* Dedicated Accessible Feature Quick-Bar */}
-          {(onGenerateTutorial || onOpenKnowledgeHub) && (
-            <div className="chat-feature-bar" onPointerDown={(e) => e.stopPropagation()}>
-              {onGenerateTutorial && (
-                <button
-                  type="button"
-                  className={`chat-feature-pill ${showTutorialInput ? 'active' : ''}`}
-                  disabled={!isAiConfigured}
-                  onClick={() => isAiConfigured && setShowTutorialInput((v) => !v)}
-                  title={
-                    isAiConfigured
-                      ? 'Create structured visual tutorial with explanations & diagrams on the board'
-                      : 'Configure AI Settings to generate visual tutorials'
-                  }
-                >
-                  <Layout size={13} />
-                  <span>Create Tutorial</span>
-                </button>
-              )}
-              {onOpenKnowledgeHub && (
-                <button
-                  type="button"
-                  className="chat-feature-pill notebook"
-                  onClick={onOpenKnowledgeHub}
-                  title="Open Multi-Source Knowledge Studio & Board Recall"
-                >
-                  <BookOpen size={13} />
-                  <span>Knowledge Studio</span>
-                </button>
-              )}
-            </div>
-          )}
+          <div className="chat-feature-bar" onPointerDown={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className={`chat-feature-pill search ${searchOpen ? 'active' : ''}`}
+              onClick={() => setSearchOpen((v) => !v)}
+              title="Search messages, code & threads in Chat Panel (Ctrl+F)"
+            >
+              <Search size={13} />
+              <span>Search Chat</span>
+            </button>
+            {onGenerateTutorial && (
+              <button
+                type="button"
+                className={`chat-feature-pill ${showTutorialInput ? 'active' : ''}`}
+                disabled={!isAiConfigured}
+                onClick={() => isAiConfigured && setShowTutorialInput((v) => !v)}
+                title={
+                  isAiConfigured
+                    ? 'Create structured visual tutorial with explanations & diagrams on the board'
+                    : 'Configure AI Settings to generate visual tutorials'
+                }
+              >
+                <Layout size={13} />
+                <span>Create Tutorial</span>
+              </button>
+            )}
+            {onOpenKnowledgeHub && (
+              <button
+                type="button"
+                className="chat-feature-pill notebook"
+                onClick={onOpenKnowledgeHub}
+                title="Open Multi-Source Knowledge Studio & Board Recall"
+              >
+                <BookOpen size={13} />
+                <span>Knowledge Studio</span>
+              </button>
+            )}
+            {onOpenSkills && (
+              <button
+                type="button"
+                className={`chat-feature-pill skills ${(aiSettings?.activeSkillIds?.length ?? 0) > 0 ? 'active' : ''}`}
+                onClick={onOpenSkills}
+                title="Browse, pin, or create Antigravity-compatible SKILL.md workflows & Companion Bridge"
+              >
+                <Blocks size={13} />
+                <span>
+                  Skills
+                  {(aiSettings?.activeSkillIds?.length ?? 0) > 0
+                    ? ` (${aiSettings!.activeSkillIds!.length})`
+                    : ''}
+                </span>
+              </button>
+            )}
+          </div>
 
           {/* Inline Tutorial Generator Topic Bar */}
           {showTutorialInput && isAiConfigured && onGenerateTutorial && (
@@ -1085,7 +1233,13 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
               </div>
             ) : (
               messages.map((m) => (
-                <div key={m.id} className={`chat-message-row ${m.role}`}>
+                <div
+                  key={m.id}
+                  data-chat-msg-id={m.id}
+                  className={`chat-message-row ${m.role} ${
+                    searchMatches.matchedMessageIds.has(m.id) ? 'is-search-match' : ''
+                  } ${searchMatches.activeMessageId === m.id ? 'is-active-search-match' : ''}`}
+                >
                   {m.role === 'assistant' && (
                     <div className="assistant-avatar">
                       <Bot size={15} />
@@ -1330,6 +1484,34 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
               </div>
             )}
 
+            {(aiSettings?.activeSkillIds?.length ?? 0) > 0 && aiSettings && onChangeAI && (
+              <div className="vx-active-skills-strip">
+                {aiSettings.activeSkillIds!.map((skillId) => {
+                  const shortName = skillId.includes(':') ? skillId.split(':')[1] : skillId
+                  return (
+                    <span key={skillId} className="vx-active-skill-chip">
+                      <Blocks size={10} />
+                      <span>{shortName}</span>
+                      <button
+                        type="button"
+                        title={`Unpin ${shortName}`}
+                        onClick={() =>
+                          onChangeAI({
+                            ...aiSettings,
+                            activeSkillIds: (aiSettings.activeSkillIds ?? []).filter(
+                              (id) => id !== skillId
+                            )
+                          })
+                        }
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+
             <div className="chat-input-wrapper">
               <ChatAtMentionPopover
                 atQuery={knowledge.atQuery}
@@ -1412,6 +1594,41 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                     onOpenKnowledgeHub={onOpenKnowledgeHub}
                   />
 
+                  {aiSettings && onChangeAI && (
+                    <button
+                      type="button"
+                      className={`web-search-toggle ${webSearchEnabled ? 'active' : ''}`}
+                      onClick={() => {
+                        const nextEnabled = !webSearchEnabled
+                        onChangeAI({
+                          ...aiSettings,
+                          webSearch: {
+                            ...webSearchConfig,
+                            enabled: nextEnabled
+                          }
+                        })
+                        if (nextEnabled && !agentMode && onRunAgent) {
+                          setAgentMode(true)
+                        }
+                        onToast?.(
+                          'info',
+                          nextEnabled
+                            ? 'Internet Web Search enabled for Agent'
+                            : 'Internet Web Search disabled'
+                        )
+                      }}
+                      title={
+                        webSearchEnabled
+                          ? 'Built-in Internet Web Search ON (DuckDuckGo, Wikipedia, arXiv, Stack Overflow & HN — zero setup). Click to disable.'
+                          : 'Internet Web Search OFF. Click to let the agent search the internet.'
+                      }
+                    >
+                      <Globe size={12} />
+                      <span>Web Search</span>
+                      <strong>{webSearchEnabled ? 'ON' : 'OFF'}</strong>
+                    </button>
+                  )}
+
                   {onRunAgent && !isDetached && (
                     <button
                       type="button"
@@ -1419,7 +1636,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                       onClick={() => setAgentMode((v) => !v)}
                       title={
                         agentMode
-                          ? 'Agent Mode ON: AI can inspect board, search docs, run code, draw diagrams & annotate layers'
+                          ? 'Agent Mode ON: AI can inspect board, search docs, search internet, run code & draw diagrams'
                           : 'Agent Mode OFF: Standard conversational chat'
                       }
                     >

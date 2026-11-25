@@ -8,13 +8,21 @@ import type {
   VectorCritiqueRequest,
   VectorCritiqueResponse
 } from './beautifySchema'
-import type { AgentRunRequest, AgentRunResult, AgentStepEvent } from './agentSchema'
+import type {
+  AgentBoardMutation,
+  AgentBoardSnapshot,
+  AgentRunRequest,
+  AgentRunResult,
+  AgentStepEvent
+} from './agentSchema'
 
 export type {
   SmartBeautifyRequest,
   SmartBeautifyResponse,
   VectorCritiqueRequest,
   VectorCritiqueResponse,
+  AgentBoardMutation,
+  AgentBoardSnapshot,
   AgentRunRequest,
   AgentRunResult,
   AgentStepEvent
@@ -172,6 +180,7 @@ export interface StoredChatMessage {
 export interface ProjectChatThread {
   id: string
   title: string
+  color?: string
   messages: StoredChatMessage[]
   createdAt: number
   updatedAt: number
@@ -218,6 +227,8 @@ export interface AIRequest {
   includeProjectContext?: boolean
   /** Specific Knowledge Studio source IDs explicitly referenced by the user */
   sourceIds?: string[]
+  /** Active AI Skill IDs / names explicitly pinned by the user */
+  activeSkillIds?: string[]
   /** Attached files, images or YouTube contexts */
   attachments?: ChatAttachment[]
   /** True if generating an end-to-end structured visual whiteboard tutorial */
@@ -327,6 +338,7 @@ export interface SectionElementBreakdown {
   videos: number
   shapes: number
   strokes: number
+  images?: number
 }
 
 export interface SectionItem {
@@ -334,11 +346,34 @@ export interface SectionItem {
   projectId: string
   title: string
   description?: string
+  color?: string
   createdAt: number
   updatedAt: number
   elementCount?: number
   breakdown?: SectionElementBreakdown
   previewText?: string
+}
+
+export interface LocalOcrRequest {
+  imagesBase64: string[]
+}
+
+export interface LocalOcrResponse {
+  ok: boolean
+  text: string
+  lines: string[]
+  model: string
+  durationMs: number
+  error?: string
+}
+
+export interface SavedBoardImageResult {
+  ok: boolean
+  src?: string
+  width?: number
+  height?: number
+  name?: string
+  error?: string
 }
 
 export interface OverallHistoryEntry {
@@ -441,12 +476,14 @@ export interface GlassAPI {
   isEncryptionAvailable: () => Promise<boolean>
   getOpenAIModelConfig: (model: string) => Promise<OpenAIModelProfile>
   runAI: (request: AIRequest) => Promise<AIResponse>
+  runLocalOcr?: (request: LocalOcrRequest) => Promise<LocalOcrResponse>
   smartBeautify?: (request: SmartBeautifyRequest) => Promise<SmartBeautifyResponse>
   smartBeautifyCritique?: (request: VectorCritiqueRequest) => Promise<VectorCritiqueResponse>
   runCode?: (request: CodeExecutionRequest) => Promise<CodeExecutionResult>
   checkCodeRuntimes?: () => Promise<Record<string, CodeRuntimeInfo>>
   saveExportFile?: (filename: string, content: string, mimeType: string) => Promise<{ success: boolean; filePath?: string }>
   printToPdf?: () => Promise<string | null>
+  openExternal?: (url: string) => Promise<{ ok: boolean }>
   setMode: (mode: DisplayMode) => Promise<DisplayMode>
   setClickThrough: (enabled: boolean) => Promise<boolean>
   onClickThroughChanged: (callback: (enabled: boolean) => void) => () => void
@@ -469,10 +506,13 @@ export interface GlassAPI {
   closeDetached?: () => void
   resizeDetachedWindow?: (width: number, height: number) => void
 
-  // Media, YouTube & Document parsing
+  // Media, YouTube, Clipboard Images & Document parsing
   fetchYouTubeInfo?: (url: string) => Promise<any>
   openFileDialogAndParse?: () => Promise<any>
   parseFileBuffer?: (fileName: string, base64Data: string) => Promise<any>
+  saveBoardImage?: (dataUrlOrBase64: string, suggestedName?: string) => Promise<SavedBoardImageResult>
+  readClipboardImage?: () => Promise<SavedBoardImageResult>
+  pickBoardImages?: () => Promise<{ ok: boolean; canceled?: boolean; images: SavedBoardImageResult[] }>
 
   // Local SQLite & Vector Knowledge Store
   saveKnowledgeSource?: (source: KnowledgeSourceItem, chunks: KnowledgeChunkItem[]) => Promise<{ ok: boolean }>
@@ -505,10 +545,16 @@ export interface GlassAPI {
   ) => Promise<ProjectItem | null>
   deleteProject?: (projectId: string) => Promise<{ ok: boolean }>
   listSections?: (projectId?: string) => Promise<SectionItem[]>
-  createSection?: (section: { id: string; projectId: string; title: string; description?: string }) => Promise<SectionItem>
+  createSection?: (section: {
+    id: string
+    projectId: string
+    title: string
+    description?: string
+    color?: string
+  }) => Promise<SectionItem>
   updateSection?: (
     sectionId: string,
-    patch: { title?: string; description?: string }
+    patch: { title?: string; description?: string; color?: string }
   ) => Promise<SectionItem | null>
   deleteSection?: (sectionId: string) => Promise<{ ok: boolean }>
   getOverallHistory?: (limit?: number) => Promise<OverallHistorySummary>
@@ -521,4 +567,182 @@ export interface GlassAPI {
   runAgent?: (req: AgentRunRequest) => Promise<AgentRunResult>
   cancelAgent?: (runId: string) => Promise<{ ok: boolean }>
   onAgentEvent?: (callback: (event: AgentStepEvent) => void) => () => void
+
+  // Open-Source Internet Search (Built-in MetaSearch + optional SearXNG)
+  webSearch?: (
+    query: string,
+    opts?: WebSearchOptions,
+    settings?: Partial<WebSearchSettings>
+  ) => Promise<WebSearchResponse>
+  testWebSearch?: (settings?: Partial<WebSearchSettings>) => Promise<WebSearchResponse>
+
+  // Skills & Antigravity Companion Bridge
+  listSkills?: () => Promise<SkillSummary[]>
+  getSkillDetail?: (idOrName: string, referenceFile?: string) => Promise<SkillDetail | null>
+  saveSkill?: (input: SaveSkillInput) => Promise<{ ok: boolean; skill?: SkillSummary; error?: string }>
+  deleteSkill?: (idOrName: string) => Promise<{ ok: boolean; error?: string }>
+  exportSkillToAntigravity?: (
+    idOrName: string,
+    target: 'workspace' | 'antigravity'
+  ) => Promise<{ ok: boolean; targetPath?: string; error?: string }>
+  getCompanionStatus?: () => Promise<CompanionBridgeStatus>
+  syncCompanionSnapshot?: (snapshot: AgentBoardSnapshot) => void
+  onCompanionMutations?: (
+    callback: (payload: { mutations: AgentBoardMutation[]; source?: string }) => void
+  ) => () => void
+  pushSelectionCapture?: (
+    capture: CompanionSelectionCapturePayload
+  ) => Promise<CompanionSelectionCaptureResult>
+  onRequestSelectionCapture?: (callback: (requestId: string) => void) => () => void
+  respondSelectionCapture?: (
+    requestId: string,
+    capture: CompanionSelectionCapturePayload
+  ) => void
+}
+
+export type SkillSourceKind =
+  | 'workspace'
+  | 'custom'
+  | 'antigravity'
+  | 'antigravity-plugin'
+  | 'builtin'
+
+export interface SkillSummary {
+  id: string
+  name: string
+  description: string
+  source: SkillSourceKind
+  skillPath: string
+  dirPath?: string
+  hasScripts?: boolean
+  hasReferences?: boolean
+  editable: boolean
+}
+
+export interface SkillDetail extends SkillSummary {
+  body: string
+  rawMarkdown: string
+  referenceFiles: string[]
+  scriptFiles: string[]
+}
+
+export interface SaveSkillInput {
+  name: string
+  description: string
+  body: string
+  target: 'workspace' | 'custom' | 'antigravity'
+}
+
+export interface CompanionBridgeStatus {
+  running: boolean
+  port: number
+  baseUrl: string
+  mcpUrl: string
+  bridgeFilePath: string
+  activeSectionId?: string
+  activeProjectId?: string
+}
+
+export interface CompanionSelectionCapturePayload {
+  ok: boolean
+  boardId: string
+  projectId?: string
+  selectedIds: string[]
+  selectionBounds?: { x: number; y: number; width: number; height: number }
+  base64Png?: string
+  width?: number
+  height?: number
+  elementSummary?: string
+  error?: string
+}
+
+export interface CompanionSelectionCaptureResult {
+  ok: boolean
+  boardId?: string
+  projectId?: string
+  selectedIds: string[]
+  selectedCount: number
+  selectionBounds?: { x: number; y: number; width: number; height: number }
+  filePath?: string
+  mimeType?: 'image/png'
+  width?: number
+  height?: number
+  base64Png?: string
+  elementSummary?: string
+  capturedAt?: number
+  error?: string
+}
+
+export interface WebSearchSettings {
+  enabled: boolean
+  providerMode?: 'builtin' | 'searxng'
+  searxngUrl: string
+  allowFallback: boolean
+}
+
+export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
+  enabled: true,
+  providerMode: 'builtin',
+  searxngUrl: '',
+  allowFallback: true
+}
+
+export type WebSearchProvider =
+  | 'builtin'
+  | 'duckduckgo'
+  | 'wikipedia'
+  | 'arxiv'
+  | 'stackoverflow'
+  | 'hackernews'
+  | 'openalex'
+  | 'searxng'
+  | 'none'
+
+export interface WebSearchOptions {
+  limit?: number
+  timeRange?: 'day' | 'week' | 'month' | 'year'
+  site?: string
+  category?: 'general' | 'news' | 'science' | 'it'
+}
+
+export interface WebSearchResult {
+  title: string
+  url: string
+  snippet: string
+  engine?: string
+  publishedDate?: string
+}
+
+export interface WebSearchAttempt {
+  provider: WebSearchProvider
+  ok: boolean
+  count: number
+  error?: string
+  ms: number
+}
+
+export interface WebSearchResponse {
+  ok: boolean
+  provider: WebSearchProvider
+  query: string
+  results: WebSearchResult[]
+  answers?: string[]
+  suggestions?: string[]
+  attempts: WebSearchAttempt[]
+  durationMs: number
+  error?: string
+}
+
+export interface WebPageContent {
+  ok: boolean
+  url: string
+  finalUrl?: string
+  title?: string
+  siteName?: string
+  byline?: string
+  excerpt?: string
+  content: string
+  totalChars: number
+  truncated: boolean
+  error?: string
 }

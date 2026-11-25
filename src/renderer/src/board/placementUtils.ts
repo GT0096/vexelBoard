@@ -104,6 +104,12 @@ export function collectOccupiedBoardRects(
     rects.push({ x: v.x, y: v.y, w: vw, h: vh })
   }
 
+  for (const img of board.imageNodes ?? []) {
+    const iw = img.w ?? 360
+    const ih = img.h ?? 260
+    rects.push({ x: img.x, y: img.y, w: iw, h: ih })
+  }
+
   for (const va of board.vectorArtNodes ?? []) {
     const vw = Math.max(24, Math.abs(va.width))
     const vh = Math.max(24, Math.abs(va.height))

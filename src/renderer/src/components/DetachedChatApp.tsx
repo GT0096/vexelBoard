@@ -20,11 +20,17 @@ import {
   MessageSquare,
   ChevronDown,
   Plus,
-  Pencil
+  Pencil,
+  Search,
+  Globe,
+  Blocks
 } from 'lucide-react'
 import type { ChatMessage, AISettings } from '../types/board'
 import { Markdown } from './Markdown'
 import { ChatAiSettings } from './ChatAiSettings'
+import { ChatSearchBar } from './ChatSearchBar'
+import { SkillsModal } from './SkillsModal'
+import { TabColorPicker, getReadableTabStyle } from './TabColorPicker'
 import {
   ChatAtMentionPopover,
   ChatPinnedSourcesBar,
@@ -47,14 +53,34 @@ import {
 } from '../board/workspaceStore'
 import {
   DEFAULT_PROVIDER_MODELS,
+  DEFAULT_WEB_SEARCH_SETTINGS,
   type AIRequest,
   type ChatAttachment,
   type ProjectChatStore
-} from '../../../shared/ipc'
+} from '@shared/ipc'
 
 export const DetachedChatApp: React.FC = () => {
   const [settings, patchSettings] = useSettings()
+  const rawWs = {
+    ...DEFAULT_WEB_SEARCH_SETTINGS,
+    ...(settings.ai.webSearch ?? {})
+  }
+  const webSearchConfig = {
+    ...rawWs,
+    providerMode:
+      rawWs.providerMode ??
+      (rawWs.searxngUrl && rawWs.searxngUrl !== 'http://localhost:8888' ? 'searxng' : 'builtin')
+  }
+  const webSearchEnabled = webSearchConfig.enabled !== false
   const [showAiSettings, setShowAiSettings] = useState(false)
+  const [skillsModalOpen, setSkillsModalOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchMatches, setSearchMatches] = useState<{
+    activeMessageId: string | null
+    matchedMessageIds: Set<string>
+    highlightTerms: string[]
+  }>({ activeMessageId: null, matchedMessageIds: new Set(), highlightTerms: [] })
+  const pendingJumpMsgIdRef = useRef<string | null>(null)
   const [activeProjectId, setActiveProjectId] = useState<string>(
     () => getActiveChatProjectId() || 'proj-general'
   )
@@ -100,6 +126,34 @@ export const DetachedChatApp: React.FC = () => {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const resizeRef = useRef<{ startX: number; startY: number; initW: number; initH: number } | null>(null)
+
+  const scrollToMessageById = React.useCallback((messageId: string) => {
+    window.setTimeout(() => {
+      const el = panelRef.current?.querySelector(`[data-chat-msg-id="${messageId}"]`) as HTMLElement | null
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 45)
+  }, [])
+
+  useEffect(() => {
+    if (pendingJumpMsgIdRef.current && messages.some((m) => m.id === pendingJumpMsgIdRef.current)) {
+      const targetId = pendingJumpMsgIdRef.current
+      pendingJumpMsgIdRef.current = null
+      scrollToMessageById(targetId)
+    }
+  }, [messages, scrollToMessageById])
+
+  const handleUpdateDetachedThreadColor = (threadId: string, color: string | undefined): void => {
+    setChatStore((prev) => {
+      const next: ProjectChatStore = {
+        ...prev,
+        threads: prev.threads.map((th) => (th.id === threadId ? { ...th, color } : th))
+      }
+      void persistProjectChatStore(activeProjectId, next)
+      return next
+    })
+  }
 
   useEffect(() => {
     // Scroll chat list when messages update
@@ -364,7 +418,28 @@ export const DetachedChatApp: React.FC = () => {
         projectId: activeProjectId,
         includeProjectContext: knowledge.includeProjectContext,
         sourceIds: pinnedIds.length > 0 ? pinnedIds : undefined,
+        activeSkillIds: settings.ai.activeSkillIds,
         attachments: currentAttachments
+      }
+
+      if (
+        webSearchEnabled &&
+        window.glassAPI?.webSearch &&
+        /\b(search|google|look\s?up|browse|web|internet|online|latest|newest|recent|today|current|news|released?|version|price|20[2-3]\d)\b/i.test(
+          promptText
+        )
+      ) {
+        try {
+          const wsRes = await window.glassAPI.webSearch(promptText, { limit: 5 }, webSearchConfig)
+          if (wsRes.ok && wsRes.results.length > 0) {
+            const webCtx = wsRes.results
+              .map((r, i) => `[${i + 1}] ${r.title} (${r.url})\n${r.snippet}`)
+              .join('\n\n')
+            req.prompt = `${promptText}\n\n[LIVE WEB SEARCH RESULTS via ${wsRes.provider}]:\n${webCtx}\n\nCite relevant URLs as Markdown links.`
+          }
+        } catch {
+          // continue without web augmentation
+        }
       }
 
       const res = await window.glassAPI?.runAI(req)
@@ -490,7 +565,18 @@ export const DetachedChatApp: React.FC = () => {
   }
 
   return (
-    <div className="detached-window-root" ref={panelRef} onMouseUp={handleMouseUp}>
+    <div
+      className="detached-window-root"
+      ref={panelRef}
+      onMouseUp={handleMouseUp}
+      onKeyDown={(e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+          e.preventDefault()
+          e.stopPropagation()
+          setSearchOpen(true)
+        }
+      }}
+    >
       {/* Floating snippet insert badge when text is selected */}
       {selectedText && selectionPos && (
         <button
@@ -534,6 +620,15 @@ export const DetachedChatApp: React.FC = () => {
         </div>
 
         <div className="detached-window-actions">
+          {/* Search in Chat */}
+          <button
+            type="button"
+            className={`header-action-btn ${searchOpen ? 'active' : ''}`}
+            onClick={() => setSearchOpen((prev) => !prev)}
+            title="Search in Chat & Threads (Ctrl+F)"
+          >
+            <Search size={14} />
+          </button>
           {/* AI Settings Toggle */}
           <button
             type="button"
@@ -594,19 +689,35 @@ export const DetachedChatApp: React.FC = () => {
       {/* Multi-Chat Thread Switcher & New Chat Bar */}
       <div className="chat-thread-bar" ref={threadMenuRef}>
         <div className="chat-thread-picker-wrap">
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
             className={`chat-thread-picker-btn ${threadMenuOpen ? 'open' : ''}`}
+            style={getReadableTabStyle(activeThread?.color)}
             onClick={() => setThreadMenuOpen((v) => !v)}
-            title="Switch between chat threads in this project"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                setThreadMenuOpen((v) => !v)
+              }
+            }}
+            title="Switch between chat threads or change chat tab color"
           >
             <MessageSquare size={12} className="chat-thread-icon" />
             <span className="chat-thread-name">{activeThread?.title || 'Chat 1'}</span>
             <span className="chat-thread-meta">
               {messages.length} msgs · ~{estimateThreadTokens(messages)} tok
             </span>
+            {activeThread && (
+              <TabColorPicker
+                size="xs"
+                color={activeThread.color}
+                onChange={(c) => handleUpdateDetachedThreadColor(activeThread.id, c)}
+                title="Change active chat tab color"
+              />
+            )}
             <ChevronDown size={12} />
-          </button>
+          </div>
 
           {threadMenuOpen && (
             <div className="chat-thread-dropdown glass">
@@ -622,6 +733,7 @@ export const DetachedChatApp: React.FC = () => {
                     <div
                       key={t.id}
                       className={`chat-thread-item ${isCur ? 'active' : ''}`}
+                      style={getReadableTabStyle(t.color, { isActive: isCur, subtleInactive: true })}
                       onClick={() => {
                         if (!isEditing) {
                           setChatStore((prev) => {
@@ -683,6 +795,12 @@ export const DetachedChatApp: React.FC = () => {
                             className="chat-thread-item-actions"
                             onClick={(e) => e.stopPropagation()}
                           >
+                            <TabColorPicker
+                              size="xs"
+                              color={t.color}
+                              onChange={(c) => handleUpdateDetachedThreadColor(t.id, c)}
+                              title={`Change "${t.title}" tab color`}
+                            />
                             <button
                               type="button"
                               title="Rename chat"
@@ -747,8 +865,40 @@ export const DetachedChatApp: React.FC = () => {
         </button>
       </div>
 
+      {/* Open-Source MiniSearch BM25 + Fuzzy Chat Search Bar */}
+      <ChatSearchBar
+        isOpen={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        threads={chatStore.threads}
+        activeThreadId={activeThread?.id || chatStore.activeThreadId}
+        onJumpToMessage={(targetThreadId, messageId) => {
+          const curId = activeThread?.id || chatStore.activeThreadId
+          if (targetThreadId && targetThreadId !== curId) {
+            pendingJumpMsgIdRef.current = messageId
+            setChatStore((prev) => {
+              const next = { ...prev, activeThreadId: targetThreadId }
+              void persistProjectChatStore(activeProjectId, next)
+              return next
+            })
+          } else {
+            scrollToMessageById(messageId)
+          }
+        }}
+        onInsertKnowledgeSnippet={(txt) => handleInsertToNotes(txt)}
+        onActiveMatchesChange={setSearchMatches}
+      />
+
       {/* Dedicated Feature Quick-Bar */}
       <div className="chat-feature-bar">
+        <button
+          type="button"
+          className={`chat-feature-pill search ${searchOpen ? 'active' : ''}`}
+          onClick={() => setSearchOpen((v) => !v)}
+          title="Search messages, code & threads in Chat Panel (Ctrl+F)"
+        >
+          <Search size={13} />
+          <span>Search Chat</span>
+        </button>
         <button
           type="button"
           className={`chat-feature-pill ${showTutorialInput ? 'active' : ''}`}
@@ -771,6 +921,20 @@ export const DetachedChatApp: React.FC = () => {
         >
           <BookOpen size={13} />
           <span>Knowledge Studio</span>
+        </button>
+        <button
+          type="button"
+          className={`chat-feature-pill skills ${(settings.ai.activeSkillIds?.length ?? 0) > 0 ? 'active' : ''}`}
+          onClick={() => setSkillsModalOpen(true)}
+          title="Browse, pin, or create Antigravity-compatible SKILL.md workflows & Companion Bridge"
+        >
+          <Blocks size={13} />
+          <span>
+            Skills
+            {(settings.ai.activeSkillIds?.length ?? 0) > 0
+              ? ` (${settings.ai.activeSkillIds!.length})`
+              : ''}
+          </span>
         </button>
       </div>
 
@@ -860,7 +1024,13 @@ export const DetachedChatApp: React.FC = () => {
           </div>
         ) : (
           messages.map((m) => (
-            <div key={m.id} className={`chat-message-row ${m.role}`}>
+            <div
+              key={m.id}
+              data-chat-msg-id={m.id}
+              className={`chat-message-row ${m.role} ${
+                searchMatches.matchedMessageIds.has(m.id) ? 'is-search-match' : ''
+              } ${searchMatches.activeMessageId === m.id ? 'is-active-search-match' : ''}`}
+            >
               {m.role === 'assistant' && (
                 <div className="assistant-avatar">
                   <Bot size={15} />
@@ -1119,6 +1289,33 @@ export const DetachedChatApp: React.FC = () => {
                   window.glassAPI?.sendDetachedAction?.({ type: 'openKnowledgeHub' })
                 }
               />
+              <button
+                type="button"
+                className={`web-search-toggle ${webSearchEnabled ? 'active' : ''}`}
+                onClick={() => {
+                  const nextAi: AISettings = {
+                    ...settings.ai,
+                    webSearch: {
+                      ...webSearchConfig,
+                      enabled: !webSearchEnabled
+                    }
+                  }
+                  patchSettings({ ai: nextAi })
+                  window.glassAPI?.sendDetachedAction?.({
+                    type: 'settingsUpdated',
+                    ai: nextAi
+                  })
+                }}
+                title={
+                  webSearchEnabled
+                    ? 'Built-in Internet Web Search ON (DuckDuckGo, Wikipedia, arXiv, Stack Overflow & HN — zero setup). Click to disable.'
+                    : 'Internet Web Search OFF. Click to enable live web search.'
+                }
+              >
+                <Globe size={12} />
+                <span>Web Search</span>
+                <strong>{webSearchEnabled ? 'ON' : 'OFF'}</strong>
+              </button>
             </div>
             <button
               type="button"
@@ -1133,6 +1330,21 @@ export const DetachedChatApp: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {skillsModalOpen && (
+        <SkillsModal
+          isOpen={skillsModalOpen}
+          onClose={() => setSkillsModalOpen(false)}
+          aiSettings={settings.ai}
+          onChangeAI={(newAi: AISettings) => {
+            patchSettings({ ai: newAi })
+            window.glassAPI?.sendDetachedAction?.({
+              type: 'settingsUpdated',
+              ai: newAi
+            })
+          }}
+        />
+      )}
 
       {/* Bottom-right corner resize handle */}
       {!isMaximized && (

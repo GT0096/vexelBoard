@@ -85,11 +85,28 @@ export function getShapePorts(s: ShapeNode): Record<PortSide, { x: number; y: nu
   const b = getShapeBoundingRect(s)
   const w = Math.max(12, b.w)
   const h = Math.max(12, b.h)
-  return {
+  const raw: Record<PortSide, { x: number; y: number }> = {
     top: { x: b.x + w / 2, y: b.y },
     right: { x: b.x + w, y: b.y + h / 2 },
     bottom: { x: b.x + w / 2, y: b.y + h },
     left: { x: b.x, y: b.y + h / 2 }
+  }
+  if (!s.rotation) return raw
+  const rad = (s.rotation * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+  const cx = s.x + s.w / 2
+  const cy = s.y + s.h / 2
+  const rot = (pt: { x: number; y: number }): { x: number; y: number } => {
+    const dx = pt.x - cx
+    const dy = pt.y - cy
+    return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos }
+  }
+  return {
+    top: rot(raw.top),
+    right: rot(raw.right),
+    bottom: rot(raw.bottom),
+    left: rot(raw.left)
   }
 }
 
@@ -108,9 +125,14 @@ export interface ShapePortHandle {
 export function getShapePortHandles(s: ShapeNode, zoom: number): ShapePortHandle[] {
   const ports = getShapePorts(s)
   const offset = 16 / Math.max(0.25, zoom)
+  const rad = s.rotation ? (s.rotation * Math.PI) / 180 : 0
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
   return PORT_ORDER.map((port) => {
     const anchor = ports[port]
-    const [nx, ny] = portNormal(port)
+    const [nx0, ny0] = portNormal(port)
+    const nx = rad ? nx0 * cos - ny0 * sin : nx0
+    const ny = rad ? nx0 * sin + ny0 * cos : ny0
     return {
       port,
       anchorX: anchor.x,

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Check,
+  Globe,
   Loader2,
   Lock,
   RefreshCw,
@@ -14,6 +15,7 @@ import {
 import {
   BYOK_PROVIDERS,
   DEFAULT_PROVIDER_MODELS,
+  DEFAULT_WEB_SEARCH_SETTINGS,
   POPULAR_PROVIDER_MODELS,
   PROVIDER_LABELS,
   TEMPERATURE_PRESETS,
@@ -21,7 +23,8 @@ import {
   type ByokProvider,
   type OllamaStatus,
   type OpenAIModelProfile,
-  type ProviderId
+  type ProviderId,
+  type WebSearchResponse
 } from '@shared/ipc'
 import type { AISettings } from '../types/board'
 import { notifyAiConfigChanged } from '../board/useAiReadiness'
@@ -76,6 +79,18 @@ export const ChatAiSettings: React.FC<ChatAiSettingsProps> = ({
     claude: false
   })
   const [encryption, setEncryption] = useState<boolean | null>(null)
+  const rawWs = { ...DEFAULT_WEB_SEARCH_SETTINGS, ...(ai.webSearch ?? {}) }
+  const ws = {
+    ...rawWs,
+    providerMode:
+      rawWs.providerMode ??
+      (rawWs.searxngUrl && rawWs.searxngUrl !== 'http://localhost:8888' ? 'searxng' : 'builtin')
+  }
+  const [searxUrlDraft, setSearxUrlDraft] = useState(
+    ws.searxngUrl && ws.searxngUrl !== 'http://localhost:8888' ? ws.searxngUrl : ''
+  )
+  const [wsTesting, setWsTesting] = useState(false)
+  const [wsTestResult, setWsTestResult] = useState<WebSearchResponse | null>(null)
 
   const api = window.glassAPI
   const aiRef = useRef(ai)
@@ -620,6 +635,118 @@ export const ChatAiSettings: React.FC<ChatAiSettingsProps> = ({
             </p>
           </div>
         )}
+
+        {/* 5. Zero-Config Built-in Internet Web Search */}
+        <div className="settings-section provider-details-box">
+          <div className="settings-label-row">
+            <span className="settings-label" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Globe size={11} />
+              <span>Internet Web Search</span>
+            </span>
+            <span className={`status-pill ${wsTestResult ? (wsTestResult.ok ? 'online' : 'offline') : ws.enabled ? 'online' : 'offline'}`}>
+              <span
+                className={`status-indicator-dot ${wsTestResult ? (wsTestResult.ok ? 'online' : 'offline') : ws.enabled ? 'online' : 'offline'}`}
+              />
+              {wsTestResult
+                ? wsTestResult.ok
+                  ? `${wsTestResult.provider} (${wsTestResult.results.length})`
+                  : 'Offline'
+                : ws.enabled
+                  ? 'Built-in Ready'
+                  : 'Disabled'}
+            </span>
+          </div>
+
+          <div className="host-input-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <label className="ws-check-row" style={{ margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={ws.enabled}
+                onChange={(e) =>
+                  onChangeAI({
+                    ...ai,
+                    webSearch: { ...ws, enabled: e.target.checked }
+                  })
+                }
+              />
+              <span>Let agent search the internet</span>
+            </label>
+            <button
+              type="button"
+              className="chat-btn-small"
+              disabled={wsTesting}
+              onClick={async () => {
+                if (!api?.testWebSearch) return
+                const nextWs = { ...ws, searxngUrl: searxUrlDraft.trim() }
+                onChangeAI({ ...ai, webSearch: nextWs })
+                setWsTesting(true)
+                try {
+                  const res = await api.testWebSearch(nextWs)
+                  setWsTestResult(res)
+                  if (res.ok) {
+                    onToast?.('success', `Web search ready (${res.provider}, ${res.results.length} hits)`)
+                  } else {
+                    onToast?.('error', res.error || 'Web search failed')
+                  }
+                } finally {
+                  setWsTesting(false)
+                }
+              }}
+              title="Test built-in internet search"
+            >
+              {wsTesting ? <Loader2 size={12} className="spin" /> : <Globe size={12} />}
+              <span>Test</span>
+            </button>
+          </div>
+
+          <p className="settings-hint" style={{ marginTop: 6 }}>
+            Ready out of the box (no Docker/API keys). Uses built-in DuckDuckGo, Wikipedia, Stack Overflow, arXiv &amp; Hacker News.
+          </p>
+
+          <details style={{ marginTop: 4 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, opacity: 0.78 }}>
+              Advanced: Custom SearXNG URL (optional)
+            </summary>
+            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <label className="ws-check-row">
+                <input
+                  type="checkbox"
+                  checked={ws.providerMode === 'searxng'}
+                  onChange={(e) =>
+                    onChangeAI({
+                      ...ai,
+                      webSearch: {
+                        ...ws,
+                        providerMode: e.target.checked ? 'searxng' : 'builtin',
+                        searxngUrl: searxUrlDraft.trim()
+                      }
+                    })
+                  }
+                />
+                <span>Use custom SearXNG instance</span>
+              </label>
+              {ws.providerMode === 'searxng' && (
+                <input
+                  type="text"
+                  className="chat-input-field"
+                  value={searxUrlDraft}
+                  onChange={(e) => setSearxUrlDraft(e.target.value)}
+                  onBlur={() =>
+                    onChangeAI({
+                      ...ai,
+                      webSearch: { ...ws, searxngUrl: searxUrlDraft.trim() }
+                    })
+                  }
+                  placeholder="https://your-searxng-instance.example"
+                />
+              )}
+            </div>
+          </details>
+
+          {wsTestResult && !wsTestResult.ok && wsTestResult.error && (
+            <p className="settings-hint error">{wsTestResult.error}</p>
+          )}
+        </div>
       </div>
 
       <div className="chat-ai-settings-footer">

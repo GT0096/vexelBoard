@@ -4,8 +4,13 @@ import {
   Hand,
   Focus,
   Pen,
+  Pencil,
+  Brush,
+  Lasso,
+  ImagePlus,
+  Wand2,
+  Loader2,
   Type,
-  Sigma,
   Eraser,
   Undo2,
   Redo2,
@@ -26,8 +31,7 @@ import type {
   EraserMode,
   FontId,
   PenType,
-  ToolType,
-  WritingPadDetection
+  ToolType
 } from '../types/board'
 import { FONTS, FONT_ORDER } from '../themes'
 import {
@@ -43,8 +47,6 @@ import { PenControls } from './PenControls'
 interface ToolbarProps {
   activeTool: ToolType
   onSelectTool: (tool: ToolType) => void
-  writingPadDetection: WritingPadDetection
-  onSelectDetection: (det: WritingPadDetection) => void
   canUndo: boolean
   onUndo: () => void
   canRedo: boolean
@@ -81,6 +83,12 @@ interface ToolbarProps {
   isAiConfigured?: boolean
   hasSelection?: boolean
   boardPalette?: BoardPalette
+  shapesMode?: boolean
+  onToggleShapesMode?: (next: boolean) => void
+  circleToSelect?: boolean
+  onToggleCircleToSelect?: (next: boolean) => void
+  onPasteImageFromClipboard?: () => void
+  onUploadImageFile?: () => void
 }
 
 export const Toolbar = React.memo(function Toolbar(p: ToolbarProps): React.JSX.Element {
@@ -134,18 +142,32 @@ export const Toolbar = React.memo(function Toolbar(p: ToolbarProps): React.JSX.E
           <span>Pan</span>
         </button>
 
-        {/* Writing Pad / Pen with detection selector */}
+        {/* Pen / Pencil / Brush with Shapes Mode ON/OFF */}
         <div className="dropdown-parent-wrap" ref={padPopRef}>
           <button
             className={`tool-combo-btn ${p.activeTool === 'pen' ? 'active' : ''}`}
             onClick={() => p.onSelectTool('pen')}
-            title={`Writing Pad / Pen (P) — Recognition: ${p.writingPadDetection.toUpperCase()}`}
+            title={`Pen / Pencil / Brush (P) — Style: ${p.penType} · Shapes Mode: ${p.shapesMode ? 'ON' : 'OFF'}`}
           >
-            <Pen size={16} />
+            {p.penType === 'pencil' ? (
+              <Pencil size={16} />
+            ) : p.penType === 'brush' || p.penType === 'marker' || p.penType === 'highlighter' ? (
+              <Brush size={16} />
+            ) : (
+              <Pen size={16} />
+            )}
             <span>
-              {p.writingPadDetection === 'none'
-                ? 'Pen'
-                : `Pen·${p.writingPadDetection === 'text' ? 'Text' : 'Math'}`}
+              {p.shapesMode
+                ? p.penType === 'pencil'
+                  ? 'Pencil·Shapes'
+                  : p.penType === 'brush'
+                    ? 'Brush·Shapes'
+                    : 'Pen·Shapes'
+                : p.penType === 'pencil'
+                  ? 'Pencil'
+                  : p.penType === 'brush'
+                    ? 'Brush'
+                    : 'Pen'}
             </span>
             <span
               className="combo-arrow"
@@ -160,7 +182,6 @@ export const Toolbar = React.memo(function Toolbar(p: ToolbarProps): React.JSX.E
 
           {padDetectionMenuOpen && (
             <div className="toolbar-popover-menu pad-detection-menu">
-              <div className="popover-heading">Pen Style, Color &amp; Thickness</div>
               <PenControls
                 penColor={p.penColor}
                 onPenColor={p.onPenColor}
@@ -172,63 +193,24 @@ export const Toolbar = React.memo(function Toolbar(p: ToolbarProps): React.JSX.E
                 themeAccent={p.themeAccent}
                 boardPalette={p.boardPalette}
                 onActivatePen={() => p.onSelectTool('pen')}
+                shapesMode={p.shapesMode}
+                onToggleShapesMode={p.onToggleShapesMode}
+                circleToSelect={p.circleToSelect}
+                onToggleCircleToSelect={p.onToggleCircleToSelect}
               />
-              <div className="popover-heading">Writing Pad Recognition</div>
-              <button
-                className={p.writingPadDetection === 'none' ? 'active' : ''}
-                onClick={() => {
-                  p.onSelectDetection('none')
-                  p.onSelectTool('pen')
-                  setPadDetectionMenuOpen(false)
-                }}
-              >
-                <span>Freehand Ink (Pure Drawing)</span>
-              </button>
-              <button
-                className={p.writingPadDetection === 'text' ? 'active' : ''}
-                disabled={p.isAiConfigured === false}
-                title={
-                  p.isAiConfigured === false
-                    ? 'Configure AI Settings to enable Text OCR'
-                    : 'Convert handwriting to typed text'
-                }
-                onClick={() => {
-                  if (p.isAiConfigured === false) return
-                  p.onSelectDetection('text')
-                  p.onSelectTool('pen')
-                  setPadDetectionMenuOpen(false)
-                }}
-              >
-                <Type size={13} className="text-accent" />
-                <span>
-                  Text OCR (Handwriting to Typed Text)
-                  {p.isAiConfigured === false ? ' · AI Required' : ''}
-                </span>
-              </button>
-              <button
-                className={p.writingPadDetection === 'equation' ? 'active' : ''}
-                disabled={p.isAiConfigured === false}
-                title={
-                  p.isAiConfigured === false
-                    ? 'Configure AI Settings to enable Equation OCR'
-                    : 'Convert handwriting to LaTeX equation'
-                }
-                onClick={() => {
-                  if (p.isAiConfigured === false) return
-                  p.onSelectDetection('equation')
-                  p.onSelectTool('pen')
-                  setPadDetectionMenuOpen(false)
-                }}
-              >
-                <Sigma size={13} className="text-accent" />
-                <span>
-                  Equation OCR (Handwriting to LaTeX Formula)
-                  {p.isAiConfigured === false ? ' · AI Required' : ''}
-                </span>
-              </button>
             </div>
           )}
         </div>
+
+        {/* iPad-Style Pen Lasso Selection */}
+        <button
+          className={p.activeTool === 'lasso' ? 'active' : ''}
+          onClick={() => p.onSelectTool('lasso')}
+          title="Pen Lasso Select (G) — Circle an area with your pen to select elements"
+        >
+          <Lasso size={16} />
+          <span>Lasso</span>
+        </button>
 
         {/* Text Note */}
         <button
@@ -239,6 +221,41 @@ export const Toolbar = React.memo(function Toolbar(p: ToolbarProps): React.JSX.E
           <Type size={16} />
           <span>Text</span>
         </button>
+
+        {/* Insert Image or Paste Latest Snippet */}
+        {(p.onPasteImageFromClipboard || p.onUploadImageFile) && (
+          <button
+            type="button"
+            className={p.activeTool === 'snip' ? 'active' : ''}
+            onClick={() => p.onUploadImageFile?.()}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              p.onPasteImageFromClipboard?.()
+            }}
+            title="Insert Image (Click to browse · Ctrl+V or Right-click to paste snippet just taken)"
+          >
+            <ImagePlus size={16} />
+            <span>Image</span>
+          </button>
+        )}
+
+        {/* Unified Smart Vectorize & Beautify (Single Smartly-Routed Button) */}
+        {(p.onVectorize || p.onBeautify) && (
+          <button
+            type="button"
+            className={p.isBeautifying || p.isVectorizing ? 'active' : ''}
+            disabled={Boolean(p.isBeautifying || p.isVectorizing)}
+            onClick={() => (p.onVectorize ?? p.onBeautify)?.()}
+            title="Smart Vectorize & Beautify (Ctrl+B) — Converts shapes & handwriting locally or vectorizes complex diagrams"
+          >
+            {p.isBeautifying || p.isVectorizing ? (
+              <Loader2 size={16} className="spin-animate" />
+            ) : (
+              <Wand2 size={16} />
+            )}
+            <span>Vectorize</span>
+          </button>
+        )}
 
         {/* Decoupled Board Typography Picker (Notes, Text, Shapes & Vectors) */}
         {p.onVectorFontChange && (

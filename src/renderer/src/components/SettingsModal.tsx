@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Check, KeyRound, Loader2, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react'
+import { Check, Globe, KeyRound, Loader2, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react'
 import {
   BYOK_PROVIDERS,
   DEFAULT_PROVIDER_MODELS,
+  DEFAULT_WEB_SEARCH_SETTINGS,
   GEMMA_CLOUD_MODELS,
   PROVIDER_LABELS,
   resolveOpenAIModelProfile,
   type ByokProvider,
   type OllamaStatus,
-  type ProviderId
+  type ProviderId,
+  type WebSearchResponse
 } from '@shared/ipc'
 import type { AISettings } from '../types/board'
 import { notifyAiConfigChanged } from '../board/useAiReadiness'
@@ -47,6 +49,18 @@ export function SettingsModal(p: SettingsModalProps): React.JSX.Element {
     claude: false
   })
   const [encryption, setEncryption] = useState<boolean | null>(null)
+  const rawWs = { ...DEFAULT_WEB_SEARCH_SETTINGS, ...(p.ai.webSearch ?? {}) }
+  const ws = {
+    ...rawWs,
+    providerMode:
+      rawWs.providerMode ??
+      (rawWs.searxngUrl && rawWs.searxngUrl !== 'http://localhost:8888' ? 'searxng' : 'builtin')
+  }
+  const [searxUrlDraft, setSearxUrlDraft] = useState(
+    ws.searxngUrl && ws.searxngUrl !== 'http://localhost:8888' ? ws.searxngUrl : ''
+  )
+  const [wsTesting, setWsTesting] = useState(false)
+  const [wsTestResult, setWsTestResult] = useState<WebSearchResponse | null>(null)
 
   const api = window.glassAPI
 
@@ -128,6 +142,39 @@ export function SettingsModal(p: SettingsModalProps): React.JSX.Element {
     setStored((s) => ({ ...s, [id]: false }))
     notifyAiConfigChanged()
     p.onToast('info', `${PROVIDER_LABELS[id]} key removed`)
+  }
+
+  const runWebSearchTest = async (): Promise<void> => {
+    if (!api?.testWebSearch) {
+      p.onToast('error', 'Web search bridge unavailable')
+      return
+    }
+    const nextWs = { ...ws, searxngUrl: searxUrlDraft.trim() }
+    p.onChangeAI({ ...p.ai, webSearch: nextWs })
+    setWsTesting(true)
+    try {
+      const res = await api.testWebSearch(nextWs)
+      setWsTestResult(res)
+      if (res.ok) {
+        p.onToast('success', `Connected via ${res.provider} (${res.results.length} results, ${res.durationMs} ms)`)
+      } else {
+        p.onToast('error', res.error || 'Web search test failed')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setWsTestResult({
+        ok: false,
+        provider: 'none',
+        query: 'open source search engine',
+        results: [],
+        attempts: [],
+        durationMs: 0,
+        error: msg
+      })
+      p.onToast('error', msg)
+    } finally {
+      setWsTesting(false)
+    }
   }
 
   const models = status?.models ?? GEMMA_CLOUD_MODELS
@@ -351,6 +398,115 @@ export function SettingsModal(p: SettingsModalProps): React.JSX.Element {
                 </button>
               </div>
             ))}
+          </div>
+
+          {/* Web Search (Zero-Config Built-in Open MetaSearch + Optional Custom Endpoint) */}
+          <div className="card">
+            <div className="card-title">
+              <h3>Web Search</h3>
+              <span
+                className={`status-pill ${wsTestResult ? (wsTestResult.ok ? 'ok' : 'off') : ws.enabled ? 'ok' : 'off'}`}
+                id="web-search-status"
+              >
+                {wsTesting ? (
+                  <Loader2 size={12} className="spin" />
+                ) : (
+                  <span
+                    className={`dot ${wsTestResult ? (wsTestResult.ok ? 'ok' : 'off') : ws.enabled ? 'ok' : 'off'}`}
+                  />
+                )}
+                {wsTestResult
+                  ? wsTestResult.ok
+                    ? `${wsTestResult.provider} (${wsTestResult.results.length} results)`
+                    : 'Unavailable'
+                  : ws.enabled
+                    ? 'Built-in Ready'
+                    : 'Disabled'}
+              </span>
+            </div>
+
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <label className="ws-check-row">
+                <input
+                  id="web-search-enabled-toggle"
+                  type="checkbox"
+                  checked={ws.enabled}
+                  onChange={(e) =>
+                    p.onChangeAI({
+                      ...p.ai,
+                      webSearch: { ...ws, enabled: e.target.checked }
+                    })
+                  }
+                />
+                <span>Let the agent search the internet</span>
+              </label>
+
+              <button
+                id="web-search-test-btn"
+                type="button"
+                className="btn primary"
+                disabled={wsTesting}
+                onClick={() => void runWebSearchTest()}
+              >
+                {wsTesting ? <Loader2 size={14} className="spin" /> : <Globe size={14} />}
+                Test search
+              </button>
+            </div>
+
+            {wsTestResult && (
+              <p className={`hint ${wsTestResult.ok ? '' : 'error'}`}>
+                {wsTestResult.ok
+                  ? `Connected via ${wsTestResult.provider} (${wsTestResult.results.length} results, ${wsTestResult.durationMs} ms)`
+                  : wsTestResult.error || 'Web search test failed.'}
+              </p>
+            )}
+
+            <p className="hint">
+              Works immediately with <strong>zero setup or Docker</strong> — aggregates live results
+              directly from DuckDuckGo, Wikipedia, Stack Overflow, arXiv, OpenAlex, and Hacker News
+              inside Vexelboard.
+            </p>
+
+            <details style={{ marginTop: 6 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, opacity: 0.8 }}>
+                Advanced: Use a custom self-hosted SearXNG URL (optional)
+              </summary>
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label className="ws-check-row">
+                  <input
+                    id="web-search-custom-mode"
+                    type="checkbox"
+                    checked={ws.providerMode === 'searxng'}
+                    onChange={(e) =>
+                      p.onChangeAI({
+                        ...p.ai,
+                        webSearch: {
+                          ...ws,
+                          providerMode: e.target.checked ? 'searxng' : 'builtin',
+                          searxngUrl: searxUrlDraft.trim()
+                        }
+                      })
+                    }
+                  />
+                  <span>Prefer custom SearXNG server before built-in metasearch</span>
+                </label>
+                {ws.providerMode === 'searxng' && (
+                  <input
+                    id="searxng-url-input"
+                    value={searxUrlDraft}
+                    onChange={(e) => setSearxUrlDraft(e.target.value)}
+                    onBlur={() =>
+                      p.onChangeAI({
+                        ...p.ai,
+                        webSearch: { ...ws, searxngUrl: searxUrlDraft.trim() }
+                      })
+                    }
+                    placeholder="https://your-searxng-instance.example"
+                    spellCheck={false}
+                  />
+                )}
+              </div>
+            </details>
           </div>
         </div>
       </section>

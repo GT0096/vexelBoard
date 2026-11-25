@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import type { ProjectItem, SectionItem } from '@shared/ipc'
 import { BrandMark } from './BrandMark'
+import { TabColorPicker, getReadableTabStyle } from './TabColorPicker'
 
 interface TopBarProps {
   aiBusy: boolean
@@ -32,6 +33,7 @@ interface TopBarProps {
   onGoHome?: () => void
   onSelectSection?: (section: SectionItem) => void
   onQuickCreateSection?: (title: string) => Promise<void>
+  onUpdateSectionColor?: (sectionId: string, color: string | undefined) => void
   onOpenSettings?: () => void
   onToggleRightPanel: () => void
   onMinimize: () => void
@@ -107,21 +109,40 @@ export const TopBar = React.memo(function TopBar(p: TopBarProps): React.JSX.Elem
             )}
 
             <div className="topbar-breadcrumb-wrap">
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 className={`topbar-breadcrumb-btn ${switcherOpen ? 'open' : ''}`}
+                style={getReadableTabStyle(p.activeSection.color)}
                 onClick={() => setSwitcherOpen((v) => !v)}
-                title="Switch topic section or create a new section in this project"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setSwitcherOpen((v) => !v)
+                  }
+                }}
+                title="Switch topic section or customize section tab color"
               >
                 <span
                   className="topbar-proj-dot"
-                  style={{ background: p.activeProject?.color || 'var(--theme-ink)' }}
+                  style={{
+                    background:
+                      p.activeSection.color || p.activeProject?.color || 'var(--theme-ink)'
+                  }}
                 />
                 <span className="topbar-proj-name">{p.activeProject?.title || 'Project'}</span>
                 <ChevronRight size={13} className="topbar-crumb-sep" />
                 <span className="topbar-sec-name">{p.activeSection.title}</span>
+                {p.onUpdateSectionColor && (
+                  <TabColorPicker
+                    size="xs"
+                    color={p.activeSection.color}
+                    onChange={(c) => p.onUpdateSectionColor?.(p.activeSection!.id, c)}
+                    title="Change section tab color"
+                  />
+                )}
                 <ChevronDown size={13} className="topbar-crumb-chevron" />
-              </button>
+              </div>
 
               {switcherOpen && (
                 <div className="topbar-section-popover glass">
@@ -137,13 +158,21 @@ export const TopBar = React.memo(function TopBar(p: TopBarProps): React.JSX.Elem
                     {(p.projectSections ?? [p.activeSection]).map((sec) => {
                       const isCurrent = sec.id === p.activeSection?.id
                       return (
-                        <button
+                        <div
                           key={sec.id}
-                          type="button"
+                          role="button"
+                          tabIndex={0}
                           className={`topbar-popover-item ${isCurrent ? 'active' : ''}`}
+                          style={getReadableTabStyle(sec.color, { isActive: isCurrent, subtleInactive: true })}
                           onClick={() => {
                             if (!isCurrent) p.onSelectSection?.(sec)
                             setSwitcherOpen(false)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !isCurrent) {
+                              p.onSelectSection?.(sec)
+                              setSwitcherOpen(false)
+                            }
                           }}
                         >
                           <div className="topbar-popover-item-main">
@@ -152,8 +181,18 @@ export const TopBar = React.memo(function TopBar(p: TopBarProps): React.JSX.Elem
                               <span className="topbar-popover-item-sub">{sec.description}</span>
                             )}
                           </div>
-                          {isCurrent && <Check size={14} className="topbar-popover-check" />}
-                        </button>
+                          <div className="topbar-popover-item-right">
+                            {p.onUpdateSectionColor && (
+                              <TabColorPicker
+                                size="xs"
+                                color={sec.color}
+                                onChange={(c) => p.onUpdateSectionColor?.(sec.id, c)}
+                                title={`Change "${sec.title}" tab color`}
+                              />
+                            )}
+                            {isCurrent && <Check size={14} className="topbar-popover-check" />}
+                          </div>
+                        </div>
                       )
                     })}
                   </div>

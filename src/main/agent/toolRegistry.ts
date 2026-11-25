@@ -6,18 +6,24 @@ import { inferPedagogicalApproach, searchBoardAssets } from '../../shared/boardC
 import { runCodeSnippet } from '../codeRunner'
 import { dbManager } from '../db'
 import { fetchYouTubeInfo } from '../mediaService'
+import { getSkillDetail, listAllSkills } from '../skillManager'
+import { fetchWebPage, webSearch as runWebSearch } from '../webSearch'
 import { defineAgentTool, type AgentToolDefinition } from './agentHarness'
 
 export interface AgentToolDeps {
   db?: typeof dbManager
   runCode?: typeof runCodeSnippet
   fetchYouTube?: typeof fetchYouTubeInfo
+  webSearch?: typeof runWebSearch
+  fetchPage?: typeof fetchWebPage
 }
 
 export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[] {
   const db = deps.db ?? dbManager
   const runCode = deps.runCode ?? runCodeSnippet
   const fetchYouTube = deps.fetchYouTube ?? fetchYouTubeInfo
+  const webSearch = deps.webSearch ?? runWebSearch
+  const fetchPage = deps.fetchPage ?? fetchWebPage
 
   return [
     defineAgentTool({
@@ -158,6 +164,102 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
             metadata: h.metadata,
             content: h.chunkText
           }))
+        }
+      }
+    }),
+    defineAgentTool({
+      name: 'web_search',
+      description:
+        "Search the live internet using Vexelboard's built-in open metasearch (DuckDuckGo, Wikipedia, arXiv, Stack Overflow, Hacker News, OpenAlex, or optional SearXNG) for current or external information. Returns titles, URLs and snippets.",
+      argHint: '{"query":"latest React 19 features","limit":6,"timeRange":"year"}',
+      inputSchema: z.object({
+        query: z.string().min(2),
+        limit: z.number().int().min(1).max(10).optional(),
+        timeRange: z.enum(['day', 'week', 'month', 'year']).optional(),
+        site: z.string().optional(),
+        category: z.enum(['general', 'news', 'science', 'it']).optional()
+      }),
+      execute: async (args, ctx) => {
+        if (ctx.webSearch?.enabled === false) {
+          return {
+            ok: false,
+            summary: 'Web search disabled in Settings'
+          }
+        }
+        const res = await webSearch(
+          args.query,
+          {
+            limit: args.limit,
+            timeRange: args.timeRange,
+            site: args.site,
+            category: args.category
+          },
+          ctx.webSearch ?? {},
+          ctx.signal
+        )
+        if (!res.ok) {
+          return {
+            ok: false,
+            summary: res.error || `No web results found for "${args.query}".`,
+            data: { provider: res.provider, attempts: res.attempts, results: [] }
+          }
+        }
+        return {
+          ok: true,
+          summary: `Found ${res.results.length} web result(s) via ${res.provider} for "${args.query}".`,
+          data: {
+            provider: res.provider,
+            answers: res.answers,
+            results: res.results.map((r, i) => ({
+              rank: i + 1,
+              title: r.title,
+              url: r.url,
+              snippet: r.snippet,
+              publishedDate: r.publishedDate
+            }))
+          }
+        }
+      }
+    }),
+    defineAgentTool({
+      name: 'fetch_webpage',
+      description:
+        'Fetch a public web page or PDF and extract its readable main text (Mozilla Readability). Pass `query` to keep the most relevant passages.',
+      argHint: '{"url":"https://react.dev/blog","query":"hooks API changes","maxChars":3500}',
+      inputSchema: z.object({
+        url: z.string().url(),
+        query: z.string().optional(),
+        maxChars: z.number().int().min(500).max(6000).optional()
+      }),
+      execute: async (args, ctx) => {
+        const page = await fetchPage(args.url, {
+          query: args.query,
+          maxChars: args.maxChars,
+          signal: ctx.signal
+        })
+        if (!page.ok) {
+          return {
+            ok: false,
+            summary: page.error || `Failed to read ${args.url}.`
+          }
+        }
+        let host = args.url
+        try {
+          host = new URL(page.finalUrl || args.url).hostname
+        } catch {
+          // keep fallback
+        }
+        return {
+          ok: true,
+          summary: `Read "${page.title || host}" (${page.content.length} chars${page.truncated ? ', truncated' : ''}) from ${host}.`,
+          data: {
+            url: page.finalUrl || page.url,
+            title: page.title,
+            siteName: page.siteName,
+            byline: page.byline,
+            excerpt: page.excerpt,
+            content: page.content
+          }
         }
       }
     }),
@@ -689,6 +791,76 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
         return {
           ok: true,
           summary: `Queued LaTeX equation card${args.title ? ` "${args.title}"` : ''}.`
+        }
+      }
+    }),
+    defineAgentTool({
+      name: 'list_skills',
+      description:
+        'Search or list available AI workflow skills (Antigravity SKILL.md workspace, global, plugin, custom, and built-in Vexelboard skills).',
+      argHint: '{"query":"architecture diagram","source":"all"}',
+      inputSchema: z.object({
+        query: z.string().optional(),
+        source: z
+          .enum(['all', 'workspace', 'custom', 'antigravity', 'antigravity-plugin', 'builtin'])
+          .optional()
+      }),
+      execute: async (args) => {
+        const all = listAllSkills()
+        const src = args.source ?? 'all'
+        const q = (args.query || '').trim().toLowerCase()
+        const tokens = q ? q.split(/\s+/).filter(Boolean) : []
+        const filtered = all
+          .filter((s) => (src === 'all' ? true : s.source === src))
+          .filter((s) => {
+            if (tokens.length === 0) return true
+            const hay = `${s.name} ${s.description}`.toLowerCase()
+            return tokens.some((t) => hay.includes(t))
+          })
+          .slice(0, 30)
+          .map((s) => ({
+            id: s.id,
+            name: s.name,
+            source: s.source,
+            description: s.description,
+            hasReferences: Boolean(s.hasReferences),
+            hasScripts: Boolean(s.hasScripts)
+          }))
+        return {
+          ok: true,
+          summary: `Found ${filtered.length} matching skill(s).`,
+          data: filtered
+        }
+      }
+    }),
+    defineAgentTool({
+      name: 'activate_skill',
+      description:
+        'Load the full SKILL.md procedure (and optional reference file) for an AI workflow skill by name or ID.',
+      argHint: '{"name":"vexel-architecture-visualizer"}',
+      inputSchema: z.object({
+        name: z.string().min(1),
+        referenceFile: z.string().optional()
+      }),
+      execute: async (args) => {
+        const detail = getSkillDetail(args.name, args.referenceFile)
+        if (!detail) {
+          return {
+            ok: false,
+            summary: `Skill "${args.name}" not found. Call list_skills to inspect available skills.`
+          }
+        }
+        return {
+          ok: true,
+          summary: `Activated skill "${detail.name}" (${detail.source}). Follow its instructions.`,
+          data: {
+            name: detail.name,
+            source: detail.source,
+            description: detail.description,
+            instructions: detail.body.slice(0, 5500),
+            referenceFiles: detail.referenceFiles,
+            scriptFiles: detail.scriptFiles
+          }
         }
       }
     })

@@ -304,9 +304,11 @@ export function rasterizeSelectionColorPreserving(
     const baseSize = st.size || 3
     ctx.lineWidth = isHighlighter
       ? Math.max(8, baseSize * 2.5)
-      : st.penType === 'marker'
+      : st.penType === 'marker' || st.penType === 'brush'
         ? Math.max(3, baseSize * 1.45)
-        : Math.max(2, baseSize)
+        : st.penType === 'pencil'
+          ? Math.max(1.5, baseSize * 0.8)
+          : Math.max(2, baseSize)
     ctx.lineCap = isHighlighter ? 'butt' : 'round'
     ctx.lineJoin = 'round'
     if (st.penType === 'dashed') ctx.setLineDash([Math.max(4, baseSize * 2.2), Math.max(4, baseSize * 1.6)])

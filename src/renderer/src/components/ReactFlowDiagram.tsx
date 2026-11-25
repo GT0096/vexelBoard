@@ -71,6 +71,7 @@ import {
 import { ShapeSvg } from '../shapes/ShapeSvg'
 import { FONTS, FONT_ORDER, resolveFontCss } from '../themes'
 import type { FontId } from '../types/board'
+import { TabColorPicker, getReadableTabStyle } from './TabColorPicker'
 
 /* ------------------------------------------------------------------ */
 /* Custom Node Types & Data Interfaces                                */
@@ -2115,7 +2116,15 @@ export function ReactFlowDiagram({
       >
         {/* 1. Immersed Floating Pill Toolbar (Shows when selected or hovered) */}
         {(isSelected || isHovered) && (
-          <div className="rf-floating-toolbar" onPointerDown={(e) => e.stopPropagation()}>
+          <div
+            className="rf-floating-toolbar"
+            style={getReadableTabStyle(
+              diagram.color && diagram.color !== 'ink' && diagram.color !== 'accent'
+                ? diagram.color
+                : undefined
+            )}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
             <div
               className="rf-flow-drag-pill"
               onPointerDown={handleHeaderPointerDown}
@@ -2146,6 +2155,17 @@ export function ReactFlowDiagram({
                 {title}
               </span>
             )}
+
+            <TabColorPicker
+              size="sm"
+              color={
+                diagram.color && diagram.color !== 'ink' && diagram.color !== 'accent'
+                  ? diagram.color
+                  : undefined
+              }
+              onChange={(c) => onUpdate({ color: c })}
+              title="Change Diagram tab bar color"
+            />
 
             <span className="rf-toolbar-divider" />
 

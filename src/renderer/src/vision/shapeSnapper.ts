@@ -1,4 +1,5 @@
 import type { InkPoint, ShapeKind } from '../types/board'
+import { detectLocalBasicShape } from './localShapeDetector'
 
 export interface SnapResult {
   shape: ShapeKind
@@ -355,6 +356,17 @@ export function classifyStrokeShape(points: InkPoint[]): ClassifiedShape | null 
  * Geometric primitive recognizer for writing pad stylus/pen input.
  */
 export function snapShape(points: InkPoint[]): SnapResult | null {
+  const local = detectLocalBasicShape(points)
+  if (local && local.confidence >= 0.78) {
+    return {
+      shape: local.shapeKind,
+      shapeId: local.libraryId,
+      x: local.x,
+      y: local.y,
+      w: local.w,
+      h: local.h
+    }
+  }
   if (points.length < 4) return null
   const total = pathLength(points)
   if (total < MIN_SIZE * 2) return null

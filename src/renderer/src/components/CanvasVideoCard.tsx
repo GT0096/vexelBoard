@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import type { VideoNode, VideoTabItem } from '../types/board'
 import type { ResizeDirection } from './CanvasElements'
+import { TabColorPicker, getReadableTabStyle } from './TabColorPicker'
 
 export interface CanvasVideoCardProps {
   node: VideoNode
@@ -274,7 +275,11 @@ export const CanvasVideoCard: React.FC<CanvasVideoCardProps> = ({
       }}
     >
       {/* Card Header */}
-      <div className="canvas-video-card-header" title="Drag header to move video container">
+      <div
+        className="canvas-video-card-header"
+        style={getReadableTabStyle(node.color)}
+        title="Drag header to move video container"
+      >
         <div className="canvas-video-card-drag">
           <span className="video-card-move-pill" title="Drag to move container">
             <GripHorizontal size={13} />
@@ -316,6 +321,12 @@ export const CanvasVideoCard: React.FC<CanvasVideoCardProps> = ({
         </div>
 
         <div className="canvas-code-card-actions" onPointerDown={(e) => e.stopPropagation()}>
+          <TabColorPicker
+            size="sm"
+            color={node.color}
+            onChange={(c) => onUpdate({ color: c })}
+            title="Change Video container header color"
+          />
           {onAddContainer && (
             <button
               type="button"
@@ -353,11 +364,23 @@ export const CanvasVideoCard: React.FC<CanvasVideoCardProps> = ({
             <div
               key={tab.id}
               className={`video-tab-pill ${isActive ? 'active' : ''}`}
+              style={getReadableTabStyle(tab.color, { isActive, subtleInactive: true })}
               onClick={() => handleSelectTab(tab)}
               title={tab.title}
             >
               <Play size={10} />
               <span className="video-tab-title">{tab.title}</span>
+              <TabColorPicker
+                size="xs"
+                color={tab.color}
+                onChange={(c) =>
+                  syncTabs(
+                    tabs.map((t) => (t.id === tab.id ? { ...t, color: c } : t)),
+                    activeTab.id
+                  )
+                }
+                title={`Change "${tab.title}" tab color`}
+              />
               {tabs.length > 1 && (
                 <button
                   type="button"
@@ -411,6 +434,14 @@ export const CanvasVideoCard: React.FC<CanvasVideoCardProps> = ({
             rel="noreferrer"
             className="canvas-code-hdr-btn"
             title="Open in browser"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              if (window.glassAPI?.openExternal && activeTab.url) {
+                e.preventDefault()
+                e.stopPropagation()
+                void window.glassAPI.openExternal(activeTab.url)
+              }
+            }}
           >
             <ExternalLink size={12} />
           </a>
