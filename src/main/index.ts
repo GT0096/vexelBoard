@@ -8,10 +8,15 @@ import {
   screen,
   dialog,
   Menu,
+  protocol,
+  clipboard,
+  nativeImage,
+  net,
   type Rectangle
 } from 'electron'
-import { join } from 'path'
-import { cpSync, existsSync, writeFileSync } from 'fs'
+import { basename, extname, join } from 'path'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import winIcon from '../../resources/icon.ico?asset'
@@ -30,6 +35,23 @@ import { cancelAgentRun, runAgentLoop } from './agent/agentHarness'
 import { createAgentTools } from './agent/toolRegistry'
 import { checkCodeRuntimes, runCodeSnippet } from './codeRunner'
 import { runSmartBeautify, runSmartBeautifyCritique } from './smartBeautify'
+import { recognizeHandwritingLocal } from './localOcr'
+import { testWebSearch, webSearch } from './webSearch'
+import {
+  configureSkillPaths,
+  deleteSkill,
+  exportSkillToTarget,
+  getSkillDetail,
+  listAllSkills,
+  saveSkill
+} from './skillManager'
+import {
+  getCompanionStatus,
+  saveCompanionSelectionCapture,
+  startCompanionServer,
+  stopCompanionServer,
+  updateCompanionSnapshot
+} from './companionServer'
 import { dbManager } from './db'
 import { fetchYouTubeInfo, parseDocumentBuffer, parseDocumentFile } from './mediaService'
 import { AgentRunRequestSchema } from '../shared/agentSchema'
@@ -37,7 +59,10 @@ import type {
   AIRequest,
   ByokProvider,
   CodeExecutionRequest,
+  CompanionSelectionCapturePayload,
   DisplayMode,
+  LocalOcrRequest,
+  SavedBoardImageResult,
   SmartBeautifyRequest,
   VectorCritiqueRequest
 } from '../shared/ipc'
@@ -45,6 +70,19 @@ import type {
 /* ---------------- Hardware & WebGPU flags (must precede app ready) ---------------- */
 app.commandLine.appendSwitch('enable-unsafe-webgpu')
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'vexel-media',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      bypassCSP: true
+    }
+  }
+])
 
 // Set dedicated userData path to avoid collisions with default Electron cache
 const userDataDir = join(app.getPath('appData'), 'virtual-board')
@@ -72,6 +110,43 @@ let chatWindow: BrowserWindow | null = null
 let currentMode: DisplayMode = 'MODE_A'
 let clickThrough = false
 let modeABounds: Rectangle | null = null
+const pendingSelectionCaptures = new Map<
+  string,
+  (payload: CompanionSelectionCapturePayload) => void
+>()
+
+function isExternalBrowserUrl(rawUrl: string): boolean {
+  if (!rawUrl || typeof rawUrl !== 'string') return false
+  try {
+    const parsed = new URL(rawUrl)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:' && parsed.protocol !== 'mailto:') {
+      return false
+    }
+    const devUrl = process.env['ELECTRON_RENDERER_URL']
+    if (is.dev && devUrl && rawUrl.startsWith(devUrl)) {
+      return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+function attachExternalLinkGuards(contents: Electron.WebContents): void {
+  contents.setWindowOpenHandler((details) => {
+    if (isExternalBrowserUrl(details.url)) {
+      void shell.openExternal(details.url)
+    }
+    return { action: 'deny' }
+  })
+
+  contents.on('will-navigate', (event, url) => {
+    if (isExternalBrowserUrl(url)) {
+      event.preventDefault()
+      void shell.openExternal(url)
+    }
+  })
+}
 
 function toggleDetachedChat(): boolean {
   if (chatWindow && !chatWindow.isDestroyed()) {
@@ -226,11 +301,6 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
-  })
-
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -283,9 +353,19 @@ function registerIpc(): void {
   ipcMain.handle('ai:encryptionAvailable', () => isEncryptionAvailable())
   ipcMain.handle('ai:getOpenAIModelConfig', (_e, model: string) => fetchOpenAIModelConfig(model))
   ipcMain.handle('ai:run', (_e, request: AIRequest) => runAIRequest(request))
+  ipcMain.handle('ocr:localHandwriting', (_e, request: LocalOcrRequest) =>
+    recognizeHandwritingLocal(request)
+  )
 
   ipcMain.handle('code:run', (_e, request: CodeExecutionRequest) => runCodeSnippet(request))
   ipcMain.handle('code:checkRuntimes', () => checkCodeRuntimes())
+  ipcMain.handle('shell:openExternal', async (_e, rawUrl: string) => {
+    if (typeof rawUrl === 'string' && isExternalBrowserUrl(rawUrl)) {
+      await shell.openExternal(rawUrl)
+      return { ok: true }
+    }
+    return { ok: false }
+  })
 
   ipcMain.handle('board:setMode', (_e, mode: DisplayMode) => applyMode(mode))
   ipcMain.handle('board:setClickThrough', (_e, enabled: boolean) => setClickThrough(enabled))
@@ -443,6 +523,53 @@ function registerIpc(): void {
   ipcMain.handle('agent:cancel', (_e, runId: string) => {
     return { ok: cancelAgentRun(runId) }
   })
+  ipcMain.handle('web:search', async (_e, q: string, opts?: any, settings?: any) => {
+    return await webSearch(q, opts ?? {}, settings ?? {})
+  })
+  ipcMain.handle('web:testSearch', async (_e, settings?: any) => {
+    return await testWebSearch(settings ?? {})
+  })
+  ipcMain.handle('skills:list', () => listAllSkills())
+  ipcMain.handle('skills:detail', (_e, idOrName: string, referenceFile?: string) =>
+    getSkillDetail(idOrName, referenceFile)
+  )
+  ipcMain.handle('skills:save', (_e, input: any) => saveSkill(input))
+  ipcMain.handle('skills:delete', (_e, idOrName: string) => deleteSkill(idOrName))
+  ipcMain.handle(
+    'skills:exportAntigravity',
+    (_e, idOrName: string, target: 'workspace' | 'antigravity') =>
+      exportSkillToTarget(idOrName, target)
+  )
+  ipcMain.handle('companion:status', () => getCompanionStatus())
+  ipcMain.on('companion:syncSnapshot', (_e, snapshot: any) => {
+    if (snapshot && typeof snapshot === 'object') {
+      updateCompanionSnapshot(snapshot)
+    }
+  })
+  ipcMain.handle(
+    'companion:pushSelectionCapture',
+    (_e, payload: CompanionSelectionCapturePayload) => {
+      return saveCompanionSelectionCapture(
+        payload,
+        join(app.getPath('userData'), 'companion-captures')
+      )
+    }
+  )
+  ipcMain.on('companion:selectionCaptureResponse', (_e, data: any) => {
+    const requestId = typeof data?.requestId === 'string' ? data.requestId : ''
+    const resolver = pendingSelectionCaptures.get(requestId)
+    if (resolver) {
+      pendingSelectionCaptures.delete(requestId)
+      resolver(
+        data?.capture ?? {
+          ok: false,
+          boardId: 'unknown',
+          selectedIds: [],
+          error: 'Empty capture response from renderer'
+        }
+      )
+    }
+  })
 
   // --- Media & YouTube Transcript IPC ---
   ipcMain.handle('media:fetchYouTube', async (_e, url: string) => {
@@ -470,6 +597,112 @@ function registerIpc(): void {
 
   ipcMain.handle('media:parseFileBuffer', async (_e, fileName: string, base64Data: string) => {
     return await parseDocumentBuffer(fileName, base64Data)
+  })
+
+  const getBoardImagesDir = (): string => {
+    const dir = join(app.getPath('userData'), 'board-images')
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    return dir
+  }
+
+  const persistImageBuffer = (buf: Buffer, extHint = 'png', nameHint?: string): SavedBoardImageResult => {
+    try {
+      const cleanExt = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg'].includes(
+        extHint.toLowerCase().replace(/^\./, '')
+      )
+        ? extHint.toLowerCase().replace(/^\./, '')
+        : 'png'
+      const id = `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${cleanExt}`
+      const dest = join(getBoardImagesDir(), id)
+      writeFileSync(dest, buf)
+      let width = 480
+      let height = 320
+      if (cleanExt !== 'svg') {
+        const nImg = nativeImage.createFromBuffer(buf)
+        const sz = nImg.getSize()
+        if (sz.width > 0 && sz.height > 0) {
+          width = sz.width
+          height = sz.height
+        }
+      }
+      return {
+        ok: true,
+        src: `vexel-media://board-images/${id}`,
+        width,
+        height,
+        name: nameHint
+      }
+    } catch (err: any) {
+      return { ok: false, error: err?.message || 'Failed to save board image' }
+    }
+  }
+
+  ipcMain.handle(
+    'media:saveBoardImage',
+    async (_e, dataUrlOrBase64: string, suggestedName?: string): Promise<SavedBoardImageResult> => {
+      if (!dataUrlOrBase64) return { ok: false, error: 'Empty image payload' }
+      const match = /^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/.exec(dataUrlOrBase64)
+      let ext = 'png'
+      let rawB64 = dataUrlOrBase64
+      if (match) {
+        ext = match[1].includes('svg') ? 'svg' : match[1].replace('jpeg', 'jpg')
+        rawB64 = match[2]
+      }
+      const buf = Buffer.from(rawB64, 'base64')
+      return persistImageBuffer(buf, ext, suggestedName)
+    }
+  )
+
+  ipcMain.handle('media:readClipboardImage', async (): Promise<SavedBoardImageResult> => {
+    try {
+      const electronClipboard = clipboard as unknown as {
+        readImage: () => Electron.NativeImage
+      }
+      const img = electronClipboard.readImage()
+      if (img.isEmpty()) {
+        return { ok: false, error: 'No image or snippet found in clipboard.' }
+      }
+      const pngBuf = img.toPNG()
+      const sz = img.getSize()
+      const saved = persistImageBuffer(pngBuf, 'png', 'Clipboard Snippet')
+      return {
+        ...saved,
+        width: sz.width || saved.width,
+        height: sz.height || saved.height
+      }
+    } catch (err: any) {
+      return { ok: false, error: err?.message || 'Failed to read clipboard image' }
+    }
+  })
+
+  ipcMain.handle('media:pickBoardImages', async (e) => {
+    const targetWin = BrowserWindow.fromWebContents(e.sender) || mainWindow
+    if (!targetWin) return { ok: false, images: [] }
+    const result = await dialog.showOpenDialog(targetWin, {
+      title: 'Insert Image or Screenshot',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        {
+          name: 'Images',
+          extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg']
+        }
+      ]
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: true, canceled: true, images: [] }
+    }
+    const images: SavedBoardImageResult[] = []
+    for (const fp of result.filePaths) {
+      try {
+        const buf = readFileSync(fp)
+        const ext = extname(fp).replace(/^\./, '') || 'png'
+        const saved = persistImageBuffer(buf, ext, basename(fp))
+        if (saved.ok) images.push(saved)
+      } catch {
+        /* skip unreadable file */
+      }
+    }
+    return { ok: images.length > 0, images }
   })
 
   // --- SQLite & Vector Knowledge Store IPC ---
@@ -663,6 +896,20 @@ function registerIpc(): void {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.vexelboard.app')
 
+  protocol.handle('vexel-media', (request) => {
+    try {
+      const parsed = new URL(request.url)
+      const safeFile = basename(decodeURIComponent(parsed.pathname.replace(/^\/+/, '')))
+      const fullPath = join(app.getPath('userData'), 'board-images', safeFile)
+      if (!safeFile || !existsSync(fullPath)) {
+        return new Response('Not found', { status: 404 })
+      }
+      return net.fetch(pathToFileURL(fullPath).toString())
+    } catch {
+      return new Response('Bad request', { status: 400 })
+    }
+  })
+
   if (process.platform === 'darwin') {
     try {
       app.dock?.setIcon(icon)
@@ -691,6 +938,10 @@ app.whenReady().then(() => {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.focus()
     }
+  })
+
+  app.on('web-contents-created', (_e, contents) => {
+    attachExternalLinkGuards(contents)
   })
 
   app.on('browser-window-created', (_, window) => {
@@ -729,8 +980,39 @@ app.whenReady().then(() => {
     }
   )
 
+  configureSkillPaths({
+    userDataDir: app.getPath('userData'),
+    workspaceDir: process.cwd()
+  })
+
   registerIpc()
   createWindow()
+
+  void startCompanionServer({
+    captureDir: join(app.getPath('userData'), 'companion-captures'),
+    onMutations: (mutations, source) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('companion:applyMutations', { mutations, source })
+        return true
+      }
+      return false
+    },
+    requestLiveSelectionCapture: async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return null
+      const requestId = `selcap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+      return await new Promise<CompanionSelectionCapturePayload | null>((resolve) => {
+        const timer = setTimeout(() => {
+          pendingSelectionCaptures.delete(requestId)
+          resolve(null)
+        }, 3000)
+        pendingSelectionCaptures.set(requestId, (payload) => {
+          clearTimeout(timer)
+          resolve(payload)
+        })
+        mainWindow!.webContents.send('companion:requestSelectionCapture', requestId)
+      })
+    }
+  })
 
   // Global OS click-through toggle
   globalShortcut.register('Alt+Space', () => setClickThrough(!clickThrough))
@@ -741,6 +1023,7 @@ app.whenReady().then(() => {
 })
 
 app.on('will-quit', () => {
+  stopCompanionServer()
   globalShortcut.unregisterAll()
   dbManager.close()
 })

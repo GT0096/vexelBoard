@@ -161,6 +161,30 @@ export const Markdown: React.FC<{ text: string }> = ({ text }) => (
     remarkPlugins={[remarkGfm, remarkMath]}
     rehypePlugins={[rehypeKatex]}
     components={{
+      a({ href, children, ...rest }) {
+        return (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              if (href && /^(https?:|mailto:)/i.test(href)) {
+                e.preventDefault()
+                e.stopPropagation()
+                if (window.glassAPI?.openExternal) {
+                  void window.glassAPI.openExternal(href)
+                } else {
+                  window.open(href, '_blank', 'noopener,noreferrer')
+                }
+              }
+            }}
+            {...rest}
+          >
+            {children}
+          </a>
+        )
+      },
       pre({ children, ...rest }) {
         return <CodeBlockWithCopy preProps={rest}>{children}</CodeBlockWithCopy>
       },

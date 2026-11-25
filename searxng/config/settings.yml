@@ -1,0 +1,11 @@
+use_default_settings: true
+server:
+  secret_key: "ultrasecretkey"   # the container entrypoint replaces this with a random key on first start
+  limiter: false
+  image_proxy: false
+  public_instance: false
+search:
+  safe_search: 1
+  formats:
+    - html
+    - json

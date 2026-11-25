@@ -24,6 +24,8 @@ export interface EmbeddedShapeSpec {
 }
 
 const GEOMETRIC_CLEAN_CATEGORIES = new Set([
+  'aiAndMath',
+  'dataStructures',
   'basic',
   'polygons',
   'arrows',

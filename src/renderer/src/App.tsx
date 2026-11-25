@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Bot, BoxSelect, Layers, Loader2, PenTool, Sparkles, Trash2, Wand2, X } from 'lucide-react'
+import { Bot, BoxSelect, Layers, Loader2, RotateCcw, RotateCw, Sparkles, Trash2, Wand2, X } from 'lucide-react'
 import type {
   BoardState,
   CanvasTransform,
@@ -10,6 +10,7 @@ import type {
   EquationNode,
   EraserMode,
   FontId,
+  ImageNode,
   InkPoint,
   PortSide,
   ShapeNode,
@@ -20,8 +21,7 @@ import type {
   VectorArtNode,
   VectorDiagramMeta,
   VideoNode,
-  VideoTabItem,
-  WritingPadDetection
+  VideoTabItem
 } from './types/board'
 import type { DiagramDirection, SmartBeautifyMode, SpatialScene } from '@shared/beautifySchema'
 import type { AgentActiveCodeContext, AgentMode, AgentStepEvent } from '@shared/agentSchema'
@@ -48,8 +48,7 @@ import {
   drawVectorArt,
   getStrokeBoundsCached,
   isBoundsInViewport,
-  screenToCanvas,
-  strokesToOcrImage
+  screenToCanvas
 } from './board/render'
 import {
   buildFlowConnectorNode,
@@ -83,11 +82,19 @@ import {
 import {
   renderSelectedDiagramToImage,
   parseAndCleanReactFlow,
-  generateSmartLocalReactFlowDiagram,
   buildBoardNativeTemplateDiagram,
   type CleanReactFlowResult
 } from './board/beautifyUtils'
 import { compileFlowDiagramToBoardElements } from './board/nativeDiagramCompiler'
+import { compileGraphToBoardElements, type GraphPlotSpec } from './board/graphPlotBuilder'
+import {
+  applyGroupScale,
+  applyRotationDelta,
+  captureRotationSnapshot,
+  isEndpointLinearShape,
+  rotatePointAround,
+  type RotationSnapshot
+} from './board/rotationUtils'
 import {
   buildHybridCalloutNodes,
   buildImmersedTextFromOcr,
@@ -99,13 +106,18 @@ import {
 } from './board/vectorizeUtils'
 import { compileSpatialScene } from './board/spatialSceneCompiler'
 import { useHoldToSnap } from './board/useHoldToSnap'
-import { buildShapeNodeFromHoldSnap } from './board/holdSnapClassifier'
+import {
+  buildShapeNodeFromHoldSnap,
+  snapConnectorToShapeAnchors,
+  type HoldSnapKind
+} from './board/holdSnapClassifier'
 import { layoutDiagramWithElkWorker } from './board/elkDiagramLayout'
 import {
   BoundsRect,
   eraseStrokesAlongPath,
   eraseShapesAlongPath,
   eraseVectorArtAlongPath,
+  findElementsInLasso,
   getShapeBoundingRect,
   normalizeRect,
   isShapeInRect,
@@ -114,6 +126,8 @@ import {
   isEquationInRect,
   isDiagramInRect,
   isCodeInRect,
+  isVideoInRect,
+  isImageInRect,
   isVectorArtInRect
 } from './board/eraserUtils'
 import { useBoard, useSettings } from './board/useBoard'
@@ -124,6 +138,7 @@ import {
   createEmptyProjectChatStore,
   createNewSection,
   deriveThreadTitle,
+  editSection,
   fetchProjectChatStore,
   fetchSections,
   getProjectChatStorageKey,
@@ -133,9 +148,14 @@ import {
   saveSectionViewLocal,
   setActiveChatProjectId
 } from './board/workspaceStore'
+import { getToolCursorCss, resolvePenColorHex } from './board/penUtils'
+import { analyzeSelectionLocally, detectLocalBasicShape } from './vision/localShapeDetector'
+import { rasterizeStrokesForLocalOcr } from './vision/localOcrUtils'
 import {
   DEFAULT_PROVIDER_MODELS,
+  DEFAULT_WEB_SEARCH_SETTINGS,
   type ChatAttachment,
+  type CompanionSelectionCapturePayload,
   type ProjectChatStore,
   type ProjectItem,
   type SectionItem
@@ -154,6 +174,7 @@ const HomeHub = lazy(() => import('./components/HomeHub').then((m) => ({ default
 const RightPanel = lazy(() => import('./components/RightPanel').then((m) => ({ default: m.RightPanel })))
 const KnowledgeHub = lazy(() => import('./components/KnowledgeHub').then((m) => ({ default: m.KnowledgeHub })))
 const SettingsModal = lazy(() => import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal })))
+const SkillsModal = lazy(() => import('./components/SkillsModal').then((m) => ({ default: m.SkillsModal })))
 
 export interface DragSnapshot {
   shapes: Array<{
@@ -169,21 +190,27 @@ export interface DragSnapshot {
   diagrams: Array<{ id: string; initX: number; initY: number }>
   codes: Array<{ id: string; initX: number; initY: number }>
   videos?: Array<{ id: string; initX: number; initY: number }>
+  images?: Array<{ id: string; initX: number; initY: number }>
   strokes: Array<{ id: string; initPoints: InkPoint[] }>
 }
 
 export type ResizeHandle8 = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
 export interface ShapeDragState {
-  kind: 'move' | 'shape-resize' | 'vector-art-resize' | 'connect'
+  kind: 'move' | 'shape-resize' | 'vector-art-resize' | 'group-resize' | 'rotate' | 'connect'
   handle?: ResizeHandle8
   targetId?: string
   initX?: number
   initY?: number
   initW?: number
   initH?: number
+  initRotation?: number
   initControlPoint?: [number, number]
   initPoints?: Array<[number, number]>
+  initGroupBounds?: { x: number; y: number; w: number; h: number }
+  rotationSnapshot?: RotationSnapshot
+  startAngleRad?: number
+  liveAngleDeg?: number
   sourceShapeId?: string
   sourcePort?: PortSide
   currentX?: number
@@ -308,6 +335,30 @@ function getSelectionBounds(board: BoardState, ids: string[]): BoundsRect | null
     }
   }
 
+  for (const v of board.videoNodes ?? []) {
+    if (idSet.has(v.id)) {
+      found = true
+      const vw = v.w ?? 540
+      const vh = v.h ?? 460
+      if (v.x < minX) minX = v.x
+      if (v.y < minY) minY = v.y
+      if (v.x + vw > maxX) maxX = v.x + vw
+      if (v.y + vh > maxY) maxY = v.y + vh
+    }
+  }
+
+  for (const img of board.imageNodes ?? []) {
+    if (idSet.has(img.id)) {
+      found = true
+      const iw = img.w ?? 360
+      const ih = img.h ?? 260
+      if (img.x < minX) minX = img.x
+      if (img.y < minY) minY = img.y
+      if (img.x + iw > maxX) maxX = img.x + iw
+      if (img.y + ih > maxY) maxY = img.y + ih
+    }
+  }
+
   for (const st of board.strokes) {
     if (idSet.has(st.id)) {
       for (const [px, py] of st.points) {
@@ -374,7 +425,6 @@ export default function App(): React.JSX.Element {
   // Tool & Canvas State
   const [activeTool, setActiveTool] = useState<ToolType>('select')
   const [penColor, setPenColor] = useState<string>('ink')
-  const [writingPadDetection, setWritingPadDetection] = useState<WritingPadDetection>('none')
   const [eraserSize, setEraserSize] = useState<number>(36)
   const [eraserMode, setEraserMode] = useState<EraserMode>('paper')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -390,6 +440,8 @@ export default function App(): React.JSX.Element {
   const [isDetachedChat, setIsDetachedChat] = useState(false)
   const [isKnowledgeHubOpen, setIsKnowledgeHubOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [skillsModalOpen, setSkillsModalOpen] = useState(false)
+  const [openGraphTrigger, setOpenGraphTrigger] = useState(0)
   const [settingsTrigger, setSettingsTrigger] = useState(0)
   const [toasts, setToasts] = useState<Toast[]>([])
 
@@ -411,9 +463,6 @@ export default function App(): React.JSX.Element {
   const activeAgentRunIdRef = useRef<string | null>(null)
   const aiReadiness = useAiReadiness(settings.ai)
   const isAiConfigured = aiReadiness.isAiConfigured
-  const effectiveWritingPadDetection: WritingPadDetection = isAiConfigured
-    ? writingPadDetection
-    : 'none'
   const isAiConfiguredRef = useRef(isAiConfigured)
   const aiReasonRef = useRef(aiReadiness.reason)
 
@@ -493,25 +542,16 @@ export default function App(): React.JSX.Element {
   const hoveredShapeIdRef = useRef<string | null>(null)
   const hoveredPortRef = useRef<{ shapeId: string; port: PortSide } | null>(null)
   const selectionBoxRef = useRef<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null)
+  const activeLassoPointsRef = useRef<InkPoint[] | null>(null)
 
   // Element Selection & Drag Refs
   const shapeDragRef = useRef<ShapeDragState | null>(null)
-  const pendingOcrStrokeIdsRef = useRef<string[]>([])
-  const ocrTimerRef = useRef<number | null>(null)
 
-  // Offline 350ms Hold-to-Snap Web Worker hook (Pen mode)
+  // Offline 350ms Hold-to-Snap Web Worker hook (Shapes Mode)
   const holdSnap = useHoldToSnap(
     () => boardRef.current.shapeNodes,
     () => scheduleRenderRef.current()
   )
-
-  useEffect(() => {
-    return () => {
-      if (ocrTimerRef.current !== null) {
-        window.clearTimeout(ocrTimerRef.current)
-      }
-    }
-  }, [])
 
   const boardPalette = useMemo(
     () => resolveBoardPalette(settings.backgroundColor),
@@ -783,6 +823,30 @@ export default function App(): React.JSX.Element {
     [activeProjectId, updateAndPersistChatStore]
   )
 
+  const handleUpdateChatThreadColor = useCallback(
+    (threadId: string, color: string | undefined) => {
+      updateAndPersistChatStore(activeProjectId, (prev) => ({
+        ...prev,
+        threads: prev.threads.map((t) => (t.id === threadId ? { ...t, color } : t))
+      }))
+    },
+    [activeProjectId, updateAndPersistChatStore]
+  )
+
+  const handleUpdateSectionColor = useCallback(
+    async (sectionId: string, color: string | undefined) => {
+      const updated = await editSection(sectionId, { color: color ?? '' })
+      const cleanColor = color || undefined
+      setProjectSections((prev) =>
+        prev.map((s) => (s.id === sectionId ? { ...(updated ?? s), color: cleanColor } : s))
+      )
+      setActiveSection((prev) =>
+        prev && prev.id === sectionId ? { ...(updated ?? prev), color: cleanColor } : prev
+      )
+    },
+    []
+  )
+
   const handleDeleteChatThread = useCallback(
     (threadId: string) => {
       updateAndPersistChatStore(activeProjectId, (prev) => {
@@ -858,6 +922,204 @@ export default function App(): React.JSX.Element {
     return parts.length > 0 ? parts.join('\n') : 'Whiteboard is currently empty.'
   }, [boardRef])
 
+  // Live Antigravity Companion & MCP Bridge: apply board mutations pushed externally
+  useEffect(() => {
+    const off = window.glassAPI?.onCompanionMutations?.((payload) => {
+      if (!payload?.mutations || payload.mutations.length === 0) return
+      pushHistory()
+      const curView = viewRef.current
+      const viewportCenter = {
+        x: Math.round((window.innerWidth / 2 - curView.panX) / curView.zoom),
+        y: Math.round((window.innerHeight / 2 - curView.panY) / curView.zoom)
+      }
+      const curSettings = settingsRef.current
+      const palette = resolveBoardPalette(curSettings.backgroundColor)
+      const tokens = resolveThemeTokens(curSettings.backgroundColor, curSettings.theme, palette)
+      let applied = 0
+      let nextPanOut: { panX: number; panY: number } | undefined
+      let createdIdsOut: string[] = []
+      let deletedIdsOut: string[] = []
+      update((latestBoard) => {
+        const outcome = applyAgentMutationsToBoard(latestBoard, payload.mutations, {
+          viewportCenter,
+          view: viewRef.current,
+          screenSafe: getSafeViewportScreenRect(),
+          fontFamily: curSettings.font,
+          defaultInkColor: tokens.accent
+        })
+        applied = outcome.appliedCount
+        createdIdsOut = outcome.createdIds
+        deletedIdsOut = outcome.deletedIds
+        if (outcome.nextPan) nextPanOut = outcome.nextPan
+        return outcome.nextBoard
+      })
+      if (deletedIdsOut.length > 0) {
+        if (createdIdsOut.length > 0) {
+          setSelectedIds(createdIdsOut)
+        } else {
+          const delSet = new Set(deletedIdsOut)
+          setSelectedIds((prev) => prev.filter((id) => !delSet.has(id)))
+        }
+      }
+      if (nextPanOut) {
+        const np = nextPanOut
+        setView((v) => ({ ...v, panX: np.panX, panY: np.panY }))
+      }
+      setCanUndoLastAgent(applied > 0)
+      scheduleRenderRef.current()
+      addToast('success', `Antigravity Companion applied ${applied} item(s) to board`)
+    })
+    return () => off?.()
+  }, [pushHistory, update, addToast])
+
+  // Sync live board snapshot to Antigravity Companion HTTP/MCP server
+  useEffect(() => {
+    const syncFn = window.glassAPI?.syncCompanionSnapshot
+    if (!syncFn) return
+    const timer = window.setTimeout(() => {
+      const curBoard = boardRef.current
+      const curSelected = selectedIdsRef.current
+      const selBounds = curSelected.length > 0 ? getSelectionBounds(curBoard, curSelected) : null
+      const curView = viewRef.current
+      const viewportCenter = {
+        x: Math.round((window.innerWidth / 2 - curView.panX) / curView.zoom),
+        y: Math.round((window.innerHeight / 2 - curView.panY) / curView.zoom)
+      }
+      const occ = collectOccupiedBoardRects(curBoard)
+      const emptyRect = findEmptyBoardRect(occ, 760, 480, curView, getSafeViewportScreenRect(), {
+        gap: 40
+      })
+      const snap = buildAgentBoardSnapshot({
+        board: curBoard,
+        boardId: activeSection?.id || 'default-board',
+        projectId: activeProjectId ?? undefined,
+        selectedIds: curSelected,
+        selectionBounds: selBounds
+          ? {
+              x: Math.round(selBounds.x),
+              y: Math.round(selBounds.y),
+              width: Math.round(selBounds.w),
+              height: Math.round(selBounds.h)
+            }
+          : undefined,
+        viewportCenter,
+        suggestedEmptyArea: { x: emptyRect.x, y: emptyRect.y, width: 760, height: 480 }
+      })
+      syncFn(snap)
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [board, selectedIds, activeSection?.id, activeProjectId])
+
+  const buildCurrentSelectionCapturePayload = useCallback((): CompanionSelectionCapturePayload => {
+    const curBoard = boardRef.current
+    const curSelected = selectedIdsRef.current
+    const sec = activeSectionRef.current
+    const boardId = sec?.id || 'default-board'
+    const projectId = sec?.projectId || undefined
+
+    if (curSelected.length === 0) {
+      return {
+        ok: false,
+        boardId,
+        projectId,
+        selectedIds: [],
+        error: 'No elements are currently selected on the Vexelboard canvas.'
+      }
+    }
+
+    const selBounds = getSelectionBounds(curBoard, curSelected)
+    const selectionBounds = selBounds
+      ? {
+          x: Math.round(selBounds.x),
+          y: Math.round(selBounds.y),
+          width: Math.max(40, Math.round(selBounds.w)),
+          height: Math.max(40, Math.round(selBounds.h))
+        }
+      : undefined
+
+    const curSettings = settingsRef.current
+    const palette = resolveBoardPalette(curSettings.backgroundColor)
+    const activeThemeTokens = resolveThemeTokens(
+      curSettings.backgroundColor,
+      curSettings.theme,
+      palette
+    )
+
+    const crop = rasterizeSelectionColorPreserving(
+      curBoard,
+      curSelected,
+      activeThemeTokens.ink,
+      activeThemeTokens.accent
+    )
+
+    let base64Png = crop?.base64Png
+    let width = crop?.width
+    let height = crop?.height
+
+    if (!base64Png) {
+      const fallbackImg = renderSelectedDiagramToImage(curBoard, curSelected, activeThemeTokens)
+      base64Png = fallbackImg?.base64
+    }
+
+    const idSet = new Set(curSelected)
+    const strokeCount = curBoard.strokes.filter((s) => idSet.has(s.id)).length
+    const shapeCount = curBoard.shapeNodes.filter((s) => idSet.has(s.id)).length
+    const textCount = curBoard.textNodes.filter((t) => idSet.has(t.id)).length
+    const summaryParts: string[] = []
+    if (strokeCount > 0) summaryParts.push(`${strokeCount} stroke(s)`)
+    if (shapeCount > 0) summaryParts.push(`${shapeCount} shape(s)`)
+    if (textCount > 0) summaryParts.push(`${textCount} text item(s)`)
+    if (crop?.textHints) summaryParts.push(`labels: ${crop.textHints}`)
+
+    return {
+      ok: Boolean(base64Png),
+      boardId,
+      projectId,
+      selectedIds: [...curSelected],
+      selectionBounds,
+      base64Png,
+      width,
+      height,
+      elementSummary: summaryParts.join(', ') || `${curSelected.length} selected element(s)`,
+      error: base64Png ? undefined : 'Selected elements could not be rasterized to PNG.'
+    }
+  }, [])
+
+  // Answer live selection-image pulls from Antigravity / Companion Bridge
+  useEffect(() => {
+    const off = window.glassAPI?.onRequestSelectionCapture?.((requestId) => {
+      const payload = buildCurrentSelectionCapturePayload()
+      window.glassAPI?.respondSelectionCapture?.(requestId, payload)
+    })
+    return () => off?.()
+  }, [buildCurrentSelectionCapturePayload])
+
+  const handleSendSelectionToAntigravity = useCallback(async () => {
+    const payload = buildCurrentSelectionCapturePayload()
+    if (!payload.ok) {
+      addToast('info', payload.error || 'Select a sketch or diagram on the board first.')
+      return
+    }
+    const res = await window.glassAPI?.pushSelectionCapture?.(payload)
+    if (!res?.ok) {
+      addToast('error', res?.error || 'Could not save selection capture for Antigravity.')
+      return
+    }
+    const promptText = 'Vectorize my current Vexelboard selection'
+    try {
+      await navigator.clipboard.writeText(promptText)
+      addToast(
+        'success',
+        'Selection captured for Antigravity! Prompt copied ("Vectorize my current Vexelboard selection").'
+      )
+    } catch {
+      addToast(
+        'success',
+        `Selection captured for Antigravity${res.filePath ? ` (${res.filePath})` : ''}.`
+      )
+    }
+  }, [buildCurrentSelectionCapturePayload, addToast])
+
   const handleSendChatMessage = useCallback(
     async (
       query: string,
@@ -925,6 +1187,7 @@ export default function App(): React.JSX.Element {
           sectionId: activeSection?.id,
           includeProjectContext: options?.includeProjectContext ?? true,
           sourceIds: options?.sourceIds,
+          activeSkillIds: currentSettings.ai.activeSkillIds,
           attachments
         })
 
@@ -1129,6 +1392,17 @@ export default function App(): React.JSX.Element {
           provider: activeProvider,
           model: activeModel,
           ollamaHost: currentSettings.ai.ollamaHost,
+          webSearch: {
+            ...DEFAULT_WEB_SEARCH_SETTINGS,
+            ...(currentSettings.ai.webSearch ?? {}),
+            providerMode:
+              currentSettings.ai.webSearch?.providerMode ??
+              (currentSettings.ai.webSearch?.searxngUrl &&
+              currentSettings.ai.webSearch.searxngUrl !== 'http://localhost:8888'
+                ? 'searxng'
+                : 'builtin')
+          },
+          activeSkillIds: currentSettings.ai.activeSkillIds,
           boardSnapshot: snapshot,
           activeCodeContext: opts?.activeCodeContext,
           selectedSourceIds: opts?.selectedSourceIds,
@@ -1869,7 +2143,7 @@ export default function App(): React.JSX.Element {
 
   /* ---------------- Left Dock Toolbar Handlers ---------------- */
   const handleAddStickyNote = useCallback(
-    (color: string) => {
+    (color: string, title?: string) => {
       const curBoard = boardRef.current
       const noteW = 230
       const noteH = 150
@@ -1879,6 +2153,7 @@ export default function App(): React.JSX.Element {
         x: Math.round(placement.x),
         y: Math.round(placement.y),
         w: noteW,
+        ...(title?.trim() ? { title: title.trim() } : {}),
         text: 'Double-click to write...',
         fontSize: 16,
         fontFamily: settingsRef.current.font,
@@ -2056,6 +2331,111 @@ export default function App(): React.JSX.Element {
     [update, setSelectedId, setSelectedIds, pushHistory, addToast, boardPalette.shapeFill]
   )
 
+  const handleInsertGraph = useCallback(
+    (spec: GraphPlotSpec) => {
+      const curBoard = boardRef.current
+      const cardW = 480
+      const cardH = 320
+      const placement = findFreeBoardPlacement(curBoard, cardW, cardH, viewRef.current, {
+        gap: 32,
+        topMargin: 44
+      })
+      const targetLayerId = resolveTargetInkLayerId(curBoard) ?? 'layer-base-ink'
+      const compiled = compileGraphToBoardElements(
+        spec,
+        { x: placement.x, y: placement.y, width: cardW, height: cardH },
+        {
+          fontFamily: settingsRef.current.font,
+          layerId: targetLayerId,
+          inkColor: themeTokens.ink
+        }
+      )
+      pushHistory()
+      update((b) => ({
+        ...b,
+        shapeNodes: [...b.shapeNodes, ...compiled.shapes],
+        textNodes: [...b.textNodes, ...compiled.texts],
+        vectorDiagramMeta: {
+          ...(b.vectorDiagramMeta ?? {}),
+          [compiled.groupId]: compiled.meta
+        }
+      }))
+      if (placement.nextPan) {
+        setView((v) => ({
+          ...v,
+          panX: placement.nextPan!.panX,
+          panY: placement.nextPan!.panY
+        }))
+      }
+      const createdIds = [
+        ...compiled.shapes.map((s) => s.id),
+        ...compiled.texts.map((t) => t.id)
+      ]
+      setSelectedId(createdIds[0] ?? null)
+      setSelectedIds(createdIds)
+      setActiveTool('select')
+      scheduleRenderRef.current()
+      addToast('success', `Added "${spec.title.trim() || 'Graph'}" onto board`)
+    },
+    [update, setSelectedId, setSelectedIds, pushHistory, addToast, themeTokens.ink]
+  )
+
+  const handleRotateSelected = useCallback(
+    (deltaDeg: number, reset = false) => {
+      const selIds = selectedIdsRef.current
+      if (selIds.length === 0) return
+      const curBoard = boardRef.current
+      const curLayers = boardLayersRef.current
+
+      if (selIds.length === 1) {
+        const sid = selIds[0]
+        const s = curBoard.shapeNodes.find((n) => n.id === sid && isItemEditable(n.layerId, curLayers))
+        if (s) {
+          pushHistory()
+          if (reset) {
+            update((b) => ({
+              ...b,
+              shapeNodes: b.shapeNodes.map((n) => (n.id === sid ? { ...n, rotation: 0 } : n))
+            }))
+          } else {
+            const bRect = getShapeBoundingRect(s)
+            const snap = captureRotationSnapshot(
+              curBoard,
+              [sid],
+              bRect.x + bRect.w / 2,
+              bRect.y + bRect.h / 2
+            )
+            update((b) => applyRotationDelta(b, snap, deltaDeg))
+          }
+          scheduleRenderRef.current()
+          return
+        }
+      }
+
+      const bounds = getSelectionBounds(curBoard, selIds)
+      if (!bounds) return
+      pushHistory()
+      if (reset) {
+        const idSet = new Set(selIds)
+        update((b) => ({
+          ...b,
+          shapeNodes: b.shapeNodes.map((n) => (idSet.has(n.id) ? { ...n, rotation: 0 } : n)),
+          textNodes: b.textNodes.map((n) => (idSet.has(n.id) ? { ...n, rotation: 0 } : n)),
+          vectorArtNodes: (b.vectorArtNodes ?? []).map((n) =>
+            idSet.has(n.id) ? { ...n, rotation: 0 } : n
+          )
+        }))
+      } else {
+        const cx = bounds.minX + bounds.w / 2
+        const cy = bounds.minY + bounds.h / 2
+        const snap = captureRotationSnapshot(curBoard, selIds, cx, cy)
+        update((b) => applyRotationDelta(b, snap, deltaDeg))
+      }
+      scheduleRenderRef.current()
+    },
+    [pushHistory, update]
+  )
+
   const handleSyncAnimatedWaveFlow = useCallback(() => {
     const selIds = selectedIdsRef.current
     if (selIds.length === 0) return
@@ -2154,255 +2534,247 @@ export default function App(): React.JSX.Element {
     }
   }, [handleInsertToNotes, handleInsertDiagram, handleGenerateTutorial, handleAddYouTubeToCanvas, patchSettings])
 
-  /* ---------------- Diagram Beautification & Handwriting Conversion ---------------- */
-  const handleBeautifySelected = useCallback(async () => {
-    if (!isAiConfiguredRef.current) {
-      addToast('info', aiReasonRef.current || 'Configure AI Settings to enable AI features.')
-      setSettingsOpen(true)
-      return
-    }
-    // Cancel any pending debounced OCR so Beautify processes the full stroke set once
-    if (ocrTimerRef.current !== null) {
-      window.clearTimeout(ocrTimerRef.current)
-      ocrTimerRef.current = null
-      pendingOcrStrokeIdsRef.current = []
-    }
+  /* ---------------- Insert Image / Clipboard Snippet / Board Snip ---------------- */
+  const insertSavedImageNode = useCallback(
+    (
+      saved: { src: string; width?: number; height?: number; name?: string },
+      atWorld?: { x: number; y: number }
+    ) => {
+      const natW = Math.max(64, saved.width || 480)
+      const natH = Math.max(64, saved.height || 320)
+      const maxEdge = 520
+      const scale = Math.min(1, maxEdge / Math.max(natW, natH))
+      const dispW = Math.max(120, Math.round(natW * scale))
+      const dispH = Math.max(90, Math.round(natH * scale))
 
-    const currentSelectedIds = selectedIdsRef.current
-    const curBoard = boardRef.current
+      const placement = atWorld
+        ? { x: Math.round(atWorld.x), y: Math.round(atWorld.y) }
+        : findFreeBoardPlacement(boardRef.current, dispW, dispH, viewRef.current, { gap: 24 })
 
-    // If nothing currently selected, check if board has strokes or shapes to automatically select
-    let targetIds = currentSelectedIds
-    if (targetIds.length === 0) {
-      if (curBoard.strokes.length > 0 || curBoard.shapeNodes.length > 0) {
-        targetIds = [
-          ...curBoard.strokes.map((s) => s.id),
-          ...curBoard.shapeNodes.map((s) => s.id),
-          ...curBoard.textNodes.map((t) => t.id),
-          ...curBoard.equationNodes.map((eq) => eq.id)
-        ]
-        setSelectedIds(targetIds)
-      } else {
-        addToast('info', 'Draw a sketch or handwriting using the pen, then click Beautify!')
-        return
-      }
-    }
-
-    const bounds = getSelectionBounds(curBoard, targetIds)
-    if (!bounds) {
-      addToast('error', 'Could not determine boundaries of selected drawing.')
-      return
-    }
-
-    const prepared = renderSelectedDiagramToImage(curBoard, targetIds, themeTokens)
-    if (!prepared || !prepared.base64) {
-      addToast('error', 'Could not render drawing for beautification.')
-      return
-    }
-
-    const localResult = generateSmartLocalReactFlowDiagram(curBoard, targetIds)
-
-    setIsBeautifying(true)
-    setAiBusy(true)
-    addToast('info', '✨ Beautifying drawing into clean shapes or text...')
-
-    let parsedFlow: CleanReactFlowResult | null = null
-
-    const api = window.glassAPI
-    if (api) {
-      const currentSettings = settingsRef.current
-      const activeProvider = currentSettings.ai.provider
-      const activeModel =
-        activeProvider === 'ollama'
-          ? currentSettings.ai.ollamaModel
-          : currentSettings.ai.byokModels[activeProvider] || DEFAULT_PROVIDER_MODELS[activeProvider]
-
-      try {
-        const localHint =
-          localResult.nodes.length > 0
-            ? `Locally detected geometric shapes: ${localResult.nodes
-              .map(
-                (n) =>
-                  `${n.type} (${n.data?.w ?? ''}x${n.data?.h ?? ''}) at (${n.position.x},${n.position.y})`
-              )
-              .join(', ')}.`
-            : 'No closed geometric containers were detected locally; if the image is pure handwritten text, return {"isTextOnly": true, "recognizedText": "..."}.'
-
-        const promptContext = [
-          `Hand-drawn elements: ${prepared.strokeCount} strokes, ${prepared.shapeCount} shapes.`,
-          localHint,
-          prepared.textHints ? `Extracted textual notes/labels: ${prepared.textHints}` : '',
-          `Bounding dimensions: ~${Math.round(bounds.w)}px wide by ~${Math.round(bounds.h)}px high (preserve exact 2D orientation and relative x/y layout).`
-        ]
-          .filter(Boolean)
-          .join('\n')
-
-        const res = await api.runAI({
-          provider: activeProvider,
-          model: activeModel,
-          ollamaHost: currentSettings.ai.ollamaHost,
-          isBeautifyDiagram: true,
-          imageBase64: prepared.base64,
-          prompt: promptContext,
-          cursorX: Math.round(bounds.x + bounds.w / 2),
-          cursorY: Math.round(bounds.y + bounds.h / 2),
-          canvasWidth: window.innerWidth,
-          canvasHeight: window.innerHeight
-        })
-
-        if (res && res.ok && res.reply && res.reply.trim().length > 0) {
-          parsedFlow = parseAndCleanReactFlow(res.reply, {
-            preservePositions: true,
-            targetBounds: { w: bounds.w, h: bounds.h },
-            localFallback: localResult
-          })
-        } else {
-          throw new Error(res?.error || 'AI could not recognize drawing')
-        }
-      } catch (err: unknown) {
-        console.warn('AI Beautify fallback:', err)
-        const errMsg = (err as Error)?.message || 'AI unavailable'
-
-        if (localResult.isTextOnly && prepared.strokeCount > 0) {
-          try {
-            const ocrRes = await api.runAI({
-              provider: activeProvider,
-              model: activeModel,
-              ollamaHost: currentSettings.ai.ollamaHost,
-              isHandwritingOCR: true,
-              imageBase64: prepared.base64
-            })
-            if (ocrRes.ok && ocrRes.recognizedText?.trim()) {
-              parsedFlow = {
-                title: 'Recognized Text',
-                nodes: [],
-                edges: [],
-                diagramType: 'flowchart',
-                isTextOnly: true,
-                recognizedText: ocrRes.recognizedText.trim()
-              }
-            }
-          } catch {
-            /* fall through to local result */
-          }
-        }
-
-        if (!parsedFlow) {
-          parsedFlow = localResult
-          if (localResult.nodes.length > 0) {
-            addToast('info', `AI notice: ${errMsg}. Converted drawn strokes using local shape library.`)
-          }
-        }
-      } finally {
-        setIsBeautifying(false)
-        setAiBusy(false)
-      }
-    } else {
-      parsedFlow = localResult
-      setIsBeautifying(false)
-      setAiBusy(false)
-    }
-
-    if (!parsedFlow) {
-      parsedFlow = localResult
-    }
-
-    const idSet = new Set(targetIds)
-
-    // Case 1: Pure handwritten text -> convert into a clean TextNode
-    if (parsedFlow.isTextOnly && parsedFlow.recognizedText) {
-      const textNode: TextNode = {
-        id: `ocr-${Date.now()}`,
-        x: Math.round(bounds.x),
-        y: Math.round(bounds.y),
-        w: Math.max(240, Math.min(640, Math.round(bounds.w + 40))),
-        text: parsedFlow.recognizedText,
-        style: 'body',
-        fontSize: 20,
-        color: 'ink',
-        source: 'ocr',
+      const imgNode: ImageNode = {
+        id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        x: placement.x,
+        y: placement.y,
+        w: dispW,
+        h: dispH,
+        naturalW: natW,
+        naturalH: natH,
+        src: saved.src,
+        caption: saved.name || 'Snippet',
         createdAt: Date.now()
       }
+
+      pushHistory()
       update((b) => ({
         ...b,
-        strokes: b.strokes.filter((s) => !idSet.has(s.id)),
-        shapeNodes: b.shapeNodes.filter((s) => !idSet.has(s.id)),
-        textNodes: [...b.textNodes.filter((t) => !idSet.has(t.id)), textNode],
-        equationNodes: b.equationNodes.filter((eq) => !idSet.has(eq.id))
+        imageNodes: [...(b.imageNodes ?? []), imgNode]
       }))
-      setSelectedId(textNode.id)
-      setSelectedIds([textNode.id])
-      pushHistory()
-      addToast('success', '✨ Converted handwritten text into clean text! (Ctrl+Z to undo)')
-      return
-    }
-
-    const effectiveFlow = parsedFlow.nodes.length > 0 ? parsedFlow : localResult
-    if (effectiveFlow.nodes.length === 0) {
-      addToast(
-        'info',
-        'No geometric shapes detected and handwriting OCR requires an AI vision provider in Settings.'
-      )
-      return
-    }
-
-    const originalStrokes = curBoard.strokes.filter((s) => idSet.has(s.id))
-    const originalShapes = curBoard.shapeNodes.filter((s) => idSet.has(s.id))
-    const originalTexts = curBoard.textNodes.filter((t) => idSet.has(t.id))
-    const targetLayerId = resolveTargetInkLayerId(curBoard) ?? 'layer-base-ink'
-
-    const compiled = compileFlowDiagramToBoardElements(
-      effectiveFlow,
-      {
-        x: bounds.x,
-        y: bounds.y,
-        w: bounds.w,
-        h: bounds.h
-      },
-      {
-        fontFamily: settingsRef.current.font,
-        layerId: targetLayerId,
-        defaultFillColor: boardPalette.shapeFill,
-        originalStrokes,
-        originalShapes,
-        originalTexts
+      setSelectedId(imgNode.id)
+      setSelectedIds([imgNode.id])
+      setActiveTool('select')
+      if ('nextPan' in placement && placement.nextPan) {
+        setView((v) => ({
+          ...v,
+          panX: placement.nextPan!.panX,
+          panY: placement.nextPan!.panY
+        }))
       }
-    )
+      addToast('success', `Inserted ${saved.name || 'image snippet'} on board`)
+    },
+    [pushHistory, update, setSelectedId, addToast]
+  )
 
-    update((b) => ({
-      ...b,
-      strokes: b.strokes.filter((s) => !idSet.has(s.id)),
-      shapeNodes: [...b.shapeNodes.filter((s) => !idSet.has(s.id)), ...compiled.shapes],
-      textNodes: [...b.textNodes.filter((t) => !idSet.has(t.id)), ...compiled.texts],
-      equationNodes: b.equationNodes.filter((eq) => !idSet.has(eq.id)),
-      vectorDiagramMeta: {
-        ...(b.vectorDiagramMeta ?? {}),
-        [compiled.groupId]: compiled.meta
+  const saveDataUrlAndInsert = useCallback(
+    async (dataUrl: string, suggestedName?: string, atWorld?: { x: number; y: number }) => {
+      const api = window.glassAPI
+      if (api?.saveBoardImage) {
+        const res = await api.saveBoardImage(dataUrl, suggestedName)
+        if (res?.ok && res.src) {
+          insertSavedImageNode(
+            {
+              src: res.src,
+              width: res.width,
+              height: res.height,
+              name: res.name || suggestedName
+            },
+            atWorld
+          )
+          return
+        }
       }
-    }))
+      // Browser fallback outside Electron
+      const probe = new Image()
+      probe.onload = () => {
+        insertSavedImageNode(
+          {
+            src: dataUrl,
+            width: probe.naturalWidth || 480,
+            height: probe.naturalHeight || 320,
+            name: suggestedName
+          },
+          atWorld
+        )
+      }
+      probe.onerror = () => {
+        insertSavedImageNode({ src: dataUrl, name: suggestedName }, atWorld)
+      }
+      probe.src = dataUrl
+    },
+    [insertSavedImageNode]
+  )
 
-    const newIds = [
-      ...compiled.shapes.map((s) => s.id),
-      ...compiled.texts.map((t) => t.id)
-    ]
-    setSelectedId(newIds[0] ?? null)
-    setSelectedIds(newIds)
-    setActiveTool('select')
-    pushHistory()
-    scheduleRenderRef.current()
-    addToast('success', `✨ Beautified sketch into ${compiled.title}! (Ctrl+Z to undo)`)
-  }, [update, pushHistory, addToast, setSelectedId, themeTokens, boardPalette.shapeFill])
+  const handlePasteClipboardImage = useCallback(
+    async (atWorld?: { x: number; y: number }) => {
+      const api = window.glassAPI
+      if (api?.readClipboardImage) {
+        const res = await api.readClipboardImage()
+        if (res?.ok && res.src) {
+          insertSavedImageNode(
+            {
+              src: res.src,
+              width: res.width,
+              height: res.height,
+              name: res.name || 'Clipboard Snippet'
+            },
+            atWorld
+          )
+          return
+        }
+      }
+      // Browser Clipboard API fallback
+      if (navigator.clipboard?.read) {
+        try {
+          const items = await navigator.clipboard.read()
+          for (const item of items) {
+            const imgType = item.types.find((t) => t.startsWith('image/'))
+            if (imgType) {
+              const blob = await item.getType(imgType)
+              const reader = new FileReader()
+              reader.onload = () => {
+                if (typeof reader.result === 'string') {
+                  void saveDataUrlAndInsert(reader.result, 'Clipboard Snippet', atWorld)
+                }
+              }
+              reader.readAsDataURL(blob)
+              return
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      addToast('info', 'No screenshot or image found in clipboard — take a snip (Win+Shift+S) and press Ctrl+V!')
+    },
+    [insertSavedImageNode, saveDataUrlAndInsert, addToast]
+  )
 
-  /* ---------------- Smart Sketch-to-Vector Converter (Content-Aware Router + ELK + VTracer) ---------------- */
+  const handleUploadImageFiles = useCallback(
+    async (atWorld?: { x: number; y: number }) => {
+      const api = window.glassAPI
+      if (api?.pickBoardImages) {
+        const res = await api.pickBoardImages()
+        if (res?.canceled) return
+        if (res?.ok && Array.isArray(res.images) && res.images.length > 0) {
+          res.images.forEach((im, idx) => {
+            if (im.ok && im.src) {
+              insertSavedImageNode(
+                {
+                  src: im.src,
+                  width: im.width,
+                  height: im.height,
+                  name: im.name
+                },
+                atWorld ? { x: atWorld.x + idx * 32, y: atWorld.y + idx * 32 } : undefined
+              )
+            }
+          })
+          return
+        }
+      }
+      // Standard file input fallback
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'image/*'
+      input.multiple = true
+      input.onchange = () => {
+        const files = Array.from(input.files || [])
+        files.forEach((f, idx) => {
+          const reader = new FileReader()
+          reader.onload = () => {
+            if (typeof reader.result === 'string') {
+              void saveDataUrlAndInsert(
+                reader.result,
+                f.name,
+                atWorld ? { x: atWorld.x + idx * 32, y: atWorld.y + idx * 32 } : undefined
+              )
+            }
+          }
+          reader.readAsDataURL(f)
+        })
+      }
+      input.click()
+    },
+    [insertSavedImageNode, saveDataUrlAndInsert]
+  )
+
+  // Global Ctrl+V paste handler for screenshots / just-taken snippets
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent): void => {
+      if (!activeSectionRef.current) return
+      const activeEl = document.activeElement
+      if (
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          (activeEl as HTMLElement).isContentEditable ||
+          (activeEl as HTMLElement).closest?.('.cm-editor, .code-studio-panel, .canvas-code-card, .floating-ai-window'))
+      ) {
+        return
+      }
+      const items = Array.from(e.clipboardData?.items || [])
+      const imageItem = items.find((it) => it.type.startsWith('image/'))
+      if (imageItem) {
+        e.preventDefault()
+        const file = imageItem.getAsFile()
+        if (file) {
+          const reader = new FileReader()
+          reader.onload = () => {
+            if (typeof reader.result === 'string') {
+              void saveDataUrlAndInsert(
+                reader.result,
+                'Pasted Snippet',
+                mouseCanvasPosRef.current ?? undefined
+              )
+            }
+          }
+          reader.readAsDataURL(file)
+          return
+        }
+      }
+      const hasPlainText = items.some((it) => it.type === 'text/plain')
+      if (!hasPlainText && window.glassAPI?.readClipboardImage) {
+        void window.glassAPI.readClipboardImage().then((res) => {
+          if (res?.ok && res.src) {
+            insertSavedImageNode(
+              {
+                src: res.src,
+                width: res.width,
+                height: res.height,
+                name: res.name || 'Pasted Snippet'
+              },
+              mouseCanvasPosRef.current ?? undefined
+            )
+          }
+        })
+      }
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [insertSavedImageNode, saveDataUrlAndInsert])
+
+  /* ---------------- Unified Smart Sketch-to-Vector & Beautify Router ---------------- */
   const runSmartVectorize = useCallback(
     async (mode: SmartBeautifyMode = 'auto') => {
-      // Cancel any pending debounced OCR so Vectorize processes the full stroke set once
-      if (ocrTimerRef.current !== null) {
-        window.clearTimeout(ocrTimerRef.current)
-        ocrTimerRef.current = null
-        pendingOcrStrokeIdsRef.current = []
-      }
-
       const currentSelectedIds = selectedIdsRef.current
       const curBoard = boardRef.current
 
@@ -2421,17 +2793,6 @@ export default function App(): React.JSX.Element {
         }
       }
 
-      const raster = rasterizeSelectionColorPreserving(
-        curBoard,
-        targetIds,
-        themeTokens.ink,
-        themeTokens.accent
-      )
-      if (!raster || !raster.base64Png) {
-        addToast('error', 'Select hand-drawn strokes, shapes, or text to vectorize.')
-        return
-      }
-
       const activeFont: FontId =
         settingsRef.current.font && settingsRef.current.font in FONTS
           ? settingsRef.current.font
@@ -2441,76 +2802,198 @@ export default function App(): React.JSX.Element {
       const originalStrokes = curBoard.strokes.filter((s) => idSet.has(s.id))
       const originalShapes = curBoard.shapeNodes.filter((s) => idSet.has(s.id))
       const originalTexts = curBoard.textNodes.filter((t) => idSet.has(t.id))
+      const api = window.glassAPI
 
       setIsVectorizing(true)
-      setAiBusy(true)
-      addToast(
-        'info',
-        mode === 'trace_only'
-          ? 'Tracing original strokes offline into multi-color vector paths...'
-          : `Analyzing & vectorizing selection (${FONTS[activeFont].label})...`
-      )
-
-      const api = window.glassAPI
-      const currentSettings = settingsRef.current
-      const activeProvider = currentSettings.ai.provider
-      const activeModel =
-        activeProvider === 'ollama'
-          ? currentSettings.ai.ollamaModel
-          : currentSettings.ai.byokModels[activeProvider] || DEFAULT_PROVIDER_MODELS[activeProvider]
+      setIsBeautifying(true)
 
       try {
-        // 1. Pure Handwriting Fast-Path (auto mode + AI configured) -> frameless board-immersed text
-        if (
-          mode === 'auto' &&
-          api &&
-          isAiConfiguredRef.current &&
-          looksLikePureHandwriting(curBoard, targetIds)
-        ) {
-          const ocrImage =
-            originalStrokes.length > 0 ? strokesToOcrImage(originalStrokes).base64 : raster.base64Png
-          const ocrRes = await api.runAI({
-            provider: activeProvider,
-            model: activeModel,
-            ollamaHost: currentSettings.ai.ollamaHost,
-            isHandwritingOCR: true,
-            imageBase64: ocrImage
-          })
-          if (ocrRes.ok && ocrRes.recognizedText?.trim()) {
-            const textRes = buildImmersedTextFromOcr(
-              ocrRes.recognizedText.trim(),
-              raster.bounds,
-              activeFont,
-              raster.dominantColor
-            )
-            update((b) => ({
-              ...b,
-              strokes: b.strokes.filter((s) => !idSet.has(s.id)),
-              shapeNodes: b.shapeNodes.filter((s) => !idSet.has(s.id)),
-              textNodes: [...b.textNodes.filter((t) => !idSet.has(t.id)), ...textRes.texts],
-              equationNodes: b.equationNodes.filter((eq) => !idSet.has(eq.id))
+        // =========================================================================
+        // TIER 1: 100% LOCAL ROUTING (Zero LLM API!)
+        // Handles pure handwriting (local CPU TrOCR) AND basic shapes + labels locally!
+        // =========================================================================
+        if (mode === 'auto' && originalStrokes.length > 0) {
+          const localAnalysis = analyzeSelectionLocally(originalStrokes, originalShapes)
+
+          // 1A. Pure Handwriting -> Local CPU TrOCR (`Xenova/trocr-small-handwritten`, zero LLM API)
+          if (
+            (localAnalysis.isPureHandwriting || looksLikePureHandwriting(curBoard, targetIds)) &&
+            api?.runLocalOcr
+          ) {
+            const ocrPayload = rasterizeStrokesForLocalOcr(originalStrokes)
+            if (ocrPayload) {
+              addToast('info', 'Recognizing handwriting locally on CPU (TrOCR)...')
+              const localOcrRes = await api.runLocalOcr({ imagesBase64: ocrPayload.imagesBase64 })
+              if (localOcrRes?.ok && localOcrRes.text.trim()) {
+                const b = ocrPayload.overallBounds
+                const padBounds = {
+                  minX: b.minX - 36,
+                  minY: b.minY - 36,
+                  maxX: b.maxX + 36,
+                  maxY: b.maxY + 36,
+                  x: b.minX - 36,
+                  y: b.minY - 36,
+                  w: Math.max(80, b.maxX - b.minX + 72),
+                  h: Math.max(60, b.maxY - b.minY + 72)
+                }
+                const dominantColor = originalStrokes[0]?.color || 'ink'
+                const textRes = buildImmersedTextFromOcr(
+                  localOcrRes.text.trim(),
+                  padBounds,
+                  activeFont,
+                  dominantColor
+                )
+                update((bd) => ({
+                  ...bd,
+                  strokes: bd.strokes.filter((s) => !idSet.has(s.id)),
+                  shapeNodes: bd.shapeNodes.filter((s) => !idSet.has(s.id)),
+                  textNodes: [...bd.textNodes.filter((t) => !idSet.has(t.id)), ...textRes.texts],
+                  equationNodes: bd.equationNodes.filter((eq) => !idSet.has(eq.id))
+                }))
+                const newIds = textRes.texts.map((t) => t.id)
+                setSelectedIds(newIds)
+                setSelectedId(newIds[0] ?? null)
+                setActiveTool('select')
+                pushHistory()
+                addToast(
+                  'success',
+                  `Converted handwriting locally on CPU (${localOcrRes.durationMs}ms · Zero LLM API)!`
+                )
+                return
+              }
+            }
+          }
+
+          // 1B. Pure Basic Shapes & Connectors (+ Optional Handwritten Labels Inside/Near Shapes) -> 100% Local!
+          if (localAnalysis.isPureBasicShapesAndLabels && localAnalysis.shapes.length > 0) {
+            const targetInkLayerId = resolveTargetInkLayerId(curBoard) ?? 'layer-base-ink'
+            const groupId = `vloc-${Date.now().toString(36)}`
+            const nextShapes = localAnalysis.shapes.map((s) => ({
+              ...s,
+              fontFamily: activeFont,
+              layerId: targetInkLayerId,
+              vectorGroupId: groupId
             }))
-            const newIds = textRes.texts.map((t) => t.id)
-            setSelectedIds(newIds)
-            setSelectedId(newIds[0] ?? null)
+            const extraTexts: TextNode[] = [...originalTexts]
+
+            // Transcribe any handwritten labels inside/near shapes locally on CPU!
+            if (localAnalysis.labelClusters.length > 0 && api?.runLocalOcr) {
+              for (let cIdx = 0; cIdx < localAnalysis.labelClusters.length; cIdx++) {
+                const cluster = localAnalysis.labelClusters[cIdx]
+                const payload = rasterizeStrokesForLocalOcr(cluster.strokes)
+                if (!payload) continue
+                const res = await api.runLocalOcr({ imagesBase64: payload.imagesBase64 })
+                if (res?.ok && res.text.trim()) {
+                  if (
+                    cluster.hostShapeIndex !== undefined &&
+                    nextShapes[cluster.hostShapeIndex] &&
+                    !nextShapes[cluster.hostShapeIndex].label
+                  ) {
+                    nextShapes[cluster.hostShapeIndex] = {
+                      ...nextShapes[cluster.hostShapeIndex],
+                      label: res.text.trim()
+                    }
+                  } else {
+                    const cb = cluster.bounds
+                    extraTexts.push({
+                      id: `vloc-txt-${Date.now()}-${cIdx}`,
+                      x: Math.round(cb.minX),
+                      y: Math.round(cb.minY),
+                      text: res.text.trim(),
+                      fontSize: 20,
+                      color: cluster.strokes[0]?.color || 'ink',
+                      bg: 'transparent',
+                      immersed: true,
+                      fontFamily: activeFont,
+                      vectorGroupId: groupId,
+                      layerId: targetInkLayerId,
+                      source: 'ocr',
+                      createdAt: Date.now() + cIdx
+                    })
+                  }
+                }
+              }
+            }
+
+            // Check if connected shapes form a multi-node flow graph -> snap ports cleanly!
+            const selBounds = getSelectionBounds(curBoard, targetIds)
+            const diagramMeta: VectorDiagramMeta = {
+              groupId,
+              anchor: { x: Math.round(selBounds?.x ?? 0), y: Math.round(selBounds?.y ?? 0) },
+              originalStrokes,
+              originalShapes,
+              originalTexts
+            }
+
+            update((bd) => ({
+              ...bd,
+              strokes: bd.strokes.filter((s) => !idSet.has(s.id)),
+              shapeNodes: [...bd.shapeNodes.filter((s) => !idSet.has(s.id)), ...nextShapes],
+              textNodes: [...bd.textNodes.filter((t) => !idSet.has(t.id)), ...extraTexts],
+              equationNodes: bd.equationNodes.filter((eq) => !idSet.has(eq.id)),
+              vectorDiagramMeta: {
+                ...(bd.vectorDiagramMeta ?? {}),
+                [groupId]: diagramMeta
+              }
+            }))
+
+            const createdIds = [
+              ...nextShapes.map((s) => s.id),
+              ...extraTexts.map((t) => t.id)
+            ]
+            setSelectedIds(createdIds)
+            setSelectedId(createdIds.length === 1 ? createdIds[0] : null)
             setActiveTool('select')
             pushHistory()
+            scheduleRenderRef.current()
             addToast(
               'success',
-              `Converted handwriting into board-immersed ${FONTS[activeFont].label} text! (Ctrl+Z to undo)`
+              `Vectorized ${nextShapes.length} shape${nextShapes.length > 1 ? 's' : ''} locally (Zero LLM API)!`
             )
             return
           }
         }
 
-        // 2. Content-Aware Smart Beautify IPC (`canvas:smart-beautify`: Zod Classifier -> Spatial Compiler / ELK Diagram / VTracer+SVGO VectorArt)
-        if (api?.smartBeautify && (mode === 'trace_only' || isAiConfiguredRef.current)) {
+        // =========================================================================
+        // TIER 2: COMPLEX DIAGRAMS, SPATIAL SCENES & ORGANIC ILLUSTRATIONS
+        // Uses Smart Beautify Router when AI is configured, or 100% offline VTracer when unconfigured!
+        // =========================================================================
+        const raster = rasterizeSelectionColorPreserving(
+          curBoard,
+          targetIds,
+          themeTokens.ink,
+          themeTokens.accent
+        )
+        if (!raster || !raster.base64Png) {
+          addToast('error', 'Select hand-drawn strokes, shapes, or text to vectorize.')
+          return
+        }
+
+        const effectiveMode: SmartBeautifyMode =
+          mode === 'trace_only' || !isAiConfiguredRef.current ? 'trace_only' : mode
+
+        setAiBusy(effectiveMode !== 'trace_only')
+        addToast(
+          'info',
+          effectiveMode === 'trace_only'
+            ? 'Vectorizing sketch offline via VTracer + SVGO...'
+            : `Smart routing complex sketch (${FONTS[activeFont].label})...`
+        )
+
+        const currentSettings = settingsRef.current
+        const activeProvider = currentSettings.ai.provider
+        const activeModel =
+          activeProvider === 'ollama'
+            ? currentSettings.ai.ollamaModel
+            : currentSettings.ai.byokModels[activeProvider] || DEFAULT_PROVIDER_MODELS[activeProvider]
+
+        if (api?.smartBeautify) {
           const smartRes = await api.smartBeautify({
             base64Png: raster.base64Png,
             ruledBase64Png: raster.ruledBase64Png,
             width: raster.width,
             height: raster.height,
-            mode,
+            mode: effectiveMode,
             provider: activeProvider,
             model: activeModel,
             ollamaHost: currentSettings.ai.ollamaHost,
@@ -2521,7 +3004,6 @@ export default function App(): React.JSX.Element {
           })
 
           if (smartRes && smartRes.ok) {
-            // Branch S: Composable Spatial Scene -> Geometric Constraint Solver + Visual Critique Loop
             if (smartRes.category === 'spatial_scene' && smartRes.spatialScene) {
               const targetRect = {
                 x: raster.anchor.x,
@@ -2539,7 +3021,6 @@ export default function App(): React.JSX.Element {
                 layerId: targetInkLayerId
               })
 
-              // 1 bounded Vision Critique & Self-Repair pass comparing Original vs Compiled
               if (api.smartBeautifyCritique && isAiConfiguredRef.current) {
                 try {
                   const comparisonPng = await renderSpatialComparisonPng(
@@ -2568,7 +3049,7 @@ export default function App(): React.JSX.Element {
                     }
                   }
                 } catch {
-                  /* keep first compiled pass if critique times out */
+                  /* keep first compiled pass */
                 }
               }
 
@@ -2603,11 +3084,11 @@ export default function App(): React.JSX.Element {
               pushHistory()
               addToast(
                 'success',
-                `Vectorized spatial diagram (${compiled.shapes.length} vector primitives, ${compiled.texts.length} labels)! (Ctrl+Z to undo)`
+                `Vectorized spatial diagram (${compiled.shapes.length} primitives, ${compiled.texts.length} labels)!`
               )
               return
             }
-            // Branch T: Pure Text
+
             if (smartRes.category === 'text' && smartRes.recognizedText?.trim()) {
               const textRes = buildImmersedTextFromOcr(
                 smartRes.recognizedText.trim(),
@@ -2627,11 +3108,10 @@ export default function App(): React.JSX.Element {
               setSelectedId(newIds[0] ?? null)
               setActiveTool('select')
               pushHistory()
-              addToast('success', `Converted text into immersed ${FONTS[activeFont].label}! (Ctrl+Z to undo)`)
+              addToast('success', `Converted text into immersed ${FONTS[activeFont].label}!`)
               return
             }
 
-            // Branch A: Structured Diagram -> ELK.js Web Worker (layered orthogonal hierarchical layout)
             if (smartRes.category === 'diagram' && smartRes.graph) {
               const anchor = { x: raster.anchor.x + 24, y: raster.anchor.y + 24 }
               const laidOut = await layoutDiagramWithElkWorker(smartRes.graph, anchor, activeFont)
@@ -2673,12 +3153,11 @@ export default function App(): React.JSX.Element {
               pushHistory()
               addToast(
                 'success',
-                `Vectorized diagram (${smartRes.graph.nodes.length} nodes, ${smartRes.graph.edges.length} edges) with ELK orthogonal layout!`
+                `Vectorized diagram (${smartRes.graph.nodes.length} nodes, ${smartRes.graph.edges.length} edges)!`
               )
               return
             }
 
-            // Branch B: Illustration / Hybrid / Offline Trace Original -> `vector_art` (+ native hybrid callouts)
             if (smartRes.vectorArt && smartRes.vectorArt.layers.length > 0) {
               const now = Date.now()
               const artId = `vart-${now.toString(36)}`
@@ -2701,10 +3180,12 @@ export default function App(): React.JSX.Element {
                 ...(targetInkLayerId ? { layerId: targetInkLayerId } : {}),
                 sourceMeta: {
                   style:
-                    mode === 'trace_only'
+                    effectiveMode === 'trace_only'
                       ? 'trace_only'
-                      : mode === 'flat_vector' || mode === 'clean_line_art' || mode === 'editorial_poster'
-                        ? mode
+                      : effectiveMode === 'flat_vector' ||
+                          effectiveMode === 'clean_line_art' ||
+                          effectiveMode === 'editorial_poster'
+                        ? effectiveMode
                         : (smartRes.brief?.style ?? 'flat_vector'),
                   refinementUsed: smartRes.vectorArt.refinementUsed,
                   brief: smartRes.brief,
@@ -2718,11 +3199,11 @@ export default function App(): React.JSX.Element {
               const hybrid =
                 smartRes.category === 'hybrid' && smartRes.callouts && smartRes.callouts.length > 0
                   ? buildHybridCalloutNodes(
-                    smartRes.callouts,
-                    { x: artNode.x, y: artNode.y, width: artNode.width, height: artNode.height },
-                    activeFont,
-                    artId
-                  )
+                      smartRes.callouts,
+                      { x: artNode.x, y: artNode.y, width: artNode.width, height: artNode.height },
+                      activeFont,
+                      artId
+                    )
                   : { shapes: [], texts: [] }
 
               update((b) => ({
@@ -2745,16 +3226,14 @@ export default function App(): React.JSX.Element {
               pushHistory()
               addToast(
                 'success',
-                smartRes.category === 'hybrid'
-                  ? `Vectorized hybrid artwork (${artNode.layers.length} layers) + ${hybrid.texts.length} immersed callouts!`
-                  : `Vectorized artwork into ${artNode.layers.length} clean scalable layers! (Ctrl+Z to undo)`
+                `Vectorized artwork into ${artNode.layers.length} clean scalable layers! (Ctrl+Z to undo)`
               )
               return
             }
           }
         }
 
-        // 3. Offline / Un-restarted Electron Fallback: deterministic local geometric + smooth Bézier vectorization
+        // Deterministic local fallback
         const localFallback = generateLocalVectorDiagram(curBoard, targetIds, activeFont)
         if (localFallback.shapes.length > 0 || localFallback.texts.length > 0) {
           update((b) => ({
@@ -2772,23 +3251,10 @@ export default function App(): React.JSX.Element {
           setSelectedId(newIds.length === 1 ? newIds[0] : null)
           setActiveTool('select')
           pushHistory()
-          addToast(
-            'info',
-            isAiConfiguredRef.current
-              ? 'Converted drawn strokes locally into clean vector paths.'
-              : 'Converted shapes locally into clean vectors. Configure AI in Settings for smart routing.'
-          )
+          addToast('success', 'Converted sketch locally into clean vector paths!')
         }
       } catch (err: unknown) {
         console.warn('[SmartVectorize] fallback:', err)
-        const errMsg = (err as Error)?.message || ''
-        if (/No handler registered for ['"]canvas:smart-beautify['"]/i.test(errMsg)) {
-          addToast(
-            'error',
-            'Main process needs a restart to activate Smart Vectorize — stop and re-run `npm run dev` (your sketch was kept intact).'
-          )
-          return
-        }
         const localFallback = generateLocalVectorDiagram(curBoard, targetIds, activeFont)
         if (localFallback.shapes.length > 0 || localFallback.texts.length > 0) {
           update((b) => ({
@@ -2804,10 +3270,11 @@ export default function App(): React.JSX.Element {
           ])
           setActiveTool('select')
           pushHistory()
+          addToast('info', 'Converted sketch locally into clean vectors.')
         }
-        addToast('error', `Vectorize notice: ${errMsg || 'Fell back to local vectors.'}`)
       } finally {
         setIsVectorizing(false)
+        setIsBeautifying(false)
         setAiBusy(false)
       }
     },
@@ -2817,6 +3284,8 @@ export default function App(): React.JSX.Element {
   const handleVectorizeSelected = useCallback(() => {
     void runSmartVectorize('auto')
   }, [runSmartVectorize])
+
+  const handleBeautifySelected = handleVectorizeSelected
 
   const handleTraceOriginalSelected = useCallback(() => {
     void runSmartVectorize('trace_only')
@@ -3043,7 +3512,7 @@ export default function App(): React.JSX.Element {
     (groupId: string) => {
       const curBoard = boardRef.current
       const meta = curBoard.vectorDiagramMeta?.[groupId]
-      if (!meta || !meta.graph) return
+      if (!meta) return
       const origStrokes = meta.originalStrokes ?? []
       const origShapes = meta.originalShapes ?? []
       const origTexts = meta.originalTexts ?? []
@@ -3116,6 +3585,10 @@ export default function App(): React.JSX.Element {
       allX.push(v.x, v.x + (v.w ?? 540))
       allY.push(v.y, v.y + (v.h ?? 460))
     }
+    for (const img of curBoard.imageNodes ?? []) {
+      allX.push(img.x, img.x + (img.w ?? 360))
+      allY.push(img.y, img.y + (img.h ?? 260))
+    }
 
     if (allX.length === 0) {
       setView({ zoom: 1.0, panX: 0, panY: 0 })
@@ -3183,6 +3656,9 @@ export default function App(): React.JSX.Element {
       videos: (curBoard.videoNodes ?? [])
         .filter((v) => idSet.has(v.id))
         .map((v) => ({ id: v.id, initX: v.x, initY: v.y })),
+      images: (curBoard.imageNodes ?? [])
+        .filter((im) => idSet.has(im.id))
+        .map((im) => ({ id: im.id, initX: im.x, initY: im.y })),
       strokes: curBoard.strokes
         .filter((st) => idSet.has(st.id))
         .map((st) => ({
@@ -3203,7 +3679,7 @@ export default function App(): React.JSX.Element {
     (dx: number, dy: number) => {
       const drag = shapeDragRef.current
       if (!drag || drag.kind !== 'move' || !drag.snapshots) return
-      const { shapes, vectorArts, texts, equations, diagrams, codes, videos, strokes } = drag.snapshots
+      const { shapes, vectorArts, texts, equations, diagrams, codes, videos, images, strokes } = drag.snapshots
 
       const vectorArtMap = new Map(
         (vectorArts ?? []).map((v) => [
@@ -3241,6 +3717,7 @@ export default function App(): React.JSX.Element {
       const diagMap = new Map((diagrams ?? []).map((d) => [d.id, { x: Math.round(d.initX + dx), y: Math.round(d.initY + dy) }]))
       const codeMap = new Map((codes ?? []).map((c) => [c.id, { x: Math.round(c.initX + dx), y: Math.round(c.initY + dy) }]))
       const videoMap = new Map((videos ?? []).map((v) => [v.id, { x: Math.round(v.initX + dx), y: Math.round(v.initY + dy) }]))
+      const imageMap = new Map((images ?? []).map((im) => [im.id, { x: Math.round(im.initX + dx), y: Math.round(im.initY + dy) }]))
       const strokeMap = new Map(
         strokes.map((st) => [
           st.id,
@@ -3249,11 +3726,16 @@ export default function App(): React.JSX.Element {
       )
 
       update(
-        (b) => ({
-          ...b,
-          shapeNodes: syncBoundConnectors(
-            b.shapeNodes.map((s) => (shapeMap.has(s.id) ? { ...s, ...shapeMap.get(s.id)! } : s))
-          ),
+        (b) => {
+          const movedShapes = b.shapeNodes.map((s) =>
+            shapeMap.has(s.id) ? { ...s, ...shapeMap.get(s.id)! } : s
+          )
+          const hasRotatedGroup = b.shapeNodes.some(
+            (s) => shapeMap.has(s.id) && Boolean(s.rotation && Math.abs(s.rotation) > 0.5)
+          )
+          return {
+            ...b,
+            shapeNodes: hasRotatedGroup ? movedShapes : syncBoundConnectors(movedShapes),
           vectorArtNodes: (b.vectorArtNodes ?? []).map((v) =>
             vectorArtMap.has(v.id) ? { ...v, ...vectorArtMap.get(v.id)! } : v
           ),
@@ -3262,13 +3744,22 @@ export default function App(): React.JSX.Element {
           diagramNodes: (b.diagramNodes ?? []).map((d) => (diagMap.has(d.id) ? { ...d, ...diagMap.get(d.id)! } : d)),
           codeNodes: (b.codeNodes ?? []).map((c) => (codeMap.has(c.id) ? { ...c, ...codeMap.get(c.id)! } : c)),
           videoNodes: (b.videoNodes ?? []).map((v) => (videoMap.has(v.id) ? { ...v, ...videoMap.get(v.id)! } : v)),
+          imageNodes: (b.imageNodes ?? []).map((im) => (imageMap.has(im.id) ? { ...im, ...imageMap.get(im.id)! } : im)),
           strokes: b.strokes.map((st) => (strokeMap.has(st.id) ? { ...st, points: strokeMap.get(st.id)! } : st))
-        }),
+        }
+      },
         { history: false }
       )
     },
     [update]
   )
+
+  const getCanvasCursorClass = (): string => {
+    if (isPanningDragRef.current || panStartRef.current) return 'grabbing'
+    if (isSpacePanning || activeTool === 'pan') return 'grab'
+    if (activeTool === 'eraser' && eraserMode === 'paper') return 'none'
+    return 'custom'
+  }
 
   const getCanvasCursor = (): string => {
     if (isPanningDragRef.current || panStartRef.current) return 'grabbing'
@@ -3293,13 +3784,11 @@ export default function App(): React.JSX.Element {
       }
       return 'default'
     }
-    if (activeTool === 'pen') return 'crosshair'
-    if (activeTool === 'text') return 'text'
-    if (activeTool === 'equation') return 'crosshair'
-    if (activeTool === 'eraser') {
-      return eraserMode === 'paper' ? 'none' : 'crosshair'
-    }
-    return 'default'
+    return getToolCursorCss(activeTool, {
+      penType: settings.penType ?? 'fountain',
+      penColorHex: resolvePenColorHex(penColor, themeTokens.ink, themeTokens.accent),
+      eraserMode
+    })
   }
 
   /* ---------------- Pointer Events (Writing Pad / Stylus / Mouse) ---------------- */
@@ -3332,6 +3821,23 @@ export default function App(): React.JSX.Element {
 
     const canvasPt = screenToCanvas(e.clientX, e.clientY, viewRef.current)
     mouseCanvasPosRef.current = { x: canvasPt.x, y: canvasPt.y }
+
+    if (activeTool === 'lasso') {
+      activeLassoPointsRef.current = [[canvasPt.x, canvasPt.y, e.pressure || 0.5]]
+      scheduleRenderRef.current()
+      return
+    }
+
+    if (activeTool === 'snip') {
+      selectionBoxRef.current = {
+        startX: canvasPt.x,
+        startY: canvasPt.y,
+        currentX: canvasPt.x,
+        currentY: canvasPt.y
+      }
+      scheduleRenderRef.current()
+      return
+    }
 
     if (activeTool === 'pen') {
       const targetLayerId = resolveTargetInkLayerId(boardRef.current)
@@ -3434,16 +3940,48 @@ export default function App(): React.JSX.Element {
         }
       }
 
-      // 1. Check if clicked near a resize handle of an already selected single shape
+      // 1. Check if clicked near a rotate or resize handle of an already selected single shape or VectorArt
+      const zoom = viewRef.current.zoom
+      const hitTol = 14 / zoom
       if (currentSelected.length === 1) {
-        const hitTol = 14 / viewRef.current.zoom
         for (const s of curBoard.shapeNodes) {
           if (!currentSelected.includes(s.id) || !isItemEditable(s.layerId, curLayers)) continue
           const b = getShapeBoundingRect(s)
-          const corners = getShapeResizeHandles(b, 4)
+          const rotRad = !isEndpointLinearShape(s.shape) && s.rotation ? (s.rotation * Math.PI) / 180 : 0
+          const cx = s.x + s.w / 2
+          const cy = s.y + s.h / 2
+          const localPt = rotRad
+            ? (() => {
+                const [lx, ly] = rotatePointAround(canvasPt.x, canvasPt.y, cx, cy, -rotRad)
+                return { x: lx, y: ly }
+              })()
+            : canvasPt
+          const localBounds = rotRad
+            ? { x: s.x, y: s.y, w: s.w, h: s.h, minX: s.x, minY: s.y, maxX: s.x + s.w, maxY: s.y + s.h }
+            : b
+          const rotHandleLocal = {
+            x: localBounds.x + Math.max(12, localBounds.w) / 2,
+            y: localBounds.y - 26 / zoom
+          }
+          if (Math.hypot(localPt.x - rotHandleLocal.x, localPt.y - rotHandleLocal.y) <= hitTol) {
+            pushHistory()
+            const pivotX = rotRad ? cx : b.x + b.w / 2
+            const pivotY = rotRad ? cy : b.y + b.h / 2
+            shapeDragRef.current = {
+              kind: 'rotate',
+              targetId: s.id,
+              rotationSnapshot: captureRotationSnapshot(curBoard, [s.id], pivotX, pivotY),
+              startAngleRad: Math.atan2(canvasPt.y - pivotY, canvasPt.x - pivotX),
+              liveAngleDeg: s.rotation ?? 0,
+              startPinchX: canvasPt.x,
+              startPinchY: canvasPt.y
+            }
+            return
+          }
 
+          const corners = getShapeResizeHandles(localBounds, 4)
           for (const c of corners) {
-            if (Math.hypot(canvasPt.x - c.x, canvasPt.y - c.y) <= hitTol) {
+            if (Math.hypot(localPt.x - c.x, localPt.y - c.y) <= hitTol) {
               pushHistory()
               shapeDragRef.current = {
                 targetId: s.id,
@@ -3453,6 +3991,7 @@ export default function App(): React.JSX.Element {
                 initY: s.y,
                 initW: s.w,
                 initH: s.h,
+                initRotation: s.rotation ?? 0,
                 initControlPoint: s.controlPoint
                   ? ([s.controlPoint[0], s.controlPoint[1]] as [number, number])
                   : undefined,
@@ -3467,9 +4006,31 @@ export default function App(): React.JSX.Element {
           }
         }
 
-        // 1b. Check corner resize handle of a single selected VectorArtNode
+        // 1b. Check rotate & corner resize handles of a single selected VectorArtNode
         for (const v of curBoard.vectorArtNodes ?? []) {
           if (!currentSelected.includes(v.id) || !isItemEditable(v.layerId, curLayers)) continue
+          const cx = v.x + v.width / 2
+          const cy = v.y + v.height / 2
+          const rotRad = v.rotation ? (v.rotation * Math.PI) / 180 : 0
+          const localPt = rotRad
+            ? (() => {
+                const [lx, ly] = rotatePointAround(canvasPt.x, canvasPt.y, cx, cy, -rotRad)
+                return { x: lx, y: ly }
+              })()
+            : canvasPt
+          if (Math.hypot(localPt.x - cx, localPt.y - (v.y - 26 / zoom)) <= hitTol) {
+            pushHistory()
+            shapeDragRef.current = {
+              kind: 'rotate',
+              targetId: v.id,
+              rotationSnapshot: captureRotationSnapshot(curBoard, [v.id], cx, cy),
+              startAngleRad: Math.atan2(canvasPt.y - cy, canvasPt.x - cx),
+              liveAngleDeg: v.rotation ?? 0,
+              startPinchX: canvasPt.x,
+              startPinchY: canvasPt.y
+            }
+            return
+          }
           const pad = 4
           const corners: Array<{ handle: 'nw' | 'ne' | 'se' | 'sw'; x: number; y: number }> = [
             { handle: 'nw', x: v.x - pad, y: v.y - pad },
@@ -3478,7 +4039,7 @@ export default function App(): React.JSX.Element {
             { handle: 'sw', x: v.x - pad, y: v.y + v.height + pad }
           ]
           for (const c of corners) {
-            if (Math.hypot(canvasPt.x - c.x, canvasPt.y - c.y) <= hitTol) {
+            if (Math.hypot(localPt.x - c.x, localPt.y - c.y) <= hitTol) {
               pushHistory()
               shapeDragRef.current = {
                 targetId: v.id,
@@ -3488,6 +4049,62 @@ export default function App(): React.JSX.Element {
                 initY: v.y,
                 initW: v.width,
                 initH: v.height,
+                startPinchX: canvasPt.x,
+                startPinchY: canvasPt.y
+              }
+              return
+            }
+          }
+        }
+      } else if (currentSelected.length > 1) {
+        // 1c. Check multi-element selection group rotate handle & 4 corner resize handles
+        const bounds = getSelectionBounds(curBoard, currentSelected)
+        if (bounds) {
+          const pad = 12 / zoom
+          const gx = bounds.minX - pad
+          const gy = bounds.minY - pad
+          const gw = bounds.w + pad * 2
+          const gh = bounds.h + pad * 2
+          const pivotX = bounds.minX + bounds.w / 2
+          const pivotY = bounds.minY + bounds.h / 2
+
+          if (Math.hypot(canvasPt.x - (gx + gw / 2), canvasPt.y - (gy - 26 / zoom)) <= hitTol) {
+            pushHistory()
+            shapeDragRef.current = {
+              kind: 'rotate',
+              rotationSnapshot: captureRotationSnapshot(curBoard, currentSelected, pivotX, pivotY),
+              startAngleRad: Math.atan2(canvasPt.y - pivotY, canvasPt.x - pivotX),
+              liveAngleDeg: 0,
+              startPinchX: canvasPt.x,
+              startPinchY: canvasPt.y
+            }
+            return
+          }
+
+          const gCorners: Array<{ handle: 'nw' | 'ne' | 'se' | 'sw'; x: number; y: number }> = [
+            { handle: 'nw', x: gx, y: gy },
+            { handle: 'ne', x: gx + gw, y: gy },
+            { handle: 'se', x: gx + gw, y: gy + gh },
+            { handle: 'sw', x: gx, y: gy + gh }
+          ]
+          for (const c of gCorners) {
+            if (Math.hypot(canvasPt.x - c.x, canvasPt.y - c.y) <= hitTol) {
+              pushHistory()
+              shapeDragRef.current = {
+                kind: 'group-resize',
+                handle: c.handle,
+                initGroupBounds: {
+                  x: bounds.minX,
+                  y: bounds.minY,
+                  w: Math.max(24, bounds.w),
+                  h: Math.max(24, bounds.h)
+                },
+                rotationSnapshot: captureRotationSnapshot(
+                  curBoard,
+                  currentSelected,
+                  pivotX,
+                  pivotY
+                ),
                 startPinchX: canvasPt.x,
                 startPinchY: canvasPt.y
               }
@@ -3754,10 +4371,25 @@ export default function App(): React.JSX.Element {
       return
     }
 
+    if (activeTool === 'lasso' && activeLassoPointsRef.current) {
+      activeLassoPointsRef.current.push([canvasPt.x, canvasPt.y, e.pressure || 0.5])
+      scheduleRenderRef.current()
+      return
+    }
+
+    if (activeTool === 'snip' && selectionBoxRef.current) {
+      selectionBoxRef.current.currentX = canvasPt.x
+      selectionBoxRef.current.currentY = canvasPt.y
+      scheduleRenderRef.current()
+      return
+    }
+
     if (activeTool === 'pen' && activeStrokeRef.current) {
       const p: [number, number, number] = [canvasPt.x, canvasPt.y, e.pressure || 0.5]
       activeStrokeRef.current.points.push(p)
-      holdSnap.onStrokePoint(p, () => activeStrokeRef.current?.points ?? [])
+      if (settingsRef.current.shapesMode) {
+        holdSnap.onStrokePoint(p, () => activeStrokeRef.current?.points ?? [])
+      }
       scheduleRenderRef.current()
       return
     }
@@ -3832,6 +4464,12 @@ export default function App(): React.JSX.Element {
           for (const c of curBoard.codeNodes ?? []) {
             if (isCodeInRect(c, rect)) ids.push(c.id)
           }
+          for (const v of curBoard.videoNodes ?? []) {
+            if (isVideoInRect(v, rect)) ids.push(v.id)
+          }
+          for (const img of curBoard.imageNodes ?? []) {
+            if (isImageInRect(img, rect)) ids.push(img.id)
+          }
         }
         for (const st of curBoard.strokes) {
           if (isItemEditable(st.layerId, curLayers) && isStrokeInRect(st, rect)) ids.push(st.id)
@@ -3894,6 +4532,48 @@ export default function App(): React.JSX.Element {
         if (drag.kind === 'move') {
           applyMoveDelta(dx, dy)
         } else if (
+          drag.kind === 'rotate' &&
+          drag.rotationSnapshot &&
+          drag.startAngleRad !== undefined
+        ) {
+          const { pivotX, pivotY } = drag.rotationSnapshot
+          const curRad = Math.atan2(canvasPt.y - pivotY, canvasPt.x - pivotX)
+          let deltaDeg = ((curRad - drag.startAngleRad) * 180) / Math.PI
+          while (deltaDeg <= -180) deltaDeg += 360
+          while (deltaDeg > 180) deltaDeg -= 360
+          if (e.shiftKey) {
+            deltaDeg = Math.round(deltaDeg / 15) * 15
+          }
+          drag.liveAngleDeg = Math.round(deltaDeg)
+          const snap = drag.rotationSnapshot
+          update((b) => applyRotationDelta(b, snap, deltaDeg), { history: false })
+        } else if (
+          drag.kind === 'group-resize' &&
+          drag.rotationSnapshot &&
+          drag.initGroupBounds &&
+          drag.handle
+        ) {
+          const ib = drag.initGroupBounds
+          let nx = ib.x
+          let ny = ib.y
+          let nw = ib.w
+          let nh = ib.h
+          if (drag.handle.includes('e')) nw = Math.max(36, ib.w + dx)
+          if (drag.handle.includes('w')) {
+            nw = Math.max(36, ib.w - dx)
+            nx = ib.x + (ib.w - nw)
+          }
+          if (drag.handle.includes('s')) nh = Math.max(36, ib.h + dy)
+          if (drag.handle.includes('n')) {
+            nh = Math.max(36, ib.h - dy)
+            ny = ib.y + (ib.h - nh)
+          }
+          const snap = drag.rotationSnapshot
+          update(
+            (b) => applyGroupScale(b, snap, ib, { x: nx, y: ny, w: nw, h: nh }),
+            { history: false }
+          )
+        } else if (
           drag.kind === 'shape-resize' &&
           drag.targetId &&
           drag.handle &&
@@ -3902,6 +4582,9 @@ export default function App(): React.JSX.Element {
           drag.initX !== undefined &&
           drag.initY !== undefined
         ) {
+          const rotRad = drag.initRotation ? (drag.initRotation * Math.PI) / 180 : 0
+          const ldx = rotRad ? dx * Math.cos(rotRad) + dy * Math.sin(rotRad) : dx
+          const ldy = rotRad ? -dx * Math.sin(rotRad) + dy * Math.cos(rotRad) : dy
           let newX = drag.initX
           let newY = drag.initY
           let newW = drag.initW
@@ -3919,18 +4602,18 @@ export default function App(): React.JSX.Element {
             targetShape?.shape === 'polyline'
 
           if (drag.handle.includes('e')) {
-            newW = drag.initW + dx
+            newW = drag.initW + ldx
           }
           if (drag.handle.includes('w')) {
-            newW = drag.initW - dx
-            newX = drag.initX + dx
+            newW = drag.initW - ldx
+            newX = drag.initX + ldx
           }
           if (drag.handle.includes('s')) {
-            newH = drag.initH + dy
+            newH = drag.initH + ldy
           }
           if (drag.handle.includes('n')) {
-            newH = drag.initH - dy
-            newY = drag.initY + dy
+            newH = drag.initH - ldy
+            newY = drag.initY + ldy
           }
 
           if (!isLinearShape && drag.initW > 0 && drag.initH > 0) {
@@ -3946,6 +4629,17 @@ export default function App(): React.JSX.Element {
                 newY = drag.initY + (drag.initH - newH)
               }
             }
+          }
+
+          if (rotRad && !isLinearShape) {
+            const initCx = drag.initX + drag.initW / 2
+            const initCy = drag.initY + drag.initH / 2
+            const ldcx = newX + newW / 2 - initCx
+            const ldcy = newY + newH / 2 - initCy
+            const wdcx = ldcx * Math.cos(rotRad) - ldcy * Math.sin(rotRad)
+            const wdcy = ldcx * Math.sin(rotRad) + ldcy * Math.cos(rotRad)
+            newX = initCx + wdcx - newW / 2
+            newY = initCy + wdcy - newH / 2
           }
 
           const scaleX = drag.initW !== 0 ? newW / drag.initW : 1
@@ -4277,7 +4971,14 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('pointerup', handleGlobalPointerUp)
   }, [])
 
-  const handlePointerUp = async (): Promise<void> => {
+  const handlePointerUp = async (e?: React.PointerEvent<HTMLCanvasElement>): Promise<void> => {
+    if (e?.currentTarget) {
+      try {
+        e.currentTarget.releasePointerCapture?.(e.pointerId)
+      } catch {
+        /* ignore */
+      }
+    }
     isPointerDownRef.current = false
     const wasPanning = !!panStartRef.current
     const finishedDrag = shapeDragRef.current
@@ -4286,6 +4987,88 @@ export default function App(): React.JSX.Element {
     shapeDragRef.current = null
     lastEraserPointRef.current = null
     if (wasPanning) return
+
+    // 00. Dedicated Pen Lasso Tool Selection
+    if (activeTool === 'lasso' && activeLassoPointsRef.current) {
+      const lassoPts = activeLassoPointsRef.current
+      activeLassoPointsRef.current = null
+      const curBoard = boardRef.current
+      const curLayers = boardLayersRef.current
+      const cardsEditable =
+        partitionedLayersRef.current.cardsLayer.visible &&
+        !partitionedLayersRef.current.cardsLayer.locked
+      const matchedIds = findElementsInLasso(curBoard, lassoPts, {
+        strictEnclosure: false,
+        isLayerEditable: (lid) => isItemEditable(lid, curLayers),
+        cardsEditable
+      })
+      setSelectedIds(matchedIds)
+      setSelectedId(matchedIds[0] ?? null)
+      if (matchedIds.length > 0) {
+        setActiveTool('select')
+        addToast(
+          'info',
+          `Selected ${matchedIds.length} element${matchedIds.length > 1 ? 's' : ''} with Pen Lasso`
+        )
+      }
+      scheduleRenderRef.current()
+      return
+    }
+
+    // 00b. Board Region Snip Tool -> Captures selected board area into a movable ImageNode
+    if (activeTool === 'snip' && selectionBoxRef.current) {
+      const box = selectionBoxRef.current
+      selectionBoxRef.current = null
+      const rect = normalizeRect(box.startX, box.startY, box.currentX, box.currentY)
+      if (rect.w >= 24 && rect.h >= 24) {
+        const curBoard = boardRef.current
+        const scale = Math.min(2, 1400 / Math.max(rect.w, rect.h))
+        const off = document.createElement('canvas')
+        off.width = Math.max(48, Math.round(rect.w * scale))
+        off.height = Math.max(48, Math.round(rect.h * scale))
+        const octx = off.getContext('2d')
+        if (octx) {
+          octx.fillStyle =
+            settingsRef.current.backgroundColor &&
+            settingsRef.current.backgroundColor !== 'transparent'
+              ? settingsRef.current.backgroundColor
+              : '#FFFDF7'
+          octx.fillRect(0, 0, off.width, off.height)
+          octx.save()
+          octx.scale(scale, scale)
+          octx.translate(-rect.x, -rect.y)
+          for (const va of curBoard.vectorArtNodes ?? []) {
+            drawVectorArt(octx, va, themeTokens, boardPalette)
+          }
+          for (const s of curBoard.shapeNodes) {
+            drawShape(octx, s, themeTokens, fontCss, boardPalette)
+          }
+          for (const st of curBoard.strokes) {
+            drawStroke(octx, st, themeTokens)
+          }
+          for (const t of curBoard.textNodes) {
+            octx.save()
+            octx.fillStyle = themeTokens.ink
+            octx.font = `${t.bold ? 700 : 500} ${t.fontSize || 18}px ${resolveFontCss(t.fontFamily, settingsRef.current.font)}`
+            octx.textBaseline = 'top'
+            t.text.split('\n').forEach((ln, idx) => {
+              octx.fillText(ln, t.x, t.y + idx * ((t.fontSize || 18) * 1.35))
+            })
+            octx.restore()
+          }
+          octx.restore()
+          const dataUrl = off.toDataURL('image/png')
+          await saveDataUrlAndInsert(dataUrl, 'Board Snip', {
+            x: Math.round(rect.x + 24),
+            y: Math.round(rect.y + 24)
+          })
+        }
+      } else {
+        setActiveTool('select')
+      }
+      scheduleRenderRef.current()
+      return
+    }
 
     if (
       finishedDrag?.kind === 'connect' &&
@@ -4454,19 +5237,20 @@ export default function App(): React.JSX.Element {
       return
     }
 
-    // 2. Commit Stroke with Offline Hold-to-Snap OR Writing Pad Detection
+    // 2. Commit Stroke with Shapes Mode OR Freehand + Circle-to-Select
     if (activeStrokeRef.current) {
       const stroke = activeStrokeRef.current
       activeStrokeRef.current = null
       const snapped = holdSnap.consumeSnappedPreview()
+      const isShapesMode = Boolean(settingsRef.current.shapesMode)
 
       if (stroke.points.length < 2) {
         scheduleRenderRef.current()
         return
       }
 
-      // Tier 1: Real-Time Offline Hold-to-Snap (engaged only after 350ms dwell within 4px radius)
-      if (snapped) {
+      // Tier 1: Hold-to-Snap (active only when Shapes Mode is ON)
+      if (isShapesMode && snapped) {
         const snappedShape: ShapeNode = {
           ...buildShapeNodeFromHoldSnap(snapped, stroke.color, stroke.size, stroke.penType),
           ...(stroke.layerId ? { layerId: stroke.layerId } : {})
@@ -4476,111 +5260,123 @@ export default function App(): React.JSX.Element {
         return
       }
 
-      // Always render the ink stroke right away so multi-stroke writing stays visible
-      update((b) => ({ ...b, strokes: [...b.strokes, stroke] }))
-
-      if (
-        isAiConfiguredRef.current &&
-        (writingPadDetection === 'text' || writingPadDetection === 'equation')
-      ) {
-        const mode = writingPadDetection
-        pendingOcrStrokeIdsRef.current.push(stroke.id)
-        if (ocrTimerRef.current !== null) {
-          window.clearTimeout(ocrTimerRef.current)
+      // Compute basic stroke geometry once for Circle-to-Select & Shapes Mode local detection
+      let sMinX = Infinity
+      let sMinY = Infinity
+      let sMaxX = -Infinity
+      let sMaxY = -Infinity
+      let sTotalLen = 0
+      for (let i = 0; i < stroke.points.length; i++) {
+        const [px, py] = stroke.points[i]
+        if (px < sMinX) sMinX = px
+        if (py < sMinY) sMinY = py
+        if (px > sMaxX) sMaxX = px
+        if (py > sMaxY) sMaxY = py
+        if (i > 0) {
+          sTotalLen += Math.hypot(px - stroke.points[i - 1][0], py - stroke.points[i - 1][1])
         }
-
-        ocrTimerRef.current = window.setTimeout(async () => {
-          ocrTimerRef.current = null
-          if (!isAiConfiguredRef.current) {
-            pendingOcrStrokeIdsRef.current = []
-            return
-          }
-          const batchIds = [...pendingOcrStrokeIdsRef.current]
-          pendingOcrStrokeIdsRef.current = []
-          if (batchIds.length === 0) return
-
-          const batchSet = new Set(batchIds)
-          const batchStrokes = boardRef.current.strokes.filter((s) => batchSet.has(s.id))
-          if (batchStrokes.length === 0) return
-
-          const crop = strokesToOcrImage(batchStrokes)
-          const api = window.glassAPI
-          if (!api) return
-
-          setAiBusy(true)
-          try {
-            const currentSettings = settingsRef.current
-            const activeProvider = currentSettings.ai.provider
-            const activeModel =
-              activeProvider === 'ollama'
-                ? currentSettings.ai.ollamaModel
-                : currentSettings.ai.byokModels[activeProvider] ||
-                DEFAULT_PROVIDER_MODELS[activeProvider]
-
-            const res = await api.runAI({
-              provider: activeProvider,
-              model: activeModel,
-              ollamaHost: currentSettings.ai.ollamaHost,
-              isHandwritingOCR: mode === 'text',
-              isEquationOCR: mode === 'equation',
-              imageBase64: crop.base64
-            })
-
-            if (res.ok && res.recognizedText?.trim()) {
-              const recognized = res.recognizedText.trim()
-              if (mode === 'text') {
-                const textNode: TextNode = {
-                  id: `ocr-${Date.now()}`,
-                  x: Math.round(crop.minX),
-                  y: Math.round(crop.minY),
-                  w: Math.max(200, Math.min(560, Math.round(crop.maxX - crop.minX + 60))),
-                  text: recognized,
-                  style: 'body',
-                  fontSize: 20,
-                  color: 'ink',
-                  source: 'ocr',
-                  createdAt: Date.now()
-                }
-                update((b) => ({
-                  ...b,
-                  strokes: b.strokes.filter((s) => !batchSet.has(s.id)),
-                  textNodes: [...b.textNodes, textNode]
-                }))
-                setSelectedId(textNode.id)
-                pushHistory()
-                addToast('success', `Recognized: "${recognized}"`)
-              } else {
-                const eqNode: EquationNode = {
-                  id: `eq-${Date.now()}`,
-                  x: Math.round(crop.minX),
-                  y: Math.round(crop.minY),
-                  latex: recognized,
-                  fontSize: 22,
-                  color: 'ink',
-                  createdAt: Date.now()
-                }
-                update((b) => ({
-                  ...b,
-                  strokes: b.strokes.filter((s) => !batchSet.has(s.id)),
-                  equationNodes: [...b.equationNodes, eqNode]
-                }))
-                setSelectedId(eqNode.id)
-                pushHistory()
-                addToast('success', `Formula: ${recognized}`)
-              }
-            } else if (!res.ok) {
-              addToast('error', res.error || 'Handwriting recognition failed — check AI settings')
-            }
-          } catch (err: unknown) {
-            addToast(
-              'error',
-              (err as Error)?.message || 'Handwriting recognition error — check AI settings'
-            )
-          } finally {
-            setAiBusy(false)
-          }
-        }, 1100)
       }
+      const sDiag = Math.hypot(sMaxX - sMinX, sMaxY - sMinY)
+      const sStartEnd = Math.hypot(
+        stroke.points[stroke.points.length - 1][0] - stroke.points[0][0],
+        stroke.points[stroke.points.length - 1][1] - stroke.points[0][1]
+      )
+      const localShape = detectLocalBasicShape(stroke.points)
+
+      // Tier 1.5: iPad-Style Circle-to-Select in Pen Mode (when Shapes Mode is OFF)
+      if (
+        !isShapesMode &&
+        settingsRef.current.circleToSelect !== false &&
+        sDiag >= 64 &&
+        sTotalLen > sDiag * 1.55 &&
+        sStartEnd <= Math.max(42, sDiag * 0.34) &&
+        localShape?.shapeKind !== 'rect' &&
+        localShape?.shapeKind !== 'triangle' &&
+        localShape?.shapeKind !== 'diamond'
+      ) {
+        const curBoard = boardRef.current
+        const curLayers = boardLayersRef.current
+        const cardsEditable =
+          partitionedLayersRef.current.cardsLayer.visible &&
+          !partitionedLayersRef.current.cardsLayer.locked
+        const enclosedIds = findElementsInLasso(curBoard, stroke.points, {
+          strictEnclosure: true,
+          isLayerEditable: (lid) => isItemEditable(lid, curLayers),
+          cardsEditable
+        })
+        if (enclosedIds.length > 0) {
+          setSelectedIds(enclosedIds)
+          setSelectedId(enclosedIds[0] ?? null)
+          setActiveTool('select')
+          scheduleRenderRef.current()
+          addToast(
+            'info',
+            `Selected ${enclosedIds.length} circled element${enclosedIds.length > 1 ? 's' : ''}`
+          )
+          return
+        }
+      }
+
+      // Tier 2: Shapes Mode (Instant Local Basic Shape Detection · Zero LLM API!)
+      if (isShapesMode && localShape) {
+        const minSizeReq = 22
+        const minLineDiag = 30
+        const minConf = 0.78
+
+        const passesSize = localShape.isConnector
+          ? sDiag >= minLineDiag
+          : Math.min(Math.abs(localShape.w), Math.abs(localShape.h)) >= minSizeReq
+
+        if (passesSize && localShape.confidence >= minConf) {
+          let finalX = localShape.x
+          let finalY = localShape.y
+          let finalW = localShape.w
+          let finalH = localShape.h
+
+          if (localShape.shapeKind === 'line' || localShape.shapeKind === 'arrow') {
+            const anchored = snapConnectorToShapeAnchors(
+              {
+                kind: localShape.shapeKind as HoldSnapKind,
+                x: finalX,
+                y: finalY,
+                w: finalW,
+                h: finalH
+              },
+              boardRef.current.shapeNodes
+            )
+            finalX = anchored.x
+            finalY = anchored.y
+            finalW = anchored.w
+            finalH = anchored.h
+          }
+
+          const snappedNode: ShapeNode = {
+            id: `lsnap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+            shape:
+              localShape.shapeKind === 'line' && stroke.penType === 'dashed'
+                ? 'dashed-line'
+                : localShape.shapeKind,
+            x: finalX,
+            y: finalY,
+            w: finalW,
+            h: finalH,
+            borderRadius: localShape.shapeKind === 'rect' ? 6 : undefined,
+            color: stroke.color,
+            fillColor: 'transparent',
+            strokeWidth: Math.max(2, Math.min(6, Math.round(stroke.size * 0.85 * 10) / 10)),
+            strokeStyle: stroke.penType === 'dashed' ? 'dashed' : 'solid',
+            ...(stroke.layerId ? { layerId: stroke.layerId } : {})
+          }
+          update((b) => ({ ...b, shapeNodes: [...b.shapeNodes, snappedNode] }))
+          pushHistory()
+          scheduleRenderRef.current()
+          return
+        }
+      }
+
+      // Freehand ink stroke
+      update((b) => ({ ...b, strokes: [...b.strokes, stroke] }))
+      return
     }
   }
 
@@ -4709,21 +5505,48 @@ export default function App(): React.JSX.Element {
             for (const s of curBoard.shapeNodes) {
               if (selectedSet.has(s.id)) {
                 ctx.save()
-                ctx.strokeStyle = '#06b6d4'
-                ctx.lineWidth = 2 / curView.zoom
-                ctx.setLineDash([5 / curView.zoom, 4 / curView.zoom])
                 const pad = 4
-                const b = getShapeBoundingRect(s)
+                const rotRad = !isEndpointLinearShape(s.shape) && s.rotation ? (s.rotation * Math.PI) / 180 : 0
+                if (rotRad) {
+                  const rcx = s.x + s.w / 2
+                  const rcy = s.y + s.h / 2
+                  ctx.translate(rcx, rcy)
+                  ctx.rotate(rotRad)
+                  ctx.translate(-rcx, -rcy)
+                }
+                const b = rotRad
+                  ? { x: s.x, y: s.y, w: s.w, h: s.h }
+                  : getShapeBoundingRect(s)
                 const sx = b.x
                 const sy = b.y
                 const sw = Math.max(12, b.w)
                 const sh = Math.max(12, b.h)
+
+                ctx.strokeStyle = '#06b6d4'
+                ctx.lineWidth = 2 / z
+                ctx.setLineDash([5 / z, 4 / z])
                 ctx.strokeRect(sx - pad, sy - pad, sw + pad * 2, sh + pad * 2)
                 ctx.setLineDash([])
+
+                // Rotation stem + circular grip handle above top-center
+                const rotStemX = sx + sw / 2
+                const rotStemY = sy - 26 / z
+                ctx.beginPath()
+                ctx.moveTo(rotStemX, sy - pad)
+                ctx.lineTo(rotStemX, rotStemY)
+                ctx.stroke()
+                ctx.fillStyle = '#fef08a'
+                ctx.strokeStyle = '#0891b2'
+                ctx.lineWidth = 2 / z
+                ctx.beginPath()
+                ctx.arc(rotStemX, rotStemY, 5.5 / z, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.stroke()
+
                 ctx.fillStyle = '#FFFFFF'
                 ctx.strokeStyle = '#06b6d4'
-                ctx.lineWidth = 2 / curView.zoom
-                const handleSize = 7 / curView.zoom
+                ctx.lineWidth = 2 / z
+                const handleSize = 7 / z
                 for (const h of getShapeResizeHandles(b, pad)) {
                   ctx.fillRect(h.x - handleSize / 2, h.y - handleSize / 2, handleSize, handleSize)
                   ctx.strokeRect(h.x - handleSize / 2, h.y - handleSize / 2, handleSize, handleSize)
@@ -4734,13 +5557,35 @@ export default function App(): React.JSX.Element {
             for (const va of curBoard.vectorArtNodes ?? []) {
               if (selectedSet.has(va.id)) {
                 ctx.save()
+                if (va.rotation) {
+                  const rcx = va.x + va.width / 2
+                  const rcy = va.y + va.height / 2
+                  ctx.translate(rcx, rcy)
+                  ctx.rotate((va.rotation * Math.PI) / 180)
+                  ctx.translate(-rcx, -rcy)
+                }
                 ctx.strokeStyle = '#06b6d4'
-                ctx.lineWidth = 2 / curView.zoom
-                ctx.setLineDash([5 / curView.zoom, 4 / curView.zoom])
+                ctx.lineWidth = 2 / z
+                ctx.setLineDash([5 / z, 4 / z])
                 const pad = 4
                 ctx.strokeRect(va.x - pad, va.y - pad, va.width + pad * 2, va.height + pad * 2)
+                ctx.setLineDash([])
+
+                const rotStemX = va.x + va.width / 2
+                const rotStemY = va.y - 26 / z
+                ctx.beginPath()
+                ctx.moveTo(rotStemX, va.y - pad)
+                ctx.lineTo(rotStemX, rotStemY)
+                ctx.stroke()
+                ctx.fillStyle = '#fef08a'
+                ctx.strokeStyle = '#0891b2'
+                ctx.beginPath()
+                ctx.arc(rotStemX, rotStemY, 5.5 / z, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.stroke()
+
                 ctx.fillStyle = '#06b6d4'
-                const handleSize = 7 / curView.zoom
+                const handleSize = 7 / z
                 ctx.fillRect(va.x - pad - handleSize / 2, va.y - pad - handleSize / 2, handleSize, handleSize)
                 ctx.fillRect(va.x + va.width + pad - handleSize / 2, va.y - pad - handleSize / 2, handleSize, handleSize)
                 ctx.fillRect(va.x - pad - handleSize / 2, va.y + va.height + pad - handleSize / 2, handleSize, handleSize)
@@ -4753,7 +5598,7 @@ export default function App(): React.JSX.Element {
               if (selectedSet.has(s.id)) {
                 ctx.save()
                 ctx.strokeStyle = 'rgba(6, 182, 212, 0.7)'
-                ctx.lineWidth = 1.5 / curView.zoom
+                ctx.lineWidth = 1.5 / z
                 const pad = 3
                 const b = getShapeBoundingRect(s)
                 const sx = b.x
@@ -4768,7 +5613,7 @@ export default function App(): React.JSX.Element {
               if (selectedSet.has(va.id)) {
                 ctx.save()
                 ctx.strokeStyle = 'rgba(6, 182, 212, 0.7)'
-                ctx.lineWidth = 1.5 / curView.zoom
+                ctx.lineWidth = 1.5 / z
                 const pad = 3
                 ctx.strokeRect(va.x - pad, va.y - pad, va.width + pad * 2, va.height + pad * 2)
                 ctx.restore()
@@ -4797,6 +5642,21 @@ export default function App(): React.JSX.Element {
               ctx.strokeRect(gx, gy, gw, gh)
               ctx.setLineDash([])
 
+              // Multi-selection rotation stem & grip handle above center
+              const rotStemX = gx + gw / 2
+              const rotStemY = gy - 26 / z
+              ctx.beginPath()
+              ctx.moveTo(rotStemX, gy)
+              ctx.lineTo(rotStemX, rotStemY)
+              ctx.stroke()
+              ctx.fillStyle = '#fef08a'
+              ctx.strokeStyle = '#0891b2'
+              ctx.lineWidth = 2 / z
+              ctx.beginPath()
+              ctx.arc(rotStemX, rotStemY, 6 / z, 0, Math.PI * 2)
+              ctx.fill()
+              ctx.stroke()
+
               const hSize = 8 / z
               ctx.fillStyle = '#ffffff'
               ctx.strokeStyle = '#0891b2'
@@ -4812,16 +5672,20 @@ export default function App(): React.JSX.Element {
                 ctx.strokeRect(cx - hSize / 2, cy - hSize / 2, hSize, hSize)
               }
 
-              const pillText = `Diagram · ${currentSelectedIds.length} items`
+              const activeDrag = shapeDragRef.current
+              const pillText =
+                activeDrag?.kind === 'rotate'
+                  ? `Rotate · ${(activeDrag.liveAngleDeg ?? 0) > 0 ? '+' : ''}${activeDrag.liveAngleDeg ?? 0}°`
+                  : `Diagram · ${currentSelectedIds.length} items`
               const fontSize = Math.max(10, Math.round(12 / z))
               ctx.font = `600 ${fontSize}px Inter, -apple-system, sans-serif`
               const textMetrics = ctx.measureText(pillText)
               const pillW = textMetrics.width + 16 / z
               const pillH = 22 / z
               const pillX = gx
-              const pillY = gy - pillH - 6 / z
+              const pillY = gw < pillW * 2.2 ? gy + gh + 8 / z : gy - pillH - 6 / z
 
-              ctx.fillStyle = '#0891b2'
+              ctx.fillStyle = activeDrag?.kind === 'rotate' ? '#111111' : '#0891b2'
               ctx.beginPath()
               ctx.roundRect(pillX, pillY, pillW, pillH, 4 / z)
               ctx.fill()
@@ -4834,18 +5698,44 @@ export default function App(): React.JSX.Element {
           }
         }
 
-        // Draw Selection Marquee Box (eraser section mode or select tool)
+        // Draw Selection Marquee Box (eraser section mode, snip region mode, or select tool)
         if (selectionBoxRef.current) {
           const sb = selectionBoxRef.current
           const rect = normalizeRect(sb.startX, sb.startY, sb.currentX, sb.currentY)
           ctx.save()
           const isEraser = activeToolRef.current === 'eraser'
-          ctx.strokeStyle = isEraser ? '#f43f5e' : '#06b6d4'
-          ctx.fillStyle = isEraser ? 'rgba(244, 63, 94, 0.14)' : 'rgba(6, 182, 212, 0.12)'
-          ctx.lineWidth = 1.5 / z
+          const isSnip = activeToolRef.current === 'snip'
+          ctx.strokeStyle = isEraser ? '#f43f5e' : isSnip ? '#8b5cf6' : '#06b6d4'
+          ctx.fillStyle = isEraser
+            ? 'rgba(244, 63, 94, 0.14)'
+            : isSnip
+              ? 'rgba(139, 92, 246, 0.14)'
+              : 'rgba(6, 182, 212, 0.12)'
+          ctx.lineWidth = 1.8 / z
           ctx.setLineDash([6 / z, 4 / z])
           ctx.fillRect(rect.x, rect.y, rect.w, rect.h)
           ctx.strokeRect(rect.x, rect.y, rect.w, rect.h)
+          ctx.restore()
+        }
+
+        // Draw Live iPad-Style Pen Lasso Loop
+        if (activeLassoPointsRef.current && activeLassoPointsRef.current.length >= 2) {
+          const pts = activeLassoPointsRef.current
+          ctx.save()
+          ctx.beginPath()
+          ctx.moveTo(pts[0][0], pts[0][1])
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i][0], pts[i][1])
+          }
+          ctx.closePath()
+          ctx.fillStyle = 'rgba(6, 182, 212, 0.11)'
+          ctx.fill()
+          ctx.strokeStyle = '#0891b2'
+          ctx.lineWidth = 2 / z
+          ctx.lineCap = 'round'
+          ctx.lineJoin = 'round'
+          ctx.setLineDash([7 / z, 5 / z])
+          ctx.stroke()
           ctx.restore()
         }
 
@@ -5047,6 +5937,19 @@ export default function App(): React.JSX.Element {
     [update]
   )
 
+  const handleUpdateImage = useCallback(
+    (id: string, patch: Partial<ImageNode>, opts?: { history?: boolean }) => {
+      update(
+        (b) => ({
+          ...b,
+          imageNodes: (b.imageNodes ?? []).map((im) => (im.id === id ? { ...im, ...patch } : im))
+        }),
+        opts
+      )
+    },
+    [update]
+  )
+
   const handleDeleteElement = useCallback(
     (id: string) => {
       update((b) => ({
@@ -5057,7 +5960,8 @@ export default function App(): React.JSX.Element {
         vectorArtNodes: (b.vectorArtNodes ?? []).filter((v) => v.id !== id),
         diagramNodes: (b.diagramNodes ?? []).filter((d) => d.id !== id),
         codeNodes: (b.codeNodes ?? []).filter((c) => c.id !== id),
-        videoNodes: (b.videoNodes ?? []).filter((v) => v.id !== id)
+        videoNodes: (b.videoNodes ?? []).filter((v) => v.id !== id),
+        imageNodes: (b.imageNodes ?? []).filter((im) => im.id !== id)
       }))
       setSelectedIds((prev) => prev.filter((item) => item !== id))
     },
@@ -5081,7 +5985,8 @@ export default function App(): React.JSX.Element {
       vectorArtNodes: (b.vectorArtNodes ?? []).filter((v) => !idsToDelete.has(v.id)),
       diagramNodes: (b.diagramNodes ?? []).filter((d) => !idsToDelete.has(d.id)),
       codeNodes: (b.codeNodes ?? []).filter((c) => !idsToDelete.has(c.id)),
-      videoNodes: (b.videoNodes ?? []).filter((v) => !idsToDelete.has(v.id))
+      videoNodes: (b.videoNodes ?? []).filter((v) => !idsToDelete.has(v.id)),
+      imageNodes: (b.imageNodes ?? []).filter((im) => !idsToDelete.has(im.id))
     }))
     addToast('info', `Deleted ${selectedIds.length} element${selectedIds.length > 1 ? 's' : ''}`)
     setSelectedIds([])
@@ -5150,6 +6055,19 @@ export default function App(): React.JSX.Element {
         setSelectedId(dup.id)
         return
       }
+      const imageNode = (curBoard.imageNodes ?? []).find((im) => im.id === id)
+      if (imageNode) {
+        const dup: ImageNode = {
+          ...imageNode,
+          id: `img-${Date.now()}`,
+          x: imageNode.x + 30,
+          y: imageNode.y + 30,
+          createdAt: Date.now()
+        }
+        update((b) => ({ ...b, imageNodes: [...(b.imageNodes ?? []), dup] }))
+        setSelectedId(dup.id)
+        return
+      }
     },
     [update]
   )
@@ -5208,6 +6126,7 @@ export default function App(): React.JSX.Element {
     for (const d of cur.diagramNodes ?? []) allIds.push(d.id)
     for (const c of cur.codeNodes ?? []) allIds.push(c.id)
     for (const v of cur.videoNodes ?? []) allIds.push(v.id)
+    for (const im of cur.imageNodes ?? []) allIds.push(im.id)
 
     setSelectedIds(allIds)
     setActiveTool('select')
@@ -5262,6 +6181,7 @@ export default function App(): React.JSX.Element {
         (cur.diagramNodes ?? []).some((d) => d.id === single) ||
         (cur.codeNodes ?? []).some((c) => c.id === single) ||
         (cur.videoNodes ?? []).some((v) => v.id === single) ||
+        (cur.imageNodes ?? []).some((im) => im.id === single) ||
         (cur.vectorArtNodes ?? []).some((va) => va.id === single)
       if (isCardOrArt) {
         pushHistory()
@@ -5352,6 +6272,13 @@ export default function App(): React.JSX.Element {
           clonedIds.push(id)
           return { ...v, id, x: v.x + 30, y: v.y + 30 }
         })
+      const newImages = (b.imageNodes ?? [])
+        .filter((im) => idSet.has(im.id))
+        .map((im) => {
+          const id = nextId('img')
+          clonedIds.push(id)
+          return { ...im, id, x: im.x + 30, y: im.y + 30, createdAt: now }
+        })
       return {
         ...b,
         shapeNodes: [...b.shapeNodes, ...syncedNewShapes],
@@ -5361,7 +6288,8 @@ export default function App(): React.JSX.Element {
         vectorArtNodes: [...(b.vectorArtNodes ?? []), ...newArts],
         diagramNodes: [...(b.diagramNodes ?? []), ...newDiags],
         codeNodes: [...(b.codeNodes ?? []), ...newCodes],
-        videoNodes: [...(b.videoNodes ?? []), ...newVideos]
+        videoNodes: [...(b.videoNodes ?? []), ...newVideos],
+        imageNodes: [...(b.imageNodes ?? []), ...newImages]
       }
     })
     if (clonedIds.length > 0) {
@@ -5466,6 +6394,8 @@ export default function App(): React.JSX.Element {
           setActiveTool('pan')
         } else if (e.key === 'p' || e.key === 'P') {
           setActiveTool('pen')
+        } else if (e.key === 'g' || e.key === 'G') {
+          setActiveTool('lasso')
         } else if (e.key === 't' || e.key === 'T') {
           setActiveTool('text')
         } else if (e.key === 'e' || e.key === 'E') {
@@ -5524,6 +6454,8 @@ export default function App(): React.JSX.Element {
             equationNodes: b.equationNodes.map((eq) => (idSet.has(eq.id) ? { ...eq, x: eq.x + dx, y: eq.y + dy } : eq)),
             diagramNodes: (b.diagramNodes ?? []).map((d) => (idSet.has(d.id) ? { ...d, x: d.x + dx, y: d.y + dy } : d)),
             codeNodes: (b.codeNodes ?? []).map((c) => (idSet.has(c.id) ? { ...c, x: c.x + dx, y: c.y + dy } : c)),
+            videoNodes: (b.videoNodes ?? []).map((v) => (idSet.has(v.id) ? { ...v, x: v.x + dx, y: v.y + dy } : v)),
+            imageNodes: (b.imageNodes ?? []).map((im) => (idSet.has(im.id) ? { ...im, x: im.x + dx, y: im.y + dy } : im)),
             strokes: b.strokes.map((st) =>
               idSet.has(st.id)
                 ? {
@@ -5866,6 +6798,32 @@ export default function App(): React.JSX.Element {
       data-theme={settings.theme}
       data-font={settings.font}
       style={boardCssVars}
+      onDragOver={(e) => {
+        if (!isHomeView && Array.from(e.dataTransfer.types || []).includes('Files')) {
+          e.preventDefault()
+        }
+      }}
+      onDrop={(e) => {
+        if (isHomeView) return
+        const imgFiles = Array.from(e.dataTransfer.files || []).filter((f) =>
+          f.type.startsWith('image/')
+        )
+        if (imgFiles.length === 0) return
+        e.preventDefault()
+        const dropWorld = screenToCanvas(e.clientX, e.clientY, viewRef.current)
+        imgFiles.forEach((f, idx) => {
+          const reader = new FileReader()
+          reader.onload = () => {
+            if (typeof reader.result === 'string') {
+              void saveDataUrlAndInsert(reader.result, f.name, {
+                x: dropWorld.x + idx * 32,
+                y: dropWorld.y + idx * 32
+              })
+            }
+          }
+          reader.readAsDataURL(f)
+        })
+      }}
     >
       {/* Layer 1: Canvas Viewport Backdrop with selectable color & grid pattern */}
       <div
@@ -5907,6 +6865,7 @@ export default function App(): React.JSX.Element {
         onGoHome={() => void handleGoHome()}
         onSelectSection={(sec) => void handleOpenSection(sec, activeProject)}
         onQuickCreateSection={handleQuickCreateSection}
+        onUpdateSectionColor={(secId, color) => void handleUpdateSectionColor(secId, color)}
         onOpenSettings={() => setSettingsOpen(true)}
         isRightPanelOpen={isRightPanelOpen || isDetachedChat}
         onToggleRightPanel={() => {
@@ -5935,23 +6894,25 @@ export default function App(): React.JSX.Element {
           <canvas
             ref={committedCanvasRef}
             id="board-canvas"
-            className={`canvas-layer committed-canvas cursor-${getCanvasCursor()}`}
+            className={`canvas-layer committed-canvas cursor-${getCanvasCursorClass()}`}
             style={{ cursor: getCanvasCursor() }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
             onPointerLeave={handlePointerLeave}
             onDoubleClick={handleCanvasDoubleClick}
             onContextMenu={(e) => handleCanvasContextMenu(e)}
           />
 
-          {/* Layer 2: Interactive Movable Text, Equation, React Flow Diagrams, Code & Video Cards */}
+          {/* Layer 2: Interactive Movable Text, Equation, React Flow Diagrams, Code, Video & Image Cards */}
           <CanvasElements
             textNodes={board.textNodes}
             equationNodes={board.equationNodes}
             diagramNodes={board.diagramNodes}
             codeNodes={board.codeNodes}
             videoNodes={board.videoNodes}
+            imageNodes={board.imageNodes}
             selectedId={selectedId}
             selectedIds={selectedIds}
             onSelect={setSelectedId}
@@ -5960,6 +6921,7 @@ export default function App(): React.JSX.Element {
             onUpdateDiagram={handleUpdateDiagram}
             onUpdateCode={handleUpdateCode}
             onUpdateVideo={handleUpdateVideo}
+            onUpdateImage={handleUpdateImage}
             onAddCodeNode={() => handleAddCodeNode()}
             onAddVideoNode={() => handleAddYouTubeToCanvas()}
             onCreateTutorialFromVideo={(topic, transcript) =>
@@ -6016,11 +6978,13 @@ export default function App(): React.JSX.Element {
           <canvas
             ref={overlayCanvasRef}
             id="board-canvas-overlay"
-            className={`canvas-layer overlay-canvas cursor-${getCanvasCursor()}`}
+            className={`canvas-layer overlay-canvas cursor-${getCanvasCursorClass()}`}
             style={{
               cursor: getCanvasCursor(),
               pointerEvents:
                 activeTool === 'pen' ||
+                activeTool === 'lasso' ||
+                activeTool === 'snip' ||
                 activeTool === 'eraser' ||
                 activeTool === 'pan' ||
                 isSpacePanning ||
@@ -6031,6 +6995,7 @@ export default function App(): React.JSX.Element {
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
             onPointerLeave={handlePointerLeave}
             onDoubleClick={handleCanvasDoubleClick}
             onContextMenu={(e) => handleCanvasContextMenu(e)}
@@ -6181,7 +7146,7 @@ export default function App(): React.JSX.Element {
             )
           })()}
 
-          {/* Multi-element selection action bar (shown when hand-drawn strokes or non-shape cards are selected) */}
+          {/* Multi-element selection action bar (Unified Smart Vectorize & Beautify — ONE UI Button!) */}
           {selectedIds.length > 0 &&
             (hasSelectedStrokes ||
               (selectedShapes.length === 0 && !selectedVectorArt && !selectedDiagramMeta)) && (
@@ -6192,36 +7157,12 @@ export default function App(): React.JSX.Element {
               </span>
               <button
                 type="button"
-                className="diagram-selection-beautify-btn"
-                onClick={handleBeautifySelected}
-                disabled={!isAiConfigured || isBeautifying || isVectorizing}
-                title={
-                  isAiConfigured
-                    ? 'Convert raw hand-drawn sketch into interactive React Flow diagram (Ctrl+B)'
-                    : 'AI Beautify disabled — configure AI Settings first'
-                }
-              >
-                {isBeautifying ? (
-                  <>
-                    <Loader2 size={14} className="spin-animate" />
-                    <span>Beautifying...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={14} />
-                    <span>Beautify</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
                 className="diagram-selection-vectorize-btn"
                 onClick={handleVectorizeSelected}
                 disabled={isVectorizing || isBeautifying}
-                title="Convert hand-drawn sketch into clean vector diagram & board font text (Ctrl+Shift+B)"
+                title="Smart Vectorize & Beautify (Ctrl+B) — Local shapes & CPU OCR first, smart diagram/vector routing"
               >
-                {isVectorizing ? (
+                {isVectorizing || isBeautifying ? (
                   <>
                     <Loader2 size={14} className="spin-animate" />
                     <span>Vectorizing...</span>
@@ -6234,18 +7175,34 @@ export default function App(): React.JSX.Element {
                 )}
               </button>
 
-              {hasSelectedStrokes && (
-                <button
-                  type="button"
-                  className="diagram-selection-trace-btn"
-                  onClick={handleTraceOriginalSelected}
-                  disabled={isVectorizing || isBeautifying}
-                  title="100% offline multi-color VTracer vectorization of selected strokes (no AI required)"
-                >
-                  <PenTool size={14} />
-                  <span>Trace</span>
-                </button>
-              )}
+              <button
+                type="button"
+                className="diagram-selection-agy-btn"
+                onClick={() => void handleSendSelectionToAntigravity()}
+                title="Capture selection PNG for Antigravity & copy prompt (Vectorize my current Vexelboard selection)"
+              >
+                <Sparkles size={14} />
+                <span>Antigravity</span>
+              </button>
+
+              <button
+                type="button"
+                className="diagram-selection-rot-btn"
+                onClick={() => handleRotateSelected(-90)}
+                title="Rotate selected elements 90° left"
+              >
+                <RotateCcw size={13} />
+                <span>-90°</span>
+              </button>
+              <button
+                type="button"
+                className="diagram-selection-rot-btn"
+                onClick={() => handleRotateSelected(90)}
+                title="Rotate selected elements 90° right"
+              >
+                <RotateCw size={13} />
+                <span>+90°</span>
+              </button>
 
               {isAiConfigured && (
                 <button
@@ -6316,6 +7273,7 @@ export default function App(): React.JSX.Element {
             onRevertArtToSketch={handleRevertArtToSketch}
             onToggleDiagramDirection={handleToggleDiagramDirection}
             onRevertDiagramToSketch={handleRevertDiagramToSketch}
+            onRotateSelection={handleRotateSelected}
           />
 
           {/* Left Quick-Access Dock Toolbar */}
@@ -6325,6 +7283,8 @@ export default function App(): React.JSX.Element {
             onAddShapeNode={handleAddShapeNode}
             onAddStickyNote={handleAddStickyNote}
             onAddTemplate={handleAddTemplate}
+            onInsertGraph={handleInsertGraph}
+            openGraphTrigger={openGraphTrigger}
             onBeautify={handleBeautifySelected}
             isBeautifying={isBeautifying}
             onVectorize={handleVectorizeSelected}
@@ -6334,6 +7294,15 @@ export default function App(): React.JSX.Element {
             onAddCodeNode={handleAddCodeNode}
             onOpenKnowledgeHub={() => setIsKnowledgeHubOpen(true)}
             onAddYouTubeVideo={() => handleAddYouTubeToCanvas()}
+            onPasteImageFromClipboard={() => void handlePasteClipboardImage()}
+            onUploadImageFile={() => void handleUploadImageFiles()}
+            shapesMode={Boolean(settings.shapesMode)}
+            onToggleShapesMode={(shapesMode) => {
+              holdSnap.resetHoldSnap()
+              patchSettings({ shapesMode })
+            }}
+            circleToSelect={settings.circleToSelect ?? true}
+            onToggleCircleToSelect={(circleToSelect) => patchSettings({ circleToSelect })}
             boardPalette={boardPalette}
             penColor={penColor}
             onPenColor={setPenColor}
@@ -6350,8 +7319,6 @@ export default function App(): React.JSX.Element {
             <Toolbar
               activeTool={activeTool}
               onSelectTool={setActiveTool}
-              writingPadDetection={effectiveWritingPadDetection}
-              onSelectDetection={setWritingPadDetection}
               eraserSize={eraserSize}
               onEraserSize={setEraserSize}
               eraserMode={eraserMode}
@@ -6391,6 +7358,15 @@ export default function App(): React.JSX.Element {
               backgroundPattern={settings.backgroundPattern ?? 'dots'}
               onSelectBackgroundPattern={(backgroundPattern) => patchSettings({ backgroundPattern })}
               boardPalette={boardPalette}
+              shapesMode={Boolean(settings.shapesMode)}
+              onToggleShapesMode={(shapesMode) => {
+                holdSnap.resetHoldSnap()
+                patchSettings({ shapesMode })
+              }}
+              circleToSelect={settings.circleToSelect ?? true}
+              onToggleCircleToSelect={(circleToSelect) => patchSettings({ circleToSelect })}
+              onPasteImageFromClipboard={() => void handlePasteClipboardImage()}
+              onUploadImageFile={() => void handleUploadImageFiles()}
             />
           </div>
 
@@ -6456,6 +7432,9 @@ export default function App(): React.JSX.Element {
               onBeautify={handleBeautifySelected}
               onVectorize={handleVectorizeSelected}
               onTraceOriginal={handleTraceOriginalSelected}
+              onSendToAntigravity={() => void handleSendSelectionToAntigravity()}
+              onRotateSelection={handleRotateSelected}
+              onOpenGraphBuilder={() => setOpenGraphTrigger((t) => t + 1)}
               onAIAnnotate={() =>
                 void handleRunAgent(
                   'Inspect the selected canvas region and draw clear overlay annotations (arrows, highlights, and brief labels) directly on layer-overlay-ink.',
@@ -6506,6 +7485,9 @@ export default function App(): React.JSX.Element {
                 setActiveTool('select')
               }}
               onAddCodeAt={() => handleAddCodeNode()}
+              onPasteImageAt={(wx, wy) => void handlePasteClipboardImage({ x: wx, y: wy })}
+              onUploadImageAt={(wx, wy) => void handleUploadImageFiles({ x: wx, y: wy })}
+              onSnipBoardRegion={() => setActiveTool('snip')}
               onAddFlowDiagram={() => handleAddTemplate('blank_flow')}
               onAddAnimatedArchitecture={() => handleAddTemplate('transformer_vs_moe')}
               onSyncAnimatedWaveFlow={handleSyncAnimatedWaveFlow}
@@ -6576,6 +7558,7 @@ export default function App(): React.JSX.Element {
             onSelectThread={handleSelectChatThread}
             onCreateThread={handleCreateChatThread}
             onRenameThread={handleRenameChatThread}
+            onUpdateThreadColor={handleUpdateChatThreadColor}
             onDeleteThread={handleDeleteChatThread}
             onSendMessage={handleSendChatMessage}
             onInsertToNotes={handleInsertToNotes}
@@ -6609,6 +7592,7 @@ export default function App(): React.JSX.Element {
             onToast={addToast}
             openSettingsTrigger={settingsTrigger}
             onOpenKnowledgeHub={() => setIsKnowledgeHubOpen(true)}
+            onOpenSkills={() => setSkillsModalOpen(true)}
             onGenerateTutorial={(topic) => handleGenerateTutorial(topic)}
             onAddYouTubeToCanvas={handleAddYouTubeToCanvas}
             onRunAgent={handleRunAgent}
@@ -6654,6 +7638,19 @@ export default function App(): React.JSX.Element {
             ai={settings.ai}
             onChangeAI={(ai) => patchSettings({ ai })}
             onClose={() => setSettingsOpen(false)}
+            onToast={addToast}
+          />
+        </Suspense>
+      )}
+
+      {/* AI Skills & Antigravity Companion Modal */}
+      {skillsModalOpen && (
+        <Suspense fallback={null}>
+          <SkillsModal
+            isOpen={skillsModalOpen}
+            onClose={() => setSkillsModalOpen(false)}
+            aiSettings={settings.ai}
+            onChangeAI={(ai) => patchSettings({ ai })}
             onToast={addToast}
           />
         </Suspense>

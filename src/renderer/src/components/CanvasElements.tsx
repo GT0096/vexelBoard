@@ -6,7 +6,6 @@ import {
   Type,
   Bold,
   Italic,
-  Palette,
   Copy,
   Pencil,
   Brush,
@@ -18,7 +17,9 @@ import {
   Sigma,
   FoldVertical,
   Minus,
-  Plus
+  Plus,
+  Image as ImageIcon,
+  GripHorizontal
 } from 'lucide-react'
 import type {
   BoardLayer,
@@ -27,6 +28,7 @@ import type {
   DiagramNode,
   EquationNode,
   FontId,
+  ImageNode,
   InkPoint,
   Stroke,
   TextNode,
@@ -40,6 +42,7 @@ import katex from 'katex'
 import getStroke from 'perfect-freehand'
 import { Markdown } from './Markdown'
 import { isLightColor, type BoardPalette } from '../board/backgroundPresets'
+import { TabColorPicker, getReadableTabStyle } from './TabColorPicker'
 
 const ReactFlowDiagram = lazy(() =>
   import('./ReactFlowDiagram').then((m) => ({ default: m.ReactFlowDiagram }))
@@ -73,7 +76,7 @@ export type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
 interface ResizeState {
   id: string
-  kind: 'text' | 'equation' | 'diagram' | 'code' | 'video'
+  kind: 'text' | 'equation' | 'diagram' | 'code' | 'video' | 'image'
   direction: ResizeDirection
   startX: number
   startY: number
@@ -90,6 +93,7 @@ interface CanvasElementsProps {
   diagramNodes?: DiagramNode[]
   codeNodes?: CodeNode[]
   videoNodes?: VideoNode[]
+  imageNodes?: ImageNode[]
   selectedId: string | null
   selectedIds?: string[]
   onSelect: (id: string | null) => void
@@ -98,6 +102,7 @@ interface CanvasElementsProps {
   onUpdateDiagram?: (id: string, patch: Partial<DiagramNode>, opts?: { history?: boolean }) => void
   onUpdateCode?: (id: string, patch: Partial<CodeNode>, opts?: { history?: boolean }) => void
   onUpdateVideo?: (id: string, patch: Partial<VideoNode>, opts?: { history?: boolean }) => void
+  onUpdateImage?: (id: string, patch: Partial<ImageNode>, opts?: { history?: boolean }) => void
   onAddCodeNode?: () => void
   onAddVideoNode?: () => void
   onCreateTutorialFromVideo?: (topic: string, transcriptText?: string) => void
@@ -146,22 +151,13 @@ const IMMERSED_INK_COLORS = [
   { label: 'Amber', value: '#D97706' }
 ]
 
-const NOTE_PALETTES = [
-  { label: 'Auto Theme', bg: '' },
-  { label: 'Paper White', bg: '#FFFFFF' },
-  { label: 'Butter Yellow', bg: '#FFE566' },
-  { label: 'Sky Cyan', bg: '#A5F3FC' },
-  { label: 'Mint Pop', bg: '#A7F3D0' },
-  { label: 'Lilac Mist', bg: '#DDD6FE' },
-  { label: 'Coral Pink', bg: '#FECDD3' }
-]
-
 export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
   textNodes,
   equationNodes,
   diagramNodes,
   codeNodes,
   videoNodes,
+  imageNodes,
   selectedId,
   selectedIds,
   onSelect,
@@ -170,6 +166,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
   onUpdateDiagram,
   onUpdateCode,
   onUpdateVideo,
+  onUpdateImage,
   onAddCodeNode,
   onAddVideoNode,
   onCreateTutorialFromVideo,
@@ -198,14 +195,15 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
   onElementContextMenu
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState('')
   const [editText, setEditText] = useState('')
+  const [focusTitleInput, setFocusTitleInput] = useState(false)
   const [drawingId, setDrawingId] = useState<string | null>(null)
   const [liveStroke, setLiveStroke] = useState<InkPoint[] | null>(null)
   const [eraseMode, setEraseMode] = useState(false)
-  const [colorPickerOpen, setColorPickerOpen] = useState(false)
   const [dragState, setDragState] = useState<{
     id: string
-    kind: 'text' | 'equation' | 'diagram' | 'code' | 'video'
+    kind: 'text' | 'equation' | 'diagram' | 'code' | 'video' | 'image'
     startX: number
     startY: number
     initX: number
@@ -214,30 +212,49 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
   } | null>(null)
   const [resizeState, setResizeState] = useState<ResizeState | null>(null)
 
-  // Double-click to edit text or equation
-  const handleStartEdit = (id: string, text: string): void => {
+  // Double-click to edit text, equation, or image caption (with optional title header focus)
+  const handleStartEdit = (
+    id: string,
+    text: string,
+    title?: string,
+    focusTitle = false
+  ): void => {
     setEditingId(id)
     setEditText(text)
+    setEditTitle(title ?? '')
+    setFocusTitleInput(focusTitle)
   }
 
   const handleFinishEdit = (): void => {
     if (!editingId) return
     const textNode = textNodes.find((t) => t.id === editingId)
     if (textNode) {
-      onUpdateText(editingId, { text: editText.trim() || 'Empty note' })
+      if (textNode.immersed) {
+        onUpdateText(editingId, { text: editText.trim() || 'Label' })
+      } else {
+        onUpdateText(editingId, {
+          text: editText.trim() || 'Empty note',
+          title: editTitle.trim() || undefined
+        })
+      }
     }
     const eqNode = equationNodes.find((e) => e.id === editingId)
     if (eqNode) {
       onUpdateEquation(editingId, { latex: editText.trim() || 'E = mc^2' })
     }
+    const imgNode = imageNodes?.find((img) => img.id === editingId)
+    if (imgNode) {
+      onUpdateImage?.(editingId, { caption: editText.trim() || undefined })
+    }
     setEditingId(null)
+    setFocusTitleInput(false)
   }
 
-  // Pointer dragging for movement (notes & equations)
+  // Pointer dragging for movement (notes, equations & images)
   const handlePointerDown = (
     e: React.PointerEvent,
     id: string,
-    kind: 'text' | 'equation',
+    kind: 'text' | 'equation' | 'image',
     curX: number,
     curY: number
   ): void => {
@@ -289,6 +306,8 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
         onUpdateCode?.(dragState.id, { x: nextX, y: nextY }, { history: false })
       } else if (dragState.kind === 'video') {
         onUpdateVideo?.(dragState.id, { x: nextX, y: nextY }, { history: false })
+      } else if (dragState.kind === 'image') {
+        onUpdateImage?.(dragState.id, { x: nextX, y: nextY }, { history: false })
       } else if (dragState.kind === 'text') {
         onUpdateText(dragState.id, { x: nextX, y: nextY }, { history: false })
       } else if (dragState.kind === 'equation') {
@@ -319,14 +338,15 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
     onUpdateEquation,
     onUpdateDiagram,
     onUpdateCode,
-    onUpdateVideo
+    onUpdateVideo,
+    onUpdateImage
   ])
 
   // Pointer down to begin resizing
   const handleResizeStart = (
     e: React.PointerEvent,
     id: string,
-    kind: 'text' | 'equation' | 'diagram' | 'code' | 'video',
+    kind: 'text' | 'equation' | 'diagram' | 'code' | 'video' | 'image',
     direction: ResizeDirection
   ): void => {
     e.stopPropagation()
@@ -345,7 +365,9 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
             ? codeNodes?.find((c) => c.id === id)
             : kind === 'video'
               ? videoNodes?.find((v) => v.id === id)
-              : diagramNodes?.find((d) => d.id === id)
+              : kind === 'image'
+                ? imageNodes?.find((im) => im.id === id)
+                : diagramNodes?.find((d) => d.id === id)
 
     const initW = node?.w ?? (rect ? Math.round(rect.width / view.zoom) : 480)
     const initH = node?.h ?? (rect ? Math.round(rect.height / view.zoom) : 340)
@@ -488,6 +510,18 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
           patch.x = newX
         }
         onUpdateVideo?.(resizeState.id, patch, { history: false })
+      } else if (resizeState.kind === 'image') {
+        const patch: Partial<ImageNode> = {
+          w: Math.max(80, newW),
+          h: Math.max(60, newH)
+        }
+        if (dir === 'n' || dir === 'ne' || dir === 'nw') {
+          patch.y = newY
+        }
+        if (dir === 'w' || dir === 'nw' || dir === 'sw') {
+          patch.x = newX
+        }
+        onUpdateImage?.(resizeState.id, patch, { history: false })
       }
     }
 
@@ -502,7 +536,17 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
       window.removeEventListener('pointermove', handleWindowPointerMove)
       window.removeEventListener('pointerup', handleWindowPointerUp)
     }
-  }, [resizeState, view.zoom, onPushHistory, onUpdateText, onUpdateEquation, onUpdateDiagram, onUpdateCode, onUpdateVideo])
+  }, [
+    resizeState,
+    view.zoom,
+    onPushHistory,
+    onUpdateText,
+    onUpdateEquation,
+    onUpdateDiagram,
+    onUpdateCode,
+    onUpdateVideo,
+    onUpdateImage
+  ])
 
   // Selected item toolbar formatting helpers
   const selectedTextNode = textNodes.find((t) => t.id === selectedId)
@@ -569,7 +613,12 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
   }
 
   const isInkPassThroughTool =
-    activeTool === 'eraser' || activeTool === 'pen' || activeTool === 'pan' || cardsLocked
+    activeTool === 'eraser' ||
+    activeTool === 'pen' ||
+    activeTool === 'lasso' ||
+    activeTool === 'snip' ||
+    activeTool === 'pan' ||
+    cardsLocked
 
   return (
     <div
@@ -628,6 +677,8 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                 textAlign: t.align ?? 'left',
                 color: resolvedImmersedColor,
                 opacity: textOpacity,
+                transform: t.rotation ? `rotate(${t.rotation}deg)` : undefined,
+                transformOrigin: 'center center',
                 pointerEvents: passThrough ? 'none' : 'auto'
               }}
               onPointerDown={(e) => handlePointerDown(e, t.id, 'text', t.x, t.y)}
@@ -827,6 +878,8 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
               minWidth: isDrawing || hasInk ? 260 : 160,
               minHeight: isDrawing || hasInk ? 160 : undefined,
               opacity: cardsOpacity,
+              transform: t.rotation ? `rotate(${t.rotation}deg)` : undefined,
+              transformOrigin: 'center center',
               pointerEvents: isInkPassThroughTool ? 'none' : 'auto'
             }}
             onPointerDown={(e) => handlePointerDown(e, t.id, 'text', t.x, t.y)}
@@ -942,7 +995,15 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
             )}
 
             {isEditing ? (
-              <div className="note-editor-wrap" onPointerDown={(e) => e.stopPropagation()}>
+              <div
+                className="note-editor-wrap"
+                tabIndex={-1}
+                onPointerDown={(e) => e.stopPropagation()}
+                onBlur={(e) => {
+                  if (e.currentTarget.contains(e.relatedTarget as Node)) return
+                  handleFinishEdit()
+                }}
+              >
                 <div className="note-editor-helpers" onMouseDown={(e) => e.preventDefault()}>
                   <span className="bar-tag">Markdown</span>
                   <button className="bar-btn" title="Bold" onClick={() => insertSnippet('**bold**')}>
@@ -982,12 +1043,32 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                     <Check size={13} />
                   </button>
                 </div>
+                <input
+                  type="text"
+                  className="note-title-editor"
+                  autoFocus={focusTitleInput}
+                  placeholder="Card title (optional, e.g. 1. Key Concept)..."
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      const textarea = e.currentTarget.parentElement?.querySelector(
+                        '.note-inline-editor'
+                      ) as HTMLTextAreaElement | null
+                      textarea?.focus()
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault()
+                      handleFinishEdit()
+                    }
+                  }}
+                />
                 <textarea
                   className="note-inline-editor"
-                  autoFocus
+                  autoFocus={!focusTitleInput}
                   value={editText}
                   onChange={(e) => setEditText(e.target.value)}
-                  onBlur={handleFinishEdit}
                   style={{ fontFamily: resolvedNoteFontCss }}
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') handleFinishEdit()
@@ -997,7 +1078,18 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
               </div>
             ) : (
               <div className="note-content-display">
-                {t.title && <div className="note-card-title">{t.title}</div>}
+                {t.title && (
+                  <div
+                    className="note-card-title"
+                    title="Double-click to edit card title"
+                    onDoubleClick={(e) => {
+                      e.stopPropagation()
+                      if (!isDrawing) handleStartEdit(t.id, t.text, t.title, true)
+                    }}
+                  >
+                    {t.title}
+                  </div>
+                )}
                 <div className="note-card-body chat-text-content">
                   <Markdown text={t.text} />
                 </div>
@@ -1071,10 +1163,18 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                 <div className="bar-separator" />
                 <button
                   className="bar-btn"
-                  onClick={() => handleStartEdit(t.id, t.text)}
-                  title="Edit text (Markdown)"
+                  onClick={() => handleStartEdit(t.id, t.text, t.title, false)}
+                  title="Edit text & title (Markdown)"
                 >
                   <Pencil size={14} />
+                </button>
+                <button
+                  type="button"
+                  className={`bar-btn ${t.title ? 'active' : ''}`}
+                  onClick={() => handleStartEdit(t.id, t.text, t.title, true)}
+                  title={t.title ? 'Edit card title header' : 'Add card title header'}
+                >
+                  <span style={{ fontSize: 10, fontWeight: 800 }}>Title</span>
                 </button>
                 {/```mermaid/i.test(t.text) && (
                   <button
@@ -1153,33 +1253,12 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                   </button>
                 )}
                 <div className="bar-separator" />
-                <div className="color-palette-popover-wrap">
-                  <button
-                    className="bar-btn"
-                    onClick={() => setColorPickerOpen(!colorPickerOpen)}
-                    title="Change Note Color"
-                  >
-                    <Palette size={14} />
-                  </button>
-                  {colorPickerOpen && (
-                    <div className="color-palette-popover">
-                      {NOTE_PALETTES.map((p) => (
-                        <button
-                          key={p.label}
-                          className="palette-swatch"
-                          style={{
-                            background: p.bg || (boardPalette?.noteBg ?? '#FFFFFF')
-                          }}
-                          onClick={() => {
-                            onUpdateText(t.id, { bg: p.bg || undefined })
-                            setColorPickerOpen(false)
-                          }}
-                          title={p.label}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <TabColorPicker
+                  size="sm"
+                  color={t.bg && t.bg !== 'transparent' ? t.bg : undefined}
+                  onChange={(c) => onUpdateText(t.id, { bg: c })}
+                  title="Change Note tab / card color"
+                />
                 <button
                   className="bar-btn"
                   onClick={() => onDuplicateElement(t.id)}
@@ -1226,6 +1305,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
               width: eq.w ? `${eq.w}px` : undefined,
               height: eq.h ? `${eq.h}px` : undefined,
               fontSize: `${eq.fontSize}px`,
+              ...(eq.bg ? getReadableTabStyle(eq.bg) : {}),
               borderColor: isSelected ? activeThemeAccent : undefined,
               opacity: cardsOpacity,
               pointerEvents: isInkPassThroughTool ? 'none' : 'auto'
@@ -1317,6 +1397,12 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
             {isSelected && !isEditing && (
               <div className="element-quick-bar" onPointerDown={(e) => e.stopPropagation()}>
                 <span className="bar-tag">LaTeX</span>
+                <TabColorPicker
+                  size="sm"
+                  color={eq.bg}
+                  onChange={(c) => onUpdateEquation(eq.id, { bg: c })}
+                  title="Change Equation card color"
+                />
                 {(eq.w !== undefined || eq.h !== undefined) && (
                   <button
                     className="bar-btn"
@@ -1515,6 +1601,138 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
         )
       })}
       </Suspense>
+
+      {/* 6. Inserted Images & Clipboard Snippets */}
+      {cardsVisible &&
+        (imageNodes ?? []).map((img) => {
+          const isSelected = selectedIds ? selectedIds.includes(img.id) : img.id === selectedId
+          const isEditingCaption = img.id === editingId
+          return (
+            <div
+              key={img.id}
+              id={img.id}
+              className={`canvas-image-card ${isSelected ? 'selected' : ''} ${
+                resizeState?.id === img.id ? 'resizing' : ''
+              }`}
+              style={{
+                left: `${img.x}px`,
+                top: `${img.y}px`,
+                width: `${img.w}px`,
+                height: `${img.h}px`,
+                borderColor: isSelected ? activeThemeAccent : img.color || undefined,
+                opacity: cardsOpacity,
+                pointerEvents: isInkPassThroughTool ? 'none' : 'auto'
+              }}
+              onPointerDown={(e) => handlePointerDown(e, img.id, 'image', img.x, img.y)}
+              onContextMenu={(e) => onElementContextMenu?.(e, img.id)}
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                handleStartEdit(img.id, img.caption || '')
+              }}
+            >
+              {(isSelected || img.caption || img.color) && (
+                <div
+                  className="canvas-image-card-header"
+                  style={getReadableTabStyle(img.color)}
+                >
+                  <GripHorizontal size={12} className="image-grip-icon" />
+                  <ImageIcon size={12} />
+                  {isEditingCaption ? (
+                    <input
+                      type="text"
+                      className="canvas-code-title-input"
+                      value={editText}
+                      placeholder="Add image caption..."
+                      onChange={(e) => setEditText(e.target.value)}
+                      onBlur={handleFinishEdit}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        e.stopPropagation()
+                        if (e.key === 'Enter') handleFinishEdit()
+                        if (e.key === 'Escape') setEditingId(null)
+                      }}
+                      autoFocus
+                    />
+                  ) : (
+                    <span className="canvas-image-caption">
+                      {img.caption || 'Snippet'}
+                    </span>
+                  )}
+                  <div
+                    className="canvas-image-hdr-actions"
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <TabColorPicker
+                      size="xs"
+                      color={img.color}
+                      onChange={(c) => onUpdateImage?.(img.id, { color: c })}
+                      title="Change snippet tab header color"
+                    />
+                    <button
+                      type="button"
+                      className="canvas-code-hdr-btn"
+                      title="Edit caption"
+                      onClick={() => handleStartEdit(img.id, img.caption || '')}
+                    >
+                      <Pencil size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-code-hdr-btn"
+                      title="Duplicate image"
+                      onClick={() => onDuplicateElement(img.id)}
+                    >
+                      <Copy size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-code-hdr-btn danger"
+                      title="Delete image"
+                      onClick={() => onDeleteElement(img.id)}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {resizeState?.id === img.id && (
+                <div className="resize-dimension-badge">
+                  {img.w} × {img.h} px
+                </div>
+              )}
+
+              <div className="canvas-image-body">
+                <img
+                  src={img.src}
+                  alt={img.caption || 'Board snippet'}
+                  draggable={false}
+                  className="canvas-image-el"
+                />
+              </div>
+
+              {!isEditingCaption && (
+                <div className="card-resize-handles">
+                  {(['n', 's', 'e', 'w'] as const).map((dir) => (
+                    <div
+                      key={`img-edge-${dir}`}
+                      className={`resize-edge ${dir}`}
+                      onPointerDown={(e) => handleResizeStart(e, img.id, 'image', dir)}
+                    />
+                  ))}
+                  {isSelected &&
+                    (['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const).map((dir) => (
+                      <div
+                        key={`img-h-${dir}`}
+                        className={`resize-handle ${dir}`}
+                        onPointerDown={(e) => handleResizeStart(e, img.id, 'image', dir)}
+                      />
+                    ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
     </div>
   )
 })

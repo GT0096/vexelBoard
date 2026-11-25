@@ -114,6 +114,26 @@ export function strokePath(
       start: { taper: size * 1.5, cap: true },
       end: { taper: size * 1.5, cap: true }
     },
+    pencil: {
+      size: Math.max(1.2, size * 0.75),
+      thinning: 0.34,
+      smoothing: 0.36,
+      streamline: 0.36,
+      simulatePressure: true,
+      last,
+      start: { taper: size * 0.65, cap: true },
+      end: { taper: size * 0.85, cap: true }
+    },
+    brush: {
+      size: Math.max(2.5, size * 1.55),
+      thinning: 0.72,
+      smoothing: 0.65,
+      streamline: 0.52,
+      simulatePressure: true,
+      last,
+      start: { taper: size * 2.2, cap: true },
+      end: { taper: size * 2.6, cap: true }
+    },
     marker: {
       size: Math.max(3, size * 1.45),
       thinning: 0.18,
@@ -214,9 +234,10 @@ export function drawStroke(
 ): void {
   const penType: PenType = stroke.penType ?? 'fountain'
   ctx.save()
-  ctx.globalAlpha = (override?.alpha ?? 1) * (penType === 'highlighter' ? 0.36 : 1)
+  const baseAlpha = penType === 'highlighter' ? 0.36 : penType === 'pencil' ? 0.86 : 1
+  ctx.globalAlpha = (override?.alpha ?? 1) * baseAlpha
   applyInkStyle(ctx, theme, override?.color ?? colorFor(theme, stroke.color))
-  if (penType === 'highlighter') {
+  if (penType === 'highlighter' || penType === 'pencil') {
     ctx.shadowBlur = 0
   }
   const path = override?.live
@@ -1333,6 +1354,13 @@ export function drawVectorArt(
   const sy = art.height / Math.max(1, art.viewBoxHeight)
 
   ctx.save()
+  if (art.rotation) {
+    const cx = art.x + art.width / 2
+    const cy = art.y + art.height / 2
+    ctx.translate(cx, cy)
+    ctx.rotate((art.rotation * Math.PI) / 180)
+    ctx.translate(-cx, -cy)
+  }
   ctx.translate(art.x, art.y)
   ctx.scale(sx, sy)
   ctx.shadowBlur = 0

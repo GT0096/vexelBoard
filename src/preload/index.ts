@@ -10,10 +10,35 @@ const glassAPI: GlassAPI = {
   isEncryptionAvailable: () => ipcRenderer.invoke('ai:encryptionAvailable'),
   getOpenAIModelConfig: (model) => ipcRenderer.invoke('ai:getOpenAIModelConfig', model),
   runAI: (request) => ipcRenderer.invoke('ai:run', request),
+  runLocalOcr: (request) => ipcRenderer.invoke('ocr:localHandwriting', request),
   smartBeautify: (request) => ipcRenderer.invoke('canvas:smart-beautify', request),
   smartBeautifyCritique: (request) => ipcRenderer.invoke('canvas:smart-beautify-critique', request),
   runAgent: (request) => ipcRenderer.invoke('agent:run', request),
   cancelAgent: (runId) => ipcRenderer.invoke('agent:cancel', runId),
+  webSearch: (q, opts, settings) => ipcRenderer.invoke('web:search', q, opts, settings),
+  testWebSearch: (settings) => ipcRenderer.invoke('web:testSearch', settings),
+  listSkills: () => ipcRenderer.invoke('skills:list'),
+  getSkillDetail: (idOrName, referenceFile) =>
+    ipcRenderer.invoke('skills:detail', idOrName, referenceFile),
+  saveSkill: (input) => ipcRenderer.invoke('skills:save', input),
+  deleteSkill: (idOrName) => ipcRenderer.invoke('skills:delete', idOrName),
+  exportSkillToAntigravity: (idOrName, target) =>
+    ipcRenderer.invoke('skills:exportAntigravity', idOrName, target),
+  getCompanionStatus: () => ipcRenderer.invoke('companion:status'),
+  syncCompanionSnapshot: (snapshot) => ipcRenderer.send('companion:syncSnapshot', snapshot),
+  onCompanionMutations: (callback) => {
+    const listener = (_e: Electron.IpcRendererEvent, payload: any): void => callback(payload)
+    ipcRenderer.on('companion:applyMutations', listener)
+    return () => ipcRenderer.removeListener('companion:applyMutations', listener)
+  },
+  pushSelectionCapture: (capture) => ipcRenderer.invoke('companion:pushSelectionCapture', capture),
+  onRequestSelectionCapture: (callback) => {
+    const listener = (_e: Electron.IpcRendererEvent, requestId: string): void => callback(requestId)
+    ipcRenderer.on('companion:requestSelectionCapture', listener)
+    return () => ipcRenderer.removeListener('companion:requestSelectionCapture', listener)
+  },
+  respondSelectionCapture: (requestId, capture) =>
+    ipcRenderer.send('companion:selectionCaptureResponse', { requestId, capture }),
   onAgentEvent: (callback) => {
     const listener = (_e: Electron.IpcRendererEvent, event: any): void => callback(event)
     ipcRenderer.on('agent:event', listener)
@@ -24,6 +49,7 @@ const glassAPI: GlassAPI = {
   saveExportFile: (filename, content, mimeType) =>
     ipcRenderer.invoke('export:saveFile', filename, content, mimeType),
   printToPdf: () => ipcRenderer.invoke('export:printToPdf'),
+  openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   setMode: (mode) => ipcRenderer.invoke('board:setMode', mode),
   setClickThrough: (enabled) => ipcRenderer.invoke('board:setClickThrough', enabled),
   onClickThroughChanged: (callback) => {
@@ -66,6 +92,10 @@ const glassAPI: GlassAPI = {
   fetchYouTubeInfo: (url) => ipcRenderer.invoke('media:fetchYouTube', url),
   openFileDialogAndParse: () => ipcRenderer.invoke('media:openFileDialogAndParse'),
   parseFileBuffer: (fileName, base64Data) => ipcRenderer.invoke('media:parseFileBuffer', fileName, base64Data),
+  saveBoardImage: (dataUrlOrBase64, suggestedName) =>
+    ipcRenderer.invoke('media:saveBoardImage', dataUrlOrBase64, suggestedName),
+  readClipboardImage: () => ipcRenderer.invoke('media:readClipboardImage'),
+  pickBoardImages: () => ipcRenderer.invoke('media:pickBoardImages'),
 
   // Knowledge Sources & Vector RAG
   saveKnowledgeSource: (source, chunks) => ipcRenderer.invoke('db:saveKnowledgeSource', source, chunks),

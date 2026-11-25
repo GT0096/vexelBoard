@@ -58,6 +58,7 @@ import {
 import type { CodeRuntimeInfo } from '@shared/ipc'
 import type { CodeNode, CodeTabExecutionOutput, CodeTabItem } from '../types/board'
 import type { ResizeDirection } from './CanvasElements'
+import { TabColorPicker, getReadableTabStyle } from './TabColorPicker'
 
 const STUDIO_STORAGE_KEY = 'vgb.codingStudio.v1'
 
@@ -868,6 +869,10 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
                 role="tab"
                 aria-selected={isTabActive}
                 className={`code-tab-pill ${isTabActive ? 'active' : ''}`}
+                style={getReadableTabStyle(tab.color, {
+                  isActive: isTabActive,
+                  subtleInactive: true
+                })}
                 onClick={() => onChangeTabs(tabs, tab.id)}
                 onDoubleClick={() => {
                   setEditingTabId(tab.id)
@@ -903,6 +908,12 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
                 ) : (
                   <span className="code-tab-name">{tab.title}</span>
                 )}
+                <TabColorPicker
+                  size="xs"
+                  color={tab.color}
+                  onChange={(c) => updateTabById(tab.id, { color: c })}
+                  title={`Change "${tab.title}" tab color`}
+                />
                 <button
                   type="button"
                   className="code-tab-close"
@@ -1518,9 +1529,10 @@ export const CanvasCodeCard: React.FC<CanvasCodeCardProps> = ({
         }
       }}
     >
-      {/* Card Header (Move Pill + Title + Add Container / Duplicate / Delete) */}
+      {/* Card Header (Move Pill + Title + Tab Color + Add Container / Duplicate / Delete) */}
       <div
         className="canvas-code-card-header"
+        style={getReadableTabStyle(node.color)}
         title="Drag anywhere on header to move Coding Tab container"
       >
         <div className="canvas-code-card-drag">
@@ -1564,6 +1576,12 @@ export const CanvasCodeCard: React.FC<CanvasCodeCardProps> = ({
         </div>
 
         <div className="canvas-code-card-actions" onPointerDown={(e) => e.stopPropagation()}>
+          <TabColorPicker
+            size="sm"
+            color={node.color}
+            onChange={(c) => onUpdate({ color: c })}
+            title="Change Coding container header color"
+          />
           {onAddContainer && (
             <button
               type="button"

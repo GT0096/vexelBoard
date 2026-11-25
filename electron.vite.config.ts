@@ -6,7 +6,18 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        external: ['better-sqlite3', 'sqlite-vec', 'node:sqlite', '@visioncortex/vtracer', 'svgo']
+        external: [
+          'better-sqlite3',
+          'sqlite-vec',
+          'node:sqlite',
+          '@visioncortex/vtracer',
+          'svgo',
+          '@huggingface/transformers',
+          'onnxruntime-node',
+          'sharp',
+          'linkedom',
+          '@mozilla/readability'
+        ]
       }
     }
   },

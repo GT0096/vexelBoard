@@ -1,4 +1,4 @@
-import type { DisplayMode, OpenAIModelProfile, ProviderId } from '@shared/ipc'
+import type { DisplayMode, OpenAIModelProfile, ProviderId, WebSearchSettings } from '@shared/ipc'
 import type {
   DiagramGraph,
   IllustrationBrief,
@@ -20,7 +20,14 @@ export type InkPoint = [number, number, number]
 
 export type ColorRole = 'ink' | 'accent' | string
 
-export type PenType = 'ballpoint' | 'fountain' | 'marker' | 'highlighter' | 'dashed'
+export type PenType =
+  | 'ballpoint'
+  | 'fountain'
+  | 'pencil'
+  | 'brush'
+  | 'marker'
+  | 'highlighter'
+  | 'dashed'
 
 export interface Stroke {
   id: string
@@ -57,6 +64,8 @@ export interface TextNode {
   vectorGroupId?: string
   /** Layer assignment for board-immersed text */
   layerId?: string
+  /** Optional rotation angle in degrees */
+  rotation?: number
   /** Freehand strokes drawn directly inside the note (coordinates relative to the note) */
   ink?: Stroke[]
   source: 'manual' | 'ocr' | 'ai'
@@ -72,6 +81,7 @@ export interface EquationNode {
   latex: string
   fontSize: number
   color: ColorRole
+  bg?: string
   createdAt: number
 }
 
@@ -215,6 +225,7 @@ export interface CodeTabItem {
   title: string
   language: string
   code: string
+  color?: string
   stdin?: string
   output?: CodeTabExecutionOutput | null
 }
@@ -226,6 +237,7 @@ export interface CodeNode {
   w: number
   h: number
   title?: string
+  color?: string
   tabs: CodeTabItem[]
   activeTabId: string
   createdAt: number
@@ -243,6 +255,7 @@ export interface VideoTabItem {
   title: string
   url: string
   videoId: string
+  color?: string
   currentTime?: number
 }
 
@@ -255,10 +268,27 @@ export interface VideoNode {
   url: string
   videoId: string
   title?: string
+  color?: string
   currentTime?: number
   tabs?: VideoTabItem[]
   activeTabId?: string
   bookmarks?: VideoBookmark[]
+  createdAt: number
+}
+
+export interface ImageNode {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  naturalW?: number
+  naturalH?: number
+  /** vexel-media:// URL or data URI (kept out of stripped base64Png/imageBase64 keys) */
+  src: string
+  caption?: string
+  color?: string
+  layerId?: string
   createdAt: number
 }
 
@@ -282,6 +312,7 @@ export interface VectorArtNode {
   viewBoxWidth: number
   viewBoxHeight: number
   layers: VectorPathLayer[]
+  rotation?: number
   sourceMeta?: VectorArtSourceMeta
   layerId?: string
   createdAt: number
@@ -318,6 +349,7 @@ export interface BoardState {
   vectorDiagramMeta?: Record<string, VectorDiagramMeta>
   codeNodes?: CodeNode[]
   videoNodes?: VideoNode[]
+  imageNodes?: ImageNode[]
   /** Top-to-bottom z-order layer stack (index 0 = topmost above cards, last = bottommost base) */
   layers?: BoardLayer[]
   /** Active ink layer where new pen strokes, hold-to-snap shapes & vector art are placed */
@@ -334,6 +366,7 @@ export const EMPTY_BOARD: BoardState = {
   vectorDiagramMeta: {},
   codeNodes: [],
   videoNodes: [],
+  imageNodes: [],
   layers: [
     { id: 'layer-overlay-ink', name: 'Annotations (Top)', kind: 'ink', visible: true, locked: false, opacity: 1 },
     { id: 'layer-cards', name: 'Cards & Widgets', kind: 'elements', visible: true, locked: false, opacity: 1 },
@@ -342,8 +375,17 @@ export const EMPTY_BOARD: BoardState = {
   activeLayerId: 'layer-overlay-ink'
 }
 
-export type ToolType = 'select' | 'pan' | 'pen' | 'text' | 'equation' | 'eraser' | 'diagram' | 'video'
-export type WritingPadDetection = 'none' | 'text' | 'equation'
+export type ToolType =
+  | 'select'
+  | 'pan'
+  | 'pen'
+  | 'lasso'
+  | 'snip'
+  | 'text'
+  | 'equation'
+  | 'eraser'
+  | 'diagram'
+  | 'video'
 export type EraserMode = 'paper' | 'section'
 export type ThemeId = 'neon' | 'chalk' | 'blueprint' | 'overlay'
 export type FontId = 'jakarta' | 'caveat' | 'grotesk' | 'mono' | 'serif'
@@ -362,6 +404,8 @@ export interface AISettings {
   byokModels: Record<Exclude<ProviderId, 'ollama'>, string>
   temperature: number
   openaiModelProfile?: OpenAIModelProfile
+  webSearch?: WebSearchSettings
+  activeSkillIds?: string[]
   /** True once the user has explicitly configured/enabled an AI provider */
   configured?: boolean
 }
@@ -375,6 +419,10 @@ export interface AppSettings {
   dominantHand: Handedness
   inkSize: number
   penType?: PenType
+  /** Shapes Mode: instant local basic shape detection without LLM API */
+  shapesMode?: boolean
+  /** iPad-style circle-an-area in Pen mode to select enclosed elements */
+  circleToSelect?: boolean
   backgroundColor?: string
   backgroundPattern?: BackgroundPattern
   ai: AISettings

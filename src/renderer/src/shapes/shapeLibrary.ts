@@ -233,11 +233,11 @@ export const ANIMATED_LINE_SHAPES: LibraryShapeDef[] = [
   }
 ]
 
-export const ML_ARCHITECTURE_SHAPES: LibraryShapeDef[] = [
+export const AI_AND_MATH_SHAPES: LibraryShapeDef[] = [
   {
     id: 'ml-neural-net',
     name: 'Feed-Forward Neural Net (FFN)',
-    category: 'flowchart',
+    category: 'aiAndMath',
     sources: ['essentials'],
     size: [210, 136],
     paths: [
@@ -255,10 +255,10 @@ export const ML_ARCHITECTURE_SHAPES: LibraryShapeDef[] = [
   },
   {
     id: 'ml-token-vector',
-    name: 'Token Embedding Vector [■ ■ ■]',
-    category: 'flowchart',
+    name: 'Token Embedding Vector',
+    category: 'aiAndMath',
     sources: ['essentials'],
-    size: [92, 34],
+    size: [110, 38],
     paths: [
       { d: 'M 4 12 H 96 V 88 H 4 Z', fill: 'fill' },
       { d: 'M 12 26 H 32 V 74 H 12 Z M 40 26 H 60 V 74 H 40 Z M 68 26 H 88 V 74 H 68 Z', fill: 'shade' }
@@ -271,27 +271,441 @@ export const ML_ARCHITECTURE_SHAPES: LibraryShapeDef[] = [
   {
     id: 'ml-adder',
     name: 'Residual Adder (⊕)',
-    category: 'flowchart',
+    category: 'aiAndMath',
     sources: ['essentials'],
-    size: [44, 44],
+    size: [48, 48],
     paths: [
       { d: 'M 10 50 A 40 40 0 1 0 90 50 A 40 40 0 1 0 10 50', fill: 'fill' },
       { d: 'M 50 26 V 74 M 26 50 H 74', fill: 'none', sw: 1.2 }
     ],
-    defaultFill: '#FFFFFF',
+    defaultFill: '#FEF9C3',
     defaultLabel: '',
     aliases: ['residual adder', 'plus junction', 'add norm'],
     tags: ['ml', 'ai', 'adder', 'residual', 'plus', 'transformer']
+  },
+  {
+    id: 'ml-hadamard',
+    name: 'Elementwise Multiply (⊗)',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [48, 48],
+    paths: [
+      { d: 'M 10 50 A 40 40 0 1 0 90 50 A 40 40 0 1 0 10 50', fill: 'fill' },
+      { d: 'M 32 32 L 68 68 M 68 32 L 32 68', fill: 'none', sw: 1.2 }
+    ],
+    defaultFill: '#DCFCE7',
+    defaultLabel: '',
+    aliases: ['hadamard', 'multiply gate', 'elementwise', 'otimes'],
+    tags: ['ml', 'ai', 'gate', 'multiply', 'swiglu', 'attention']
+  },
+  {
+    id: 'ml-matmul',
+    name: 'MatMul Block (×)',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [84, 52],
+    paths: [
+      { d: 'M 10 14 H 90 A 8 8 0 0 1 96 20 V 80 A 8 8 0 0 1 90 86 H 10 A 8 8 0 0 1 4 80 V 20 A 8 8 0 0 1 10 14 Z', fill: 'fill' }
+    ],
+    defaultFill: '#FFE4E6',
+    defaultLabel: 'MatMul',
+    aliases: ['matmul', 'linear', 'projection'],
+    tags: ['ml', 'ai', 'matmul', 'linear', 'gemm', 'transformer']
+  },
+  {
+    id: 'ml-norm-pill',
+    name: 'LayerNorm / RMSNorm Pill',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [150, 44],
+    paths: [
+      { d: 'M 22 14 H 78 A 36 36 0 0 1 78 86 H 22 A 36 36 0 0 1 22 14 Z', fill: 'fill' }
+    ],
+    defaultFill: '#FEF08A',
+    defaultLabel: 'RMSNorm',
+    aliases: ['layernorm', 'rmsnorm', 'norm pill'],
+    tags: ['ml', 'ai', 'norm', 'layernorm', 'rmsnorm', 'pill']
+  },
+  {
+    id: 'ml-attention-head',
+    name: 'Multi-Head Attention Block',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [190, 96],
+    paths: [
+      { d: 'M 14 14 H 90 A 6 6 0 0 1 96 20 V 72 A 6 6 0 0 1 90 78 H 14 A 6 6 0 0 1 8 72 V 20 A 6 6 0 0 1 14 14 Z', fill: 'shade' },
+      { d: 'M 10 22 H 86 A 6 6 0 0 1 92 28 V 80 A 6 6 0 0 1 86 86 H 10 A 6 6 0 0 1 4 80 V 28 A 6 6 0 0 1 10 22 Z', fill: 'fill' }
+    ],
+    defaultFill: '#DBEAFE',
+    defaultLabel: 'Multi-Head Attn',
+    aliases: ['multi head attention', 'mha', 'gqa', 'self attention'],
+    tags: ['ml', 'ai', 'attention', 'mha', 'gqa', 'transformer']
+  },
+  {
+    id: 'ml-softmax-gate',
+    name: 'Softmax / Gate Node',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [130, 48],
+    paths: [
+      { d: 'M 16 14 H 84 L 96 50 L 84 86 H 16 L 4 50 Z', fill: 'fill' }
+    ],
+    defaultFill: '#E9D5FF',
+    defaultLabel: 'Softmax',
+    aliases: ['softmax', 'router gate', 'activation'],
+    tags: ['ml', 'ai', 'softmax', 'router', 'moe', 'gate']
+  },
+  {
+    id: 'ml-concat',
+    name: 'Concat / Projection Split',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [148, 52],
+    paths: [
+      { d: 'M 4 14 H 96 V 86 H 4 Z', fill: 'fill' },
+      { d: 'M 33 14 V 86 M 67 14 V 86', fill: 'none', sw: 0.7 }
+    ],
+    defaultFill: '#E0E7FF',
+    defaultLabel: 'Q | K | V',
+    aliases: ['concat', 'qkv', 'split projection'],
+    tags: ['ml', 'ai', 'qkv', 'concat', 'split', 'projection']
+  },
+  {
+    id: 'ml-dashed-frame',
+    name: 'Dashed Transformer Block Frame',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [240, 180],
+    paths: [
+      { d: 'M 8 4 H 92 A 6 6 0 0 1 96 10 V 90 A 6 6 0 0 1 92 96 H 8 A 6 6 0 0 1 4 90 V 10 A 6 6 0 0 1 8 4 Z', fill: 'none', dash: 'dash' }
+    ],
+    defaultFill: 'transparent',
+    defaultLabel: 'N × Block',
+    aliases: ['dashed frame', 'layer block', 'repeat block'],
+    tags: ['ml', 'ai', 'container', 'dashed', 'layer', 'group']
+  },
+  {
+    id: 'ml-rope-circle',
+    name: 'Unit Circle / RoPE Angle (θ)',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [120, 120],
+    paths: [
+      { d: 'M 14 50 A 36 36 0 1 0 86 50 A 36 36 0 1 0 14 50', fill: 'light' },
+      { d: 'M 6 50 H 94 M 50 94 V 6', fill: 'none', sw: 0.65 },
+      { d: 'M 50 50 L 78 26', fill: 'none', sw: 1.1 },
+      { d: 'M 68 50 A 18 18 0 0 0 64 38', fill: 'none', dash: 'dash', sw: 0.85 },
+      { d: 'M 75 26 A 3 3 0 1 0 81 26 A 3 3 0 1 0 75 26', fill: 'solid' }
+    ],
+    defaultFill: '#E0F2FE',
+    defaultLabel: '',
+    aliases: ['rope', 'unit circle', 'rotation vector', 'phasor'],
+    tags: ['math', 'ml', 'rope', 'circle', 'vector', 'angle']
+  },
+  {
+    id: 'math-axes-xy',
+    name: '2D X-Y Coordinate Axes',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [180, 130],
+    paths: [
+      { d: 'M 14 10 V 86 H 92', fill: 'none', sw: 1.1 },
+      { d: 'M 9 18 L 14 10 L 19 18 M 84 81 L 92 86 L 84 91', fill: 'none', sw: 1.0 },
+      { d: 'M 14 34 H 90 M 14 60 H 90 M 40 14 V 86 M 66 14 V 86', fill: 'none', dash: 'dot', sw: 0.45 }
+    ],
+    defaultFill: 'transparent',
+    defaultLabel: '',
+    aliases: ['xy axes', 'graph axes', 'coordinate plane'],
+    tags: ['math', 'plot', 'graph', 'axes', 'chart']
+  },
+  {
+    id: 'math-axes-quadrant',
+    name: '4-Quadrant Cartesian Plane',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [160, 140],
+    paths: [
+      { d: 'M 8 50 H 92 M 50 92 V 8', fill: 'none', sw: 1.05 },
+      { d: 'M 85 45 L 92 50 L 85 55 M 45 15 L 50 8 L 55 15', fill: 'none', sw: 1.0 },
+      { d: 'M 29 12 V 88 M 71 12 V 88 M 12 29 H 88 M 12 71 H 88', fill: 'none', dash: 'dot', sw: 0.4 }
+    ],
+    defaultFill: 'transparent',
+    defaultLabel: '',
+    aliases: ['cartesian plane', 'quadrant axes', 'origin grid'],
+    tags: ['math', 'plot', 'graph', 'quadrant', 'axes']
+  },
+  {
+    id: 'math-sine-wave',
+    name: 'Sine Wave on Axes',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [190, 110],
+    paths: [
+      { d: 'M 8 50 H 94 M 14 12 V 88', fill: 'none', sw: 0.7 },
+      { d: 'M 14 50 C 26 14, 38 14, 50 50 C 62 86, 74 86, 86 50', fill: 'none', sw: 1.3 }
+    ],
+    defaultFill: 'transparent',
+    defaultLabel: '',
+    aliases: ['sine wave', 'sin(x)', 'waveform'],
+    tags: ['math', 'plot', 'sine', 'wave', 'trigonometry', 'rope']
+  },
+  {
+    id: 'math-cosine-wave',
+    name: 'Cosine Wave on Axes',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [190, 110],
+    paths: [
+      { d: 'M 8 50 H 94 M 14 12 V 88', fill: 'none', sw: 0.7 },
+      { d: 'M 14 20 C 26 20, 32 82, 50 82 C 68 82, 74 20, 86 20', fill: 'none', sw: 1.3 }
+    ],
+    defaultFill: 'transparent',
+    defaultLabel: '',
+    aliases: ['cosine wave', 'cos(x)'],
+    tags: ['math', 'plot', 'cosine', 'wave', 'trigonometry']
+  },
+  {
+    id: 'math-bell-curve',
+    name: 'Gaussian Bell Curve',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [190, 115],
+    paths: [
+      { d: 'M 6 82 H 94 M 50 14 V 82', fill: 'none', sw: 0.7 },
+      { d: 'M 10 80 C 28 80, 36 18, 50 18 C 64 18, 72 80, 90 80 Z', fill: 'fill' }
+    ],
+    defaultFill: '#DDD6FE',
+    defaultLabel: '',
+    aliases: ['gaussian', 'normal distribution', 'bell curve'],
+    tags: ['math', 'plot', 'statistics', 'gaussian', 'probability']
+  },
+  {
+    id: 'math-sigmoid',
+    name: 'Sigmoid S-Curve',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [170, 110],
+    paths: [
+      { d: 'M 8 84 H 92 M 50 12 V 88', fill: 'none', sw: 0.65 },
+      { d: 'M 10 80 C 38 80, 62 18, 90 18', fill: 'none', sw: 1.35 }
+    ],
+    defaultFill: 'transparent',
+    defaultLabel: '',
+    aliases: ['sigmoid', 'logistic curve'],
+    tags: ['math', 'ml', 'plot', 'activation', 'sigmoid']
+  },
+  {
+    id: 'math-relu-silu',
+    name: 'SiLU / ReLU Curve',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [170, 110],
+    paths: [
+      { d: 'M 8 74 H 92 M 44 12 V 88', fill: 'none', sw: 0.65 },
+      { d: 'M 10 74 C 24 74, 32 82, 44 74 L 88 18', fill: 'none', sw: 1.35 }
+    ],
+    defaultFill: 'transparent',
+    defaultLabel: '',
+    aliases: ['silu', 'relu', 'swish', 'activation curve'],
+    tags: ['math', 'ml', 'plot', 'relu', 'silu', 'swish']
+  },
+  {
+    id: 'math-lr-schedule',
+    name: 'LR Warmup + Decay Plot',
+    category: 'aiAndMath',
+    sources: ['essentials'],
+    size: [190, 115],
+    paths: [
+      { d: 'M 12 12 V 84 H 92', fill: 'none', sw: 0.8 },
+      { d: 'M 12 84 L 30 20 C 48 20, 64 78, 90 80', fill: 'none', sw: 1.35 },
+      { d: 'M 30 20 V 84', fill: 'none', dash: 'dash', sw: 0.65 }
+    ],
+    defaultFill: 'transparent',
+    defaultLabel: '',
+    aliases: ['lr decay', 'warmup cosine', 'loss curve'],
+    tags: ['math', 'ml', 'plot', 'schedule', 'cosine', 'decay']
+  }
+]
+
+export const ML_ARCHITECTURE_SHAPES = AI_AND_MATH_SHAPES
+
+export const DATA_STRUCTURE_SHAPES: LibraryShapeDef[] = [
+  {
+    id: 'ds-array-4',
+    name: '4-Cell Vector / Tensor Strip',
+    category: 'dataStructures',
+    sources: ['essentials'],
+    size: [180, 44],
+    paths: [
+      { d: 'M 4 12 H 96 V 88 H 4 Z', fill: 'fill' },
+      { d: 'M 27 12 V 88 M 50 12 V 88 M 73 12 V 88', fill: 'none', sw: 0.9 }
+    ],
+    defaultFill: '#DBEAFE',
+    defaultLabel: '',
+    aliases: ['array 4', 'vector strip', 'cell strip 4', 'tensor strip'],
+    tags: ['array', 'vector', 'tensor', 'cells', 'grid', 'strip']
+  },
+  {
+    id: 'ds-array-6',
+    name: '6-Cell Sequence / Token Strip',
+    category: 'dataStructures',
+    sources: ['essentials'],
+    size: [220, 42],
+    paths: [
+      { d: 'M 4 14 H 96 V 86 H 4 Z', fill: 'fill' },
+      { d: 'M 19.3 14 V 86 M 34.6 14 V 86 M 50 14 V 86 M 65.3 14 V 86 M 80.6 14 V 86', fill: 'none', sw: 0.8 }
+    ],
+    defaultFill: '#DCFCE7',
+    defaultLabel: '',
+    aliases: ['array 6', 'token strip', 'sequence strip'],
+    tags: ['array', 'tokens', 'sequence', 'cells', 'strip']
+  },
+  {
+    id: 'ds-col-vector-4',
+    name: 'Vertical Column Vector (4×1)',
+    category: 'dataStructures',
+    sources: ['essentials'],
+    size: [54, 168],
+    paths: [
+      { d: 'M 14 4 H 86 V 96 H 14 Z', fill: 'fill' },
+      { d: 'M 14 27 H 86 M 14 50 H 86 M 14 73 H 86', fill: 'none', sw: 0.9 }
+    ],
+    defaultFill: '#FEF3C7',
+    defaultLabel: '',
+    aliases: ['column vector', 'vertical stack', '4x1 vector'],
+    tags: ['vector', 'column', 'tensor', 'stack', 'vertical']
+  },
+  {
+    id: 'ds-open-stack',
+    name: 'Open-Top Stack Container',
+    category: 'dataStructures',
+    sources: ['essentials'],
+    size: [92, 168],
+    paths: [
+      { d: 'M 16 10 V 90 H 84 V 10', fill: 'none', sw: 1.2 },
+      { d: 'M 16 50 H 84 V 90 H 16 Z', fill: 'fill' },
+      { d: 'M 16 70 H 84', fill: 'none', sw: 0.8 }
+    ],
+    defaultFill: '#FFE4E6',
+    defaultLabel: '',
+    aliases: ['open stack', 'lifo stack', 'stack container'],
+    tags: ['stack', 'lifo', 'open', 'data structure']
+  },
+  {
+    id: 'ds-open-queue',
+    name: 'Open-Ends Queue Channel',
+    category: 'dataStructures',
+    sources: ['essentials'],
+    size: [184, 52],
+    paths: [
+      { d: 'M 4 14 H 96 M 4 86 H 96', fill: 'none', sw: 1.2 },
+      { d: 'M 22 22 H 78 V 78 H 22 Z', fill: 'fill' },
+      { d: 'M 41 22 V 78 M 59 22 V 78', fill: 'none', sw: 0.8 }
+    ],
+    defaultFill: '#E0F2FE',
+    defaultLabel: '',
+    aliases: ['queue channel', 'fifo queue', 'buffer'],
+    tags: ['queue', 'fifo', 'channel', 'buffer', 'open']
+  },
+  {
+    id: 'ds-open-tray',
+    name: 'Open Top U-Tray / Pool',
+    category: 'dataStructures',
+    sources: ['essentials'],
+    size: [140, 86],
+    paths: [
+      { d: 'M 10 12 V 86 A 4 4 0 0 0 14 90 H 86 A 4 4 0 0 0 90 86 V 12', fill: 'fill' }
+    ],
+    defaultFill: '#F1F5F9',
+    defaultLabel: '',
+    aliases: ['open container', 'u tray', 'beaker', 'memory pool'],
+    tags: ['open', 'container', 'tray', 'memory']
+  },
+  {
+    id: 'ds-matrix-3x3',
+    name: '3×3 Matrix Grid',
+    category: 'dataStructures',
+    sources: ['essentials'],
+    size: [110, 110],
+    paths: [
+      { d: 'M 8 8 H 92 V 92 H 8 Z', fill: 'fill' },
+      { d: 'M 36 8 V 92 M 64 8 V 92 M 8 36 H 92 M 8 64 H 92', fill: 'none', sw: 0.85 }
+    ],
+    defaultFill: '#EDE9FE',
+    defaultLabel: '',
+    aliases: ['matrix 3x3', 'grid 3x3', 'weight matrix'],
+    tags: ['matrix', 'tensor', 'grid', '3x3', 'table']
+  },
+  {
+    id: 'ds-matrix-4x4',
+    name: '4×4 Attention / Weight Matrix',
+    category: 'dataStructures',
+    sources: ['essentials'],
+    size: [124, 124],
+    paths: [
+      { d: 'M 8 8 H 92 V 92 H 8 Z', fill: 'fill' },
+      { d: 'M 29 8 V 92 M 50 8 V 92 M 71 8 V 92 M 8 29 H 92 M 8 50 H 92 M 8 71 H 92', fill: 'none', sw: 0.75 }
+    ],
+    defaultFill: '#E0F2FE',
+    defaultLabel: '',
+    aliases: ['matrix 4x4', 'attention matrix', 'grid 4x4'],
+    tags: ['matrix', 'attention', 'grid', '4x4', 'tensor']
+  },
+  {
+    id: 'ds-causal-mask',
+    name: 'Causal Lower-Triangle Mask',
+    category: 'dataStructures',
+    sources: ['essentials'],
+    size: [120, 120],
+    paths: [
+      { d: 'M 8 8 H 92 V 92 H 8 Z', fill: 'fill' },
+      { d: 'M 29 8 H 92 V 29 H 50 V 50 H 71 V 71 H 92 V 92', fill: 'shade' },
+      { d: 'M 29 8 V 92 M 50 8 V 92 M 71 8 V 92 M 8 29 H 92 M 8 50 H 92 M 8 71 H 92', fill: 'none', sw: 0.75 }
+    ],
+    defaultFill: '#FEF08A',
+    defaultLabel: '',
+    aliases: ['causal mask', 'triangular mask', 'attention mask'],
+    tags: ['matrix', 'causal', 'mask', 'attention', 'transformer']
+  },
+  {
+    id: 'ds-kv-cache',
+    name: 'KV Cache Block Grid',
+    category: 'dataStructures',
+    sources: ['essentials'],
+    size: [160, 68],
+    paths: [
+      { d: 'M 6 10 H 94 V 44 H 6 Z M 6 56 H 94 V 90 H 6 Z', fill: 'fill' },
+      { d: 'M 28 10 V 44 M 50 10 V 44 M 72 10 V 44 M 28 56 V 90 M 50 56 V 90 M 72 56 V 90', fill: 'none', sw: 0.8 }
+    ],
+    defaultFill: '#BAE6FD',
+    defaultLabel: '',
+    aliases: ['kv cache', 'key value cache', 'dual strip'],
+    tags: ['kv', 'cache', 'tensor', 'transformer', 'memory']
   }
 ]
 
 export const SHAPE_LIBRARY: ShapeLibraryFile = rawLibrary as unknown as ShapeLibraryFile
-export const SHAPE_CATEGORIES: ShapeCategoryDef[] = SHAPE_LIBRARY.categories.map((cat) => ({
-  ...cat,
-  description: CATEGORY_DESCRIPTION_OVERRIDES[cat.id] ?? sanitizeDisplayText(cat.description)
-}))
+export const SHAPE_CATEGORIES: ShapeCategoryDef[] = [
+  {
+    id: 'aiAndMath',
+    name: 'AI, Math & Plots',
+    description: 'Neural blocks, RMSNorm/MatMul, axes & function curves',
+    count: AI_AND_MATH_SHAPES.length
+  },
+  {
+    id: 'dataStructures',
+    name: 'Tensors, Arrays & Grids',
+    description: 'Cell strips, vectors, stacks, queues & attention matrices',
+    count: DATA_STRUCTURE_SHAPES.length
+  },
+  ...SHAPE_LIBRARY.categories.map((cat) => ({
+    ...cat,
+    description: CATEGORY_DESCRIPTION_OVERRIDES[cat.id] ?? sanitizeDisplayText(cat.description)
+  }))
+]
 export const ALL_LIBRARY_SHAPES: LibraryShapeDef[] = [
-  ...ML_ARCHITECTURE_SHAPES,
+  ...AI_AND_MATH_SHAPES,
+  ...DATA_STRUCTURE_SHAPES,
   ...SHAPE_LIBRARY.shapes.map((s) => ({
     ...s,
     name: sanitizeDisplayText(s.name)

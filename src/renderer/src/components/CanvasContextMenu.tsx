@@ -3,14 +3,19 @@ import {
   Ban,
   Bot,
   BoxSelect,
+  ClipboardPaste,
   Code2,
   Copy,
+  Crop,
   FilePlus2,
   Focus,
+  ImagePlus,
   Layers,
+  LineChart,
   Palette,
   PenTool,
   RotateCcw,
+  RotateCw,
   Sigma,
   Sparkles,
   Trash2,
@@ -70,6 +75,9 @@ export interface CanvasContextMenuProps {
   onVectorize: () => void
   onTraceOriginal: () => void
   onAIAnnotate: () => void
+  onSendToAntigravity?: () => void
+  onRotateSelection?: (deltaDeg: number, reset?: boolean) => void
+  onOpenGraphBuilder?: () => void
   onApplyFont: (font: FontId) => void
   onShapeFillChange?: (fill: string, opts?: { coalesceHistory?: boolean }) => void
   onShapeStrokeChange?: (stroke: string, opts?: { coalesceHistory?: boolean }) => void
@@ -85,6 +93,9 @@ export interface CanvasContextMenuProps {
   onAddTextAt: (worldX: number, worldY: number) => void
   onAddEquationAt: (worldX: number, worldY: number) => void
   onAddCodeAt: () => void
+  onPasteImageAt?: (worldX: number, worldY: number) => void
+  onUploadImageAt?: (worldX: number, worldY: number) => void
+  onSnipBoardRegion?: () => void
   onAddFlowDiagram?: () => void
   onAddAnimatedArchitecture?: () => void
   onSyncAnimatedWaveFlow?: () => void
@@ -102,7 +113,6 @@ export const CanvasContextMenu = memo(function CanvasContextMenu(
     worldX,
     worldY,
     selectedCount,
-    hasSelectedStrokes,
     hasTextOrShapeSelected,
     hasShapeSelected,
     currentShapeFill,
@@ -112,10 +122,11 @@ export const CanvasContextMenu = memo(function CanvasContextMenu(
     isAiConfigured,
     currentFont,
     onClose,
-    onBeautify,
     onVectorize,
-    onTraceOriginal,
     onAIAnnotate,
+    onSendToAntigravity,
+    onRotateSelection,
+    onOpenGraphBuilder,
     onApplyFont,
     onShapeFillChange,
     onShapeStrokeChange,
@@ -128,6 +139,9 @@ export const CanvasContextMenu = memo(function CanvasContextMenu(
     onAddTextAt,
     onAddEquationAt,
     onAddCodeAt,
+    onPasteImageAt,
+    onUploadImageAt,
+    onSnipBoardRegion,
     onAddFlowDiagram,
     onAddAnimatedArchitecture,
     onSyncAnimatedWaveFlow,
@@ -190,34 +204,44 @@ export const CanvasContextMenu = memo(function CanvasContextMenu(
 
           <button
             type="button"
-            className="ctx-menu-item accent-lilac"
-            disabled={!isAiConfigured}
-            onClick={() => runAndClose(onBeautify)}
-          >
-            <Sparkles size={13} />
-            <span>Beautify Diagram</span>
-            <kbd>Ctrl+B</kbd>
-          </button>
-
-          <button
-            type="button"
             className="ctx-menu-item accent-mint"
             onClick={() => runAndClose(onVectorize)}
           >
             <Wand2 size={13} />
-            <span>Vectorize Selection</span>
-            <kbd>Ctrl+Shift+B</kbd>
+            <span>Vectorize / Beautify</span>
+            <kbd>Ctrl+B</kbd>
           </button>
 
-          {hasSelectedStrokes && (
+          {onSendToAntigravity && (
             <button
               type="button"
-              className="ctx-menu-item"
-              onClick={() => runAndClose(onTraceOriginal)}
+              className="ctx-menu-item accent-yellow"
+              onClick={() => runAndClose(onSendToAntigravity)}
             >
-              <PenTool size={13} />
-              <span>Trace Original Strokes</span>
+              <Sparkles size={13} />
+              <span>Send Selection to Antigravity</span>
             </button>
+          )}
+
+          {onRotateSelection && (
+            <>
+              <button
+                type="button"
+                className="ctx-menu-item"
+                onClick={() => runAndClose(() => onRotateSelection(-90))}
+              >
+                <RotateCcw size={13} />
+                <span>Rotate 90° Left</span>
+              </button>
+              <button
+                type="button"
+                className="ctx-menu-item"
+                onClick={() => runAndClose(() => onRotateSelection(90))}
+              >
+                <RotateCw size={13} />
+                <span>Rotate 90° Right</span>
+              </button>
+            </>
           )}
 
           {isAiConfigured && (
@@ -425,6 +449,40 @@ export const CanvasContextMenu = memo(function CanvasContextMenu(
             <span>Canvas Actions</span>
           </div>
 
+          {onPasteImageAt && (
+            <button
+              type="button"
+              className="ctx-menu-item accent-mint"
+              onClick={() => runAndClose(() => onPasteImageAt(worldX, worldY))}
+            >
+              <ClipboardPaste size={13} />
+              <span>Paste Snippet / Image Here</span>
+              <kbd>Ctrl+V</kbd>
+            </button>
+          )}
+
+          {onUploadImageAt && (
+            <button
+              type="button"
+              className="ctx-menu-item"
+              onClick={() => runAndClose(() => onUploadImageAt(worldX, worldY))}
+            >
+              <ImagePlus size={13} />
+              <span>Insert Image File Here...</span>
+            </button>
+          )}
+
+          {onSnipBoardRegion && (
+            <button
+              type="button"
+              className="ctx-menu-item"
+              onClick={() => runAndClose(onSnipBoardRegion)}
+            >
+              <Crop size={13} />
+              <span>Snip Board Region</span>
+            </button>
+          )}
+
           <button
             type="button"
             className="ctx-menu-item"
@@ -442,6 +500,17 @@ export const CanvasContextMenu = memo(function CanvasContextMenu(
             <Sigma size={13} />
             <span>Add Equation Here</span>
           </button>
+
+          {onOpenGraphBuilder && (
+            <button
+              type="button"
+              className="ctx-menu-item accent-mint"
+              onClick={() => runAndClose(onOpenGraphBuilder)}
+            >
+              <LineChart size={13} />
+              <span>Draw Graph / Function Plot...</span>
+            </button>
+          )}
 
           <button
             type="button"

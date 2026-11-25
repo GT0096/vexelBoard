@@ -2,6 +2,7 @@ import { app, safeStorage } from 'electron'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { dbManager } from './db'
+import { getSkillDetail } from './skillManager'
 import { unescapeLlmCode, unescapeLlmText } from '../shared/textUnescape'
 import {
   formatDiscoveredAssetsForPrompt,
@@ -1075,6 +1076,15 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
       if (ragSnippet) {
         contextPrefix += `[Local Vector Knowledge Matches]\n${ragSnippet}\n\n`
       }
+      if (req.activeSkillIds && req.activeSkillIds.length > 0) {
+        const skillBlocks = req.activeSkillIds
+          .map((sid) => getSkillDetail(sid))
+          .filter((d): d is NonNullable<typeof d> => Boolean(d))
+          .map((d) => `### ${d.name}\n${d.body.slice(0, 2600)}`)
+        if (skillBlocks.length > 0) {
+          contextPrefix += `[ACTIVE AI SKILLS]\n${skillBlocks.join('\n\n')}\n\n`
+        }
+      }
 
       const payload: ChatPayload = {
         model,
@@ -1267,6 +1277,15 @@ export async function runAIRequest(req: AIRequest): Promise<AIResponse> {
     }
     if (projectContext) {
       systemPrompt += `\n\nYou also have visibility into the user's current Project sections and previous whiteboard materials. When helpful, connect answers to their earlier notes, diagrams, code, or books in this project.`
+    }
+    if (req.activeSkillIds && req.activeSkillIds.length > 0) {
+      const skillBlocks = req.activeSkillIds
+        .map((sid) => getSkillDetail(sid))
+        .filter((d): d is NonNullable<typeof d> => Boolean(d))
+        .map((d) => `### ${d.name}\n${d.body.slice(0, 3000)}`)
+      if (skillBlocks.length > 0) {
+        systemPrompt += `\n\n[ACTIVE AI SKILLS — FOLLOW THESE WORKFLOW INSTRUCTIONS]\n${skillBlocks.join('\n\n')}`
+      }
     }
 
     const payload: ChatPayload = {

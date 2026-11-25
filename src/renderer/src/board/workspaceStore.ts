@@ -96,6 +96,7 @@ export function normalizeBoardState(parsed?: Partial<BoardState> | null): BoardS
       )
     })),
     videoNodes: parsed.videoNodes ?? [],
+    imageNodes: parsed.imageNodes ?? [],
     layers,
     activeLayerId
   }
@@ -110,7 +111,8 @@ export function isBoardEmpty(board: BoardState): boolean {
     board.diagramNodes.length === 0 &&
     (board.vectorArtNodes?.length ?? 0) === 0 &&
     (board.codeNodes?.length ?? 0) === 0 &&
-    (board.videoNodes?.length ?? 0) === 0
+    (board.videoNodes?.length ?? 0) === 0 &&
+    (board.imageNodes?.length ?? 0) === 0
   )
 }
 
@@ -231,6 +233,7 @@ function normalizeProjectChatStore(raw: unknown): ProjectChatStore {
         return {
           id: t.id || `thread-${Date.now().toString(36)}`,
           title: t.title || 'Chat',
+          ...(t.color ? { color: t.color } : {}),
           messages: msgs,
           createdAt: typeof t.createdAt === 'number' ? t.createdAt : Date.now(),
           updatedAt:
@@ -496,6 +499,18 @@ export function buildElementsForDb(
       raw: n
     })
   )
+  board.imageNodes?.forEach((n) =>
+    elements.push({
+      id: n.id,
+      kind: 'image',
+      x: n.x,
+      y: n.y,
+      w: n.w,
+      h: n.h,
+      text: n.caption || 'Image Snippet',
+      raw: n
+    })
+  )
   board.strokes.forEach((st) => {
     const first = st.points[0] ?? [0, 0]
     elements.push({
@@ -537,7 +552,8 @@ export function reconstructBoardFromDbElements(rows: unknown[]): BoardState {
     vectorArtNodes: [],
     vectorDiagramMeta: {},
     codeNodes: [],
-    videoNodes: []
+    videoNodes: [],
+    imageNodes: []
   }
 
   for (const rawItem of rows) {
@@ -564,6 +580,8 @@ export function reconstructBoardFromDbElements(rows: unknown[]): BoardState {
       board.codeNodes!.push(rawItem as NonNullable<BoardState['codeNodes']>[number])
     } else if (typeof item.videoId === 'string' && typeof item.url === 'string') {
       board.videoNodes!.push(rawItem as NonNullable<BoardState['videoNodes']>[number])
+    } else if (typeof item.src === 'string' && typeof item.w === 'number' && typeof item.h === 'number') {
+      board.imageNodes!.push(rawItem as NonNullable<BoardState['imageNodes']>[number])
     }
   }
   return normalizeBoardState(board)
@@ -581,7 +599,8 @@ export function computeSectionBreakdown(board: BoardState): {
     code: board.codeNodes?.length ?? 0,
     videos: board.videoNodes?.length ?? 0,
     shapes: board.shapeNodes.length,
-    strokes: board.strokes.length
+    strokes: board.strokes.length,
+    images: board.imageNodes?.length ?? 0
   }
   const total =
     breakdown.notes +
@@ -590,7 +609,8 @@ export function computeSectionBreakdown(board: BoardState): {
     breakdown.code +
     breakdown.videos +
     breakdown.shapes +
-    breakdown.strokes
+    breakdown.strokes +
+    (breakdown.images ?? 0)
 
   const firstNote = board.textNodes[board.textNodes.length - 1]
   const firstDiagram = board.diagramNodes[board.diagramNodes.length - 1]
@@ -858,6 +878,7 @@ export async function createNewSection(input: {
   projectId: string
   title: string
   description?: string
+  color?: string
 }): Promise<SectionItem> {
   const id = `sec-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
   const api = window.glassAPI
@@ -872,10 +893,11 @@ export async function createNewSection(input: {
     projectId: input.projectId,
     title: input.title.trim() || 'Untitled Section',
     description: input.description?.trim() || undefined,
+    color: input.color,
     createdAt: now,
     updatedAt: now,
     elementCount: 0,
-    breakdown: { notes: 0, diagrams: 0, equations: 0, code: 0, videos: 0, shapes: 0, strokes: 0 }
+    breakdown: { notes: 0, diagrams: 0, equations: 0, code: 0, videos: 0, shapes: 0, strokes: 0, images: 0 }
   }
   writeLocalSections([created, ...readLocalSections()])
   writeLocalProjects(
@@ -886,7 +908,7 @@ export async function createNewSection(input: {
 
 export async function editSection(
   sectionId: string,
-  patch: { title?: string; description?: string }
+  patch: { title?: string; description?: string; color?: string }
 ): Promise<SectionItem | null> {
   const api = window.glassAPI
   if (api?.updateSection) {

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { EMPTY_BOARD, type AppSettings, type BoardState } from '../types/board'
-import { DEFAULT_PROVIDER_MODELS, resolveOpenAIModelProfile } from '@shared/ipc'
+import {
+  DEFAULT_PROVIDER_MODELS,
+  DEFAULT_WEB_SEARCH_SETTINGS,
+  resolveOpenAIModelProfile
+} from '@shared/ipc'
 import {
   buildElementsForDb,
   isBoardEmpty,
@@ -210,6 +214,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dominantHand: 'right',
   inkSize: 4,
   penType: 'fountain',
+  shapesMode: false,
+  circleToSelect: true,
   backgroundColor: '#FFFDF7',
   backgroundPattern: 'dots',
   ai: {
@@ -224,6 +230,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     },
     temperature: 0.3,
     openaiModelProfile: resolveOpenAIModelProfile(DEFAULT_PROVIDER_MODELS.openai),
+    webSearch: { ...DEFAULT_WEB_SEARCH_SETTINGS },
+    activeSkillIds: [],
     configured: false
   }
 }
@@ -239,6 +247,17 @@ export function useSettings(): [AppSettings, (patch: Partial<AppSettings>) => vo
         ...DEFAULT_SETTINGS.ai,
         ...(p.ai ?? {}),
         byokModels: mergedByok,
+        activeSkillIds: Array.isArray(p.ai?.activeSkillIds) ? p.ai.activeSkillIds : [],
+        webSearch: {
+          ...DEFAULT_WEB_SEARCH_SETTINGS,
+          ...(p.ai?.webSearch ?? {}),
+          // Migrate old default before providerMode existed so users never hit an absent Docker port
+          providerMode:
+            p.ai?.webSearch?.providerMode ??
+            (p.ai?.webSearch?.searxngUrl && p.ai.webSearch.searxngUrl !== 'http://localhost:8888'
+              ? 'searxng'
+              : 'builtin')
+        },
         temperature:
           typeof p.ai?.temperature === 'number' && Number.isFinite(p.ai.temperature)
             ? p.ai.temperature

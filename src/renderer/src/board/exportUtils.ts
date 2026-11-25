@@ -50,6 +50,11 @@ export function exportToSvg(board: BoardState, themeId: ThemeId, customBgColor?:
     allY.push(v.y, v.y + v.height)
   })
 
+  ;(board.imageNodes ?? []).forEach((img) => {
+    allX.push(img.x, img.x + (img.w ?? 360))
+    allY.push(img.y, img.y + (img.h ?? 260))
+  })
+
   if (allX.length > 0) {
     minX = Math.min(...allX) - 60
     minY = Math.min(...allY) - 60

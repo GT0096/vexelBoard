@@ -6,7 +6,6 @@ import {
   Eraser,
   Square,
   StickyNote,
-  Sparkles,
   LayoutTemplate,
   Diamond,
   Database,
@@ -30,12 +29,22 @@ import {
   Video,
   BookOpen,
   Wand2,
-  Loader2
+  Loader2,
+  Lasso,
+  ImagePlus,
+  ClipboardPaste,
+  Crop,
+  Upload,
+  Pencil,
+  Brush,
+  LineChart
 } from 'lucide-react'
 import type { CodeTabItem, PenType, ToolType } from '../types/board'
 import type { BoardPalette } from '../board/backgroundPresets'
+import type { GraphPlotSpec } from '../board/graphPlotBuilder'
 import { resolvePenColorHex } from '../board/penUtils'
 import { PenControls } from './PenControls'
+import { GraphBuilderFlyout } from './GraphBuilderFlyout'
 import {
   ALL_LIBRARY_SHAPES,
   ANIMATED_LINE_SHAPES,
@@ -59,8 +68,10 @@ export interface LeftDockToolbarProps {
       animated?: boolean
     }
   ) => void
-  onAddStickyNote: (color: string) => void
+  onAddStickyNote: (color: string, title?: string) => void
   onAddTemplate: (templateId: string) => void
+  onInsertGraph?: (spec: GraphPlotSpec) => void
+  openGraphTrigger?: number
   onBeautify: () => void
   isBeautifying?: boolean
   onVectorize?: () => void
@@ -70,6 +81,12 @@ export interface LeftDockToolbarProps {
   onAddCodeNode?: (initialTab?: CodeTabItem) => void
   onOpenKnowledgeHub?: () => void
   onAddYouTubeVideo?: () => void
+  onPasteImageFromClipboard?: () => void
+  onUploadImageFile?: () => void
+  shapesMode?: boolean
+  onToggleShapesMode?: (next: boolean) => void
+  circleToSelect?: boolean
+  onToggleCircleToSelect?: (next: boolean) => void
   boardPalette?: BoardPalette
   penColor: string
   onPenColor: (c: string) => void
@@ -163,15 +180,22 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
   onAddShapeNode,
   onAddStickyNote,
   onAddTemplate,
+  onInsertGraph,
+  openGraphTrigger,
   onBeautify,
   isBeautifying,
   onVectorize,
   isVectorizing,
-  isAiConfigured = true,
   hasSelection,
   onAddCodeNode,
   onOpenKnowledgeHub,
   onAddYouTubeVideo,
+  onPasteImageFromClipboard,
+  onUploadImageFile,
+  shapesMode,
+  onToggleShapesMode,
+  circleToSelect,
+  onToggleCircleToSelect,
   boardPalette,
   penColor,
   onPenColor,
@@ -182,16 +206,28 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
   themeInk,
   themeAccent
 }) => {
-  const [openFlyout, setOpenFlyout] = useState<'pen' | 'shapes' | 'stickies' | 'templates' | null>(null)
+  const [openFlyout, setOpenFlyout] = useState<
+    'pen' | 'shapes' | 'graphs' | 'stickies' | 'templates' | 'images' | null
+  >(null)
   const [selectedDockItem, setSelectedDockItem] = useState<string>(activeTool)
+  const [stickyTitleDraft, setStickyTitleDraft] = useState('')
   const resolvedPenColor = resolvePenColorHex(penColor, themeInk, themeAccent)
   const [searchQuery, setSearchQuery] = useState('')
+
+  useEffect(() => {
+    if (openGraphTrigger && openGraphTrigger > 0) {
+      setSelectedDockItem('graphs')
+      setOpenFlyout('graphs')
+    }
+  }, [openGraphTrigger])
 
   useEffect(() => {
     if (
       activeTool === 'select' ||
       activeTool === 'pan' ||
       activeTool === 'pen' ||
+      activeTool === 'lasso' ||
+      activeTool === 'snip' ||
       activeTool === 'eraser'
     ) {
       setSelectedDockItem(activeTool)
@@ -331,7 +367,9 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
     return () => flyoutEl.removeEventListener('wheel', handleFlyoutWheel)
   }, [openFlyout])
 
-  const toggleFlyout = (flyout: 'pen' | 'shapes' | 'stickies' | 'templates'): void => {
+  const toggleFlyout = (
+    flyout: 'pen' | 'shapes' | 'graphs' | 'stickies' | 'templates' | 'images'
+  ): void => {
     setOpenFlyout((prev) => (prev === flyout ? null : flyout))
   }
 
@@ -437,10 +475,12 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
 
       <div className="vx-dock-divider" />
 
-      {/* 3. Pen Drawing Tool (Click = Select Pen · Double-click = Open Pen Style Tab) */}
+      {/* 3. Pen / Pencil / Brush Tool (Click = Select Pen · Double-click = Open Pen Style Tab) */}
       <button
         type="button"
-        className={`vx-dock-btn vx-pen-btn ${selectedDockItem === 'pen' || openFlyout === 'pen' ? 'active' : ''}`}
+        className={`vx-dock-btn vx-pen-btn ${
+          (selectedDockItem === 'pen' && activeTool === 'pen') || openFlyout === 'pen' ? 'active' : ''
+        }`}
         onClick={() => {
           setSelectedDockItem('pen')
           onSelectTool('pen')
@@ -452,14 +492,34 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
           onSelectTool('pen')
           toggleFlyout('pen')
         }}
-        title="Pen (P) — Click to select · Double-click to open Color & Brush tab"
+        title="Pen / Pencil / Brush (P) — Click to draw · Double-click for Pen, Pencil & Brush styles"
       >
-        <PenTool size={18} />
+        {penType === 'pencil' ? (
+          <Pencil size={18} />
+        ) : penType === 'brush' || penType === 'marker' || penType === 'highlighter' ? (
+          <Brush size={18} />
+        ) : (
+          <PenTool size={18} />
+        )}
         <span
           className="vx-pen-color-dot"
           style={{ background: resolvedPenColor }}
           aria-hidden="true"
         />
+      </button>
+
+      {/* 3b. iPad-Style Pen Lasso Selection Tool */}
+      <button
+        type="button"
+        className={`vx-dock-btn ${selectedDockItem === 'lasso' && activeTool === 'lasso' ? 'active' : ''}`}
+        onClick={() => {
+          setSelectedDockItem('lasso')
+          onSelectTool('lasso')
+          setOpenFlyout(null)
+        }}
+        title="Pen Lasso Select (G) — Circle any area with your pen to select elements inside"
+      >
+        <Lasso size={18} />
       </button>
 
       {/* 4. Eraser Tool */}
@@ -494,6 +554,21 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
         title="Shapes & Components — Click to select · Double-click to open tab"
       >
         <Square size={18} />
+        <span className="vx-dock-expand-dot" aria-hidden="true" />
+      </button>
+
+      {/* 5b. Draw Graph / Function & Data Plot */}
+      <button
+        type="button"
+        className={`vx-dock-btn ${openFlyout === 'graphs' ? 'active' : selectedDockItem === 'graphs' ? 'selected-item' : ''}`}
+        onClick={() => {
+          setSelectedDockItem('graphs')
+          toggleFlyout('graphs')
+        }}
+        title="Draw Graph / Function & Data Plot"
+        style={{ color: '#0284c7' }}
+      >
+        <LineChart size={18} />
         <span className="vx-dock-expand-dot" aria-hidden="true" />
       </button>
 
@@ -576,7 +651,28 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
         <span className="vx-dock-expand-dot" aria-hidden="true" />
       </button>
 
-      {/* 8c. Knowledge Studio (Click = Select · Double-click = Open Knowledge Studio Tab) */}
+      {/* 8c. Insert Image or Just-Taken Snippet */}
+      <button
+        type="button"
+        className={`vx-dock-btn ${
+          openFlyout === 'images' || activeTool === 'snip'
+            ? 'active'
+            : selectedDockItem === 'images'
+              ? 'selected-item'
+              : ''
+        }`}
+        onClick={() => {
+          setSelectedDockItem('images')
+          toggleFlyout('images')
+        }}
+        title="Insert Image or Paste Latest Screenshot/Snippet (Ctrl+V)"
+        style={{ color: '#0891b2' }}
+      >
+        <ImagePlus size={18} />
+        <span className="vx-dock-expand-dot" aria-hidden="true" />
+      </button>
+
+      {/* 8d. Knowledge Studio (Click = Select · Double-click = Open Knowledge Studio Tab) */}
       <button
         type="button"
         className={`vx-dock-btn ${selectedDockItem === 'knowledge' ? 'selected-item' : ''}`}
@@ -599,55 +695,112 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
 
       <div className="vx-dock-divider" />
 
-      {/* 9. AI Diagram Beautifier (Click = Select · Double-click = Run Beautify) */}
+      {/* 9. Unified Smart Vectorize & Beautify (Single Smartly-Routed Button!) */}
       <button
         type="button"
-        className={`vx-dock-btn magic-ai ${isBeautifying ? 'active' : selectedDockItem === 'beautify' ? 'selected-item' : ''}`}
+        className={`vx-dock-btn magic-vector ${
+          isBeautifying || isVectorizing
+            ? 'active'
+            : selectedDockItem === 'beautify'
+              ? 'selected-item'
+              : ''
+        }`}
         onClick={() => {
           setSelectedDockItem('beautify')
           setOpenFlyout(null)
+          if (!isBeautifying && !isVectorizing) {
+            ;(onVectorize ?? onBeautify)()
+          }
         }}
-        onDoubleClick={(e) => {
-          e.stopPropagation()
-          setSelectedDockItem('beautify')
-          if (isAiConfigured && !isBeautifying) onBeautify()
-        }}
-        disabled={!isAiConfigured || isBeautifying}
+        disabled={Boolean(isBeautifying || isVectorizing)}
         title={
-          !isAiConfigured
-            ? 'AI Beautify disabled — configure AI Settings first'
-            : hasSelection
-              ? 'Beautify Diagram — Click to select · Double-click to run (Ctrl+B)'
-              : 'Beautify Diagram — Click to select · Double-click to run (Ctrl+B)'
+          hasSelection
+            ? 'Smart Vectorize & Beautify Selection (Ctrl+B) — Local shapes/OCR first, smart diagram/vector routing'
+            : 'Smart Vectorize & Beautify Board Sketch (Ctrl+B)'
         }
       >
-        {isBeautifying ? <Loader2 size={18} className="spin-animate" /> : <Sparkles size={18} />}
-        <span className="vx-dock-expand-dot" aria-hidden="true" />
+        {isBeautifying || isVectorizing ? (
+          <Loader2 size={18} className="spin-animate" />
+        ) : (
+          <Wand2 size={18} />
+        )}
       </button>
 
-      {/* 10. Vectorizer (Click = Select · Double-click = Run Vectorize) */}
-      {onVectorize && (
-        <button
-          type="button"
-          className={`vx-dock-btn magic-vector ${isVectorizing ? 'active' : selectedDockItem === 'vectorize' ? 'selected-item' : ''}`}
-          onClick={() => {
-            setSelectedDockItem('vectorize')
-            setOpenFlyout(null)
-          }}
-          onDoubleClick={(e) => {
-            e.stopPropagation()
-            setSelectedDockItem('vectorize')
-            if (!isVectorizing) onVectorize()
-          }}
-          disabled={isVectorizing}
-          title="Vectorize — Click to select · Double-click to run (Ctrl+Shift+B)"
-        >
-          {isVectorizing ? <Loader2 size={18} className="spin-animate" /> : <Wand2 size={18} />}
-          <span className="vx-dock-expand-dot" aria-hidden="true" />
-        </button>
-      )}
-
       {/* ---------------- Flyout Panels ---------------- */}
+
+      {/* 0a. Insert Image or Snippet Flyout */}
+      {openFlyout === 'images' && (
+        <div
+          ref={flyoutRef}
+          className="vx-flyout-panel image-insert-flyout"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="vx-flyout-header">
+            <div className="vx-flyout-title">
+              <ImagePlus size={14} />
+              <span>Insert Image / Snippet</span>
+            </div>
+            <button
+              type="button"
+              className="vx-flyout-close-btn"
+              title="Close panel"
+              onClick={() => setOpenFlyout(null)}
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div className="vx-template-list">
+            <button
+              type="button"
+              className="vx-template-card"
+              onClick={() => {
+                setOpenFlyout(null)
+                onPasteImageFromClipboard?.()
+              }}
+            >
+              <span className="vx-template-icon">
+                <ClipboardPaste size={16} />
+              </span>
+              <span className="vx-template-info">
+                <strong>Paste Snippet Just Taken (Ctrl+V)</strong>
+                <small>Inserts the latest screenshot or copied image from your clipboard</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="vx-template-card"
+              onClick={() => {
+                setOpenFlyout(null)
+                onUploadImageFile?.()
+              }}
+            >
+              <span className="vx-template-icon">
+                <Upload size={16} />
+              </span>
+              <span className="vx-template-info">
+                <strong>Upload Image File...</strong>
+                <small>Choose PNG, JPG, WebP, GIF, or SVG from your computer</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="vx-template-card"
+              onClick={() => {
+                setOpenFlyout(null)
+                onSelectTool('snip')
+              }}
+            >
+              <span className="vx-template-icon">
+                <Crop size={16} />
+              </span>
+              <span className="vx-template-info">
+                <strong>Snip Board Region</strong>
+                <small>Drag over any canvas area to capture a movable snippet card</small>
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 0. Pen Settings Flyout (Color, Thickness, Pen Type) */}
       {openFlyout === 'pen' && (
@@ -682,6 +835,10 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
             themeAccent={themeAccent}
             boardPalette={boardPalette}
             onActivatePen={() => onSelectTool('pen')}
+            shapesMode={shapesMode}
+            onToggleShapesMode={onToggleShapesMode}
+            circleToSelect={circleToSelect}
+            onToggleCircleToSelect={onToggleCircleToSelect}
           />
         </div>
       )}
@@ -963,6 +1120,17 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
             </button>
           </div>
 
+          <div className="vx-sticky-title-row">
+            <input
+              type="text"
+              className="vx-sticky-title-input"
+              placeholder="Optional card title (e.g. Key Formula)..."
+              value={stickyTitleDraft}
+              onChange={(e) => setStickyTitleDraft(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </div>
+
           <div className="vx-sticky-swatches">
             {STICKY_COLORS.map((s) => (
               <button
@@ -972,13 +1140,23 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
                 style={{ backgroundColor: s.color }}
                 title={`${s.name} Sticky Note`}
                 onClick={() => {
-                  onAddStickyNote(s.color)
+                  const titleToUse = stickyTitleDraft.trim() || undefined
+                  onAddStickyNote(s.color, titleToUse)
+                  setStickyTitleDraft('')
                   setOpenFlyout(null)
                 }}
               />
             ))}
           </div>
         </div>
+      )}
+
+      {/* B2. Interactive Graph & Function Plotter Flyout */}
+      {openFlyout === 'graphs' && onInsertGraph && (
+        <GraphBuilderFlyout
+          onInsertGraph={onInsertGraph}
+          onClose={() => setOpenFlyout(null)}
+        />
       )}
 
       {/* C. Templates Flyout */}

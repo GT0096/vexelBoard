@@ -1,6 +1,18 @@
 import type { InkPoint, ShapeKind, ShapeNode } from '../types/board'
 
-export type HoldSnapKind = 'line' | 'arrow' | 'rect' | 'diamond' | 'triangle' | 'circle'
+export type HoldSnapKind =
+  | 'line'
+  | 'arrow'
+  | 'rect'
+  | 'diamond'
+  | 'triangle'
+  | 'right-triangle'
+  | 'triangle-down'
+  | 'parallelogram'
+  | 'pentagon'
+  | 'hexagon'
+  | 'star-5'
+  | 'circle'
 
 export interface HoldSnapResult {
   kind: HoldSnapKind
@@ -10,6 +22,7 @@ export interface HoldSnapResult {
   h: number
   /** For triangles/diamonds/rects, exact bounding box; for line/arrow, (x,y) -> (x+w, y+h) */
   isPerfectCircle?: boolean
+  confidence?: number
 }
 
 export interface Point2D {
@@ -322,12 +335,43 @@ export function classifyHoldStroke(rawPoints: InkPoint[] | Point2D[]): HoldSnapR
 
   // 4. Polygons by aggressive RDP corner count
   if (corners.length === 3) {
+    const topVerts = corners.filter((c) => c.y <= b.minY + b.h * 0.3)
+    const botVerts = corners.filter((c) => c.y >= b.maxY - b.h * 0.3)
+    let triKind: HoldSnapKind = 'triangle'
+    if (topVerts.length === 2 && botVerts.length === 1) {
+      triKind = 'triangle-down'
+    } else if (topVerts.length === 1 && Math.abs(topVerts[0].x - b.minX) < b.w * 0.22) {
+      triKind = 'right-triangle'
+    }
     return {
-      kind: 'triangle',
+      kind: triKind,
       x: Math.round(b.minX),
       y: Math.round(b.minY),
       w: Math.round(b.w),
-      h: Math.round(b.h)
+      h: Math.round(b.h),
+      confidence: Math.max(0.82, 1 - polyErr * 2)
+    }
+  }
+
+  if (corners.length === 5 && polygonFitError(corners) < 0.14) {
+    return {
+      kind: 'pentagon',
+      x: Math.round(b.minX),
+      y: Math.round(b.minY),
+      w: Math.round(b.w),
+      h: Math.round(b.h),
+      confidence: 0.85
+    }
+  }
+
+  if (corners.length === 6 && polygonFitError(corners) < 0.14) {
+    return {
+      kind: 'hexagon',
+      x: Math.round(b.minX),
+      y: Math.round(b.minY),
+      w: Math.round(b.w),
+      h: Math.round(b.h),
+      confidence: 0.86
     }
   }
 
@@ -373,12 +417,32 @@ export function classifyHoldStroke(rawPoints: InkPoint[] | Point2D[]): HoldSnapR
     }
 
     if (cornerErr < diag * 0.22) {
+      const isSquare = aspect >= 0.85 && aspect <= 1.18
+      const side = Math.round((b.w + b.h) / 2)
       return {
         kind: 'rect',
+        x: isSquare ? Math.round(cx - side / 2) : Math.round(b.minX),
+        y: isSquare ? Math.round(cy - side / 2) : Math.round(b.minY),
+        w: isSquare ? side : Math.round(b.w),
+        h: isSquare ? side : Math.round(b.h),
+        confidence: Math.max(0.84, 1 - polyErr * 2)
+      }
+    }
+
+    const sortedY = [...corners].sort((a, b2) => a.y - b2.y)
+    const topP = sortedY.slice(0, 2).sort((a, b2) => a.x - b2.x)
+    const botP = sortedY.slice(2, 4).sort((a, b2) => a.x - b2.x)
+    const topW = topP[1].x - topP[0].x
+    const botW = botP[1].x - botP[0].x
+    const skew = Math.abs((topP[0].x + topP[1].x) / 2 - (botP[0].x + botP[1].x) / 2)
+    if (Math.abs(topW - botW) < b.w * 0.26 && skew > b.w * 0.13) {
+      return {
+        kind: 'parallelogram',
         x: Math.round(b.minX),
         y: Math.round(b.minY),
         w: Math.round(b.w),
-        h: Math.round(b.h)
+        h: Math.round(b.h),
+        confidence: 0.84
       }
     }
   }

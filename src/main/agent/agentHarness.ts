@@ -7,6 +7,7 @@ import type {
   AgentRunResult,
   AgentStepEvent
 } from '../../shared/agentSchema'
+import { selectSkillsForPrompt } from '../skillManager'
 
 function unescapeLlmText(raw: string | undefined | null): string {
   if (!raw || typeof raw !== 'string') return ''
@@ -17,12 +18,18 @@ function unescapeLlmText(raw: string | undefined | null): string {
   return out.trim()
 }
 
-const MAX_TOOL_RESULT_CHARS = 4500
+const MAX_TOOL_RESULT_CHARS = 8000
 
 export interface AgentToolContext {
   boardSnapshot: AgentBoardSnapshot
   activeCodeContext?: AgentActiveCodeContext
   selectedSourceIds?: string[]
+  webSearch?: {
+    enabled: boolean
+    providerMode?: 'builtin' | 'searxng'
+    searxngUrl: string
+    allowFallback: boolean
+  }
   signal: AbortSignal
   pushMutation: (mutation: AgentBoardMutation) => void
   emit: (event: Omit<AgentStepEvent, 'runId' | 'step' | 'maxSteps' | 'timestamp'>) => void
@@ -263,7 +270,8 @@ function getModeGuidance(mode: AgentRunRequest['mode']): string {
       )
     case 'research':
       return (
-        'MODE = research: Ground answers in uploaded PDFs/docs/YouTube sources using `search_knowledge_base` or `fetch_youtube`, and add helpful notes/equations/diagrams on the board.'
+        'MODE = research: Ground answers in uploaded PDFs/docs/YouTube sources using `search_knowledge_base` or `fetch_youtube`, ' +
+        'and search the live internet with `web_search` and `fetch_webpage` for current facts or external documentation, adding helpful notes/equations/diagrams on the board.'
       )
     default:
       return (
@@ -289,8 +297,47 @@ function buildAgentSystemPrompt(
     .map((t) => `- ${t.name}: ${t.description}\n  args JSON: ${t.argHint}`)
     .join('\n')
 
+  const { catalog: skillCatalog, activeDetails: pinnedSkills } = selectSkillsForPrompt(
+    request.prompt,
+    request.activeSkillIds
+  )
+
+  const skillsCatalogBlock =
+    skillCatalog.length > 0
+      ? [
+          '',
+          'AVAILABLE AI SKILLS (Progressive Disclosure — call `activate_skill` when relevant, or `list_skills` to discover more):',
+          ...skillCatalog.slice(0, 22).map((s) => `- ${s.name} [${s.source}]: ${s.description}`)
+        ].join('\n')
+      : ''
+
+  const pinnedSkillsBlock =
+    pinnedSkills.length > 0
+      ? [
+          '',
+          'ACTIVE PINNED SKILLS (User explicitly enabled these — follow their procedures):',
+          ...pinnedSkills.map((d) => `### Skill: ${d.name}\n${truncateText(d.body, 3200)}`)
+        ].join('\n\n')
+      : ''
+
+  const hasWebTools = filteredTools.some(
+    (t) => t.name === 'web_search' || t.name === 'fetch_webpage'
+  )
+  const webResearchRules = hasWebTools
+    ? [
+        '',
+        'WEB RESEARCH RULES:',
+        '- Use `web_search` for current events, latest versions/releases, prices, facts you are unsure of, or external references not on the board or in the Knowledge Hub.',
+        '- Prefer `search_knowledge_base` first when the question is specifically about uploaded Knowledge Hub sources.',
+        '- After searching, call `fetch_webpage` (you can batch up to 3 URLs in one `tools` action) on the most relevant result URLs, passing `query` so key passages are extracted.',
+        '- Never invent URLs or quotes; cite real retrieved sources as Markdown links `[title](url)` in your final answer or inside any note cards you create.',
+        '- If internet search fails or returns no useful results, state that clearly instead of guessing.'
+      ].join('\n')
+    : ''
+
   return [
     'You are VexelBot Agent, an autonomous spatial whiteboard studio assistant in Vexelboard.',
+    `Current date: ${new Date().toISOString().slice(0, 10)}.`,
     'You MUST respond ONLY with a single valid JSON object on every turn (no markdown fences, no extra prose):',
     '1) Single tool: {"thought":"...","action":{"type":"tool","tool":"<tool_name>","args":{...}}}',
     '2) Batch tools (create diagram + note + equation together in 1 turn): {"thought":"...","action":{"type":"tools","calls":[{"tool":"<name>","args":{...}}, ...]}}',
@@ -317,8 +364,13 @@ function buildAgentSystemPrompt(
     '- For `create_vector_diagram`, `scene` MUST have `{"title":"...","elements":[...]}` where every element uses `"type": "shape" | "svg_path" | "connector" | "cell_strip" | "text"`. Keep `0..1000` local coordinates.',
     '',
     'AVAILABLE TOOLS:',
-    toolCatalog
-  ].join('\n')
+    toolCatalog,
+    webResearchRules,
+    skillsCatalogBlock,
+    pinnedSkillsBlock
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 function buildSeedHistory(
@@ -401,10 +453,14 @@ export async function runAgentLoop(opts: {
   }
 
   const signal = runController.signal
-  const toolMap = new Map<string, AgentToolDefinition>(tools.map((t) => [t.name, t]))
+  const activeTools =
+    request.webSearch?.enabled === false
+      ? tools.filter((t) => t.name !== 'web_search' && t.name !== 'fetch_webpage')
+      : tools
+  const toolMap = new Map<string, AgentToolDefinition>(activeTools.map((t) => [t.name, t]))
   const mutations: AgentBoardMutation[] = []
   const usedTools: string[] = []
-  const systemPrompt = buildAgentSystemPrompt(tools, request)
+  const systemPrompt = buildAgentSystemPrompt(activeTools, request)
   const initialUserPrompt = buildInitialUserPrompt(request)
 
   const emit = (
@@ -574,6 +630,7 @@ export async function runAgentLoop(opts: {
             boardSnapshot: request.boardSnapshot,
             activeCodeContext: request.activeCodeContext,
             selectedSourceIds: request.selectedSourceIds,
+            webSearch: request.webSearch,
             signal,
             pushMutation: (mutation) => {
               mutations.push(mutation)

@@ -9,6 +9,7 @@ import {
   Palette,
   PenTool,
   RotateCcw,
+  RotateCw,
   Sparkles,
   Trash2,
   Type,
@@ -41,6 +42,7 @@ interface VectorActionToolbarProps {
   onRevertArtToSketch: (artId: string) => void
   onToggleDiagramDirection: (groupId: string, nextDirection: DiagramDirection) => void
   onRevertDiagramToSketch: (groupId: string) => void
+  onRotateSelection?: (deltaDeg: number, reset?: boolean) => void
 }
 
 const SHAPE_FILL_SWATCHES = [
@@ -103,7 +105,8 @@ export const VectorActionToolbar = React.memo(function VectorActionToolbar(
     onRerunArtStyle,
     onRevertArtToSketch,
     onToggleDiagramDirection,
-    onRevertDiagramToSketch
+    onRevertDiagramToSketch,
+    onRotateSelection
   } = props
 
   const [openMenu, setOpenMenu] = useState<'fill' | 'border' | 'text' | null>(null)
@@ -228,6 +231,27 @@ export const VectorActionToolbar = React.memo(function VectorActionToolbar(
           <Layers size={13} />
           Ungroup
         </button>
+
+        {onRotateSelection && (
+          <div className="vector-style-pills" role="group" aria-label="Rotate vector art">
+            <button
+              type="button"
+              className="vector-ctx-btn"
+              onClick={() => onRotateSelection(-90)}
+              title="Rotate 90° counter-clockwise"
+            >
+              <RotateCcw size={12} />
+            </button>
+            <button
+              type="button"
+              className="vector-ctx-btn"
+              onClick={() => onRotateSelection(90)}
+              title="Rotate 90° clockwise"
+            >
+              <RotateCw size={12} />
+            </button>
+          </div>
+        )}
 
         {canSwitchStyle && (
           <button
@@ -394,6 +418,27 @@ export const VectorActionToolbar = React.memo(function VectorActionToolbar(
               <RotateCcw size={12} />
               Revert
             </button>
+          )}
+
+          {onRotateSelection && !hasShapes && (
+            <div className="vector-style-pills" role="group" aria-label="Rotate diagram">
+              <button
+                type="button"
+                className="vector-ctx-btn"
+                onClick={() => onRotateSelection(-90)}
+                title="Rotate selected diagram 90° left"
+              >
+                <RotateCcw size={12} />
+              </button>
+              <button
+                type="button"
+                className="vector-ctx-btn"
+                onClick={() => onRotateSelection(90)}
+                title="Rotate selected diagram 90° right"
+              >
+                <RotateCw size={12} />
+              </button>
+            </div>
           )}
 
           {hasShapes && <span className="vector-ctx-sep" />}
@@ -854,6 +899,27 @@ export const VectorActionToolbar = React.memo(function VectorActionToolbar(
               <Type size={12} />
               <span>Edit</span>
             </button>
+          )}
+
+          {onRotateSelection && (
+            <div className="vector-style-pills" role="group" aria-label="Rotate selection">
+              <button
+                type="button"
+                className="vector-ctx-btn"
+                onClick={() => onRotateSelection(-90)}
+                title="Rotate 90° counter-clockwise (or drag top rotation handle)"
+              >
+                <RotateCcw size={12} />
+              </button>
+              <button
+                type="button"
+                className="vector-ctx-btn"
+                onClick={() => onRotateSelection(90)}
+                title="Rotate 90° clockwise (or drag top rotation handle)"
+              >
+                <RotateCw size={12} />
+              </button>
+            </div>
           )}
 
           {!hasTopSelectionBar && (onDeleteSelected || onClearSelection) && (

@@ -310,6 +310,7 @@ class DatabaseManager {
         project_id TEXT NOT NULL,
         title TEXT NOT NULL,
         description TEXT,
+        color TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -322,6 +323,12 @@ class DatabaseManager {
         FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
     `)
+
+    try {
+      this.db.exec('ALTER TABLE sections ADD COLUMN color TEXT')
+    } catch {
+      /* column already exists */
+    }
 
     // FTS5 Tables
     try {
@@ -1036,7 +1043,8 @@ class DatabaseManager {
         code: 0,
         videos: 0,
         shapes: 0,
-        strokes: 0
+        strokes: 0,
+        images: 0
       }
       let total = 0
       for (const kr of kindRows) {
@@ -1049,6 +1057,7 @@ class DatabaseManager {
         else if (kr.kind === 'video') breakdown.videos += cnt
         else if (kr.kind === 'shape') breakdown.shapes += cnt
         else if (kr.kind === 'stroke') breakdown.strokes += cnt
+        else if (kr.kind === 'image') breakdown.images = (breakdown.images ?? 0) + cnt
       }
       const prevRow = previewStmt.get(r.id) as { content_text?: string } | undefined
       const previewText = prevRow?.content_text
@@ -1060,6 +1069,7 @@ class DatabaseManager {
         projectId: r.project_id,
         title: r.title,
         description: r.description || undefined,
+        color: r.color || undefined,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
         elementCount: total,
@@ -1074,6 +1084,7 @@ class DatabaseManager {
     projectId: string
     title: string
     description?: string
+    color?: string
   }): SectionItem {
     const now = Date.now()
     const item: SectionItem = {
@@ -1081,24 +1092,34 @@ class DatabaseManager {
       projectId: input.projectId,
       title: input.title.trim() || 'Untitled Section',
       description: input.description?.trim() || undefined,
+      color: input.color || undefined,
       createdAt: now,
       updatedAt: now,
       elementCount: 0,
-      breakdown: { notes: 0, diagrams: 0, equations: 0, code: 0, videos: 0, shapes: 0, strokes: 0 }
+      breakdown: { notes: 0, diagrams: 0, equations: 0, code: 0, videos: 0, shapes: 0, strokes: 0, images: 0 }
     }
     if (!this.ensureInit() || !this.db) return item
 
     this.runTransaction(() => {
       this.db!
         .prepare(`
-          INSERT INTO sections (id, project_id, title, description, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO sections (id, project_id, title, description, color, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             description = excluded.description,
+            color = COALESCE(excluded.color, sections.color),
             updated_at = excluded.updated_at
         `)
-        .run(item.id, item.projectId, item.title, item.description ?? null, item.createdAt, item.updatedAt)
+        .run(
+          item.id,
+          item.projectId,
+          item.title,
+          item.description ?? null,
+          item.color ?? null,
+          item.createdAt,
+          item.updatedAt
+        )
 
       this.db!
         .prepare(`
@@ -1116,7 +1137,7 @@ class DatabaseManager {
 
   public updateSection(
     sectionId: string,
-    patch: { title?: string; description?: string }
+    patch: { title?: string; description?: string; color?: string }
   ): SectionItem | null {
     if (!this.ensureInit() || !this.db) return null
     const existing = this.db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any
@@ -1125,11 +1146,12 @@ class DatabaseManager {
     const now = Date.now()
     const nextTitle = patch.title !== undefined ? patch.title.trim() || existing.title : existing.title
     const nextDesc = patch.description !== undefined ? patch.description.trim() || null : existing.description
+    const nextColor = patch.color !== undefined ? patch.color || null : existing.color
 
     this.runTransaction(() => {
       this.db!
-        .prepare('UPDATE sections SET title = ?, description = ?, updated_at = ? WHERE id = ?')
-        .run(nextTitle, nextDesc, now, sectionId)
+        .prepare('UPDATE sections SET title = ?, description = ?, color = ?, updated_at = ? WHERE id = ?')
+        .run(nextTitle, nextDesc, nextColor, now, sectionId)
       this.db!.prepare('UPDATE boards SET title = ?, updated_at = ? WHERE id = ?').run(nextTitle, now, sectionId)
       this.db!.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, existing.project_id)
     })

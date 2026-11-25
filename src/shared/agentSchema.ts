@@ -114,6 +114,10 @@ export const AgentBoardMutationSchema = z.discriminatedUnion('type', [
     transcriptExcerpt: z.string().optional(),
     x: z.number().optional(),
     y: z.number().optional()
+  }),
+  z.object({
+    type: z.literal('delete_elements'),
+    elementIds: z.array(z.string().min(1)).min(1).max(500)
   })
 ])
 export type AgentBoardMutation = z.infer<typeof AgentBoardMutationSchema>
@@ -240,6 +244,14 @@ export const AgentActiveCodeContextSchema = z.object({
 })
 export type AgentActiveCodeContext = z.infer<typeof AgentActiveCodeContextSchema>
 
+export const WebSearchSettingsSchema = z.object({
+  enabled: z.boolean().default(true),
+  providerMode: z.enum(['builtin', 'searxng']).default('builtin'),
+  searxngUrl: z.string().default(''),
+  allowFallback: z.boolean().default(true)
+})
+export type WebSearchSettingsInput = z.infer<typeof WebSearchSettingsSchema>
+
 export const AgentRunRequestSchema = z.object({
   runId: z.string().min(1),
   prompt: z.string().min(1),
@@ -247,6 +259,8 @@ export const AgentRunRequestSchema = z.object({
   provider: z.enum(['ollama', 'openai', 'grok', 'gemini', 'claude']),
   model: z.string().min(1),
   ollamaHost: z.string().optional(),
+  webSearch: WebSearchSettingsSchema.optional(),
+  activeSkillIds: z.array(z.string()).max(12).optional(),
   boardSnapshot: AgentBoardSnapshotSchema,
   activeCodeContext: AgentActiveCodeContextSchema.optional(),
   selectedSourceIds: z.array(z.string()).optional(),

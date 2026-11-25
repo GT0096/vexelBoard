@@ -156,26 +156,66 @@ export function applyAgentMutationsToBoard(
 ): {
   nextBoard: BoardState
   createdIds: string[]
+  deletedIds: string[]
   appliedCount: number
   nextPan?: { panX: number; panY: number }
   createdBounds?: BoxRect
 } {
   if (mutations.length === 0) {
-    return { nextBoard: board, createdIds: [], appliedCount: 0 }
+    return { nextBoard: board, createdIds: [], deletedIds: [], appliedCount: 0 }
+  }
+
+  // Apply deletions before measuring occupied rects so replacement diagrams/scenes can land at selectionBounds
+  const deletedIdSet = new Set<string>()
+  for (const m of mutations) {
+    if (m.type === 'delete_elements') {
+      for (const id of m.elementIds) {
+        if (id) deletedIdSet.add(id)
+      }
+    }
+  }
+
+  const deletedIds: string[] = []
+  const filterDeleted = <T extends { id: string }>(items: T[]): T[] => {
+    if (deletedIdSet.size === 0) return [...items]
+    const kept: T[] = []
+    for (const item of items) {
+      if (deletedIdSet.has(item.id)) {
+        deletedIds.push(item.id)
+      } else {
+        kept.push(item)
+      }
+    }
+    return kept
   }
 
   const ensured = ensureBoardLayers(board)
   let nextLayers = ensured.layers.map((l) => ({ ...l }))
   const nextActiveLayerId = ensured.activeLayerId
-  const nextTextNodes = [...board.textNodes]
-  const nextEquationNodes = [...board.equationNodes]
-  const nextShapeNodes = [...board.shapeNodes]
-  const nextDiagramNodes = [...board.diagramNodes]
+  const nextStrokes = filterDeleted(board.strokes)
+  const nextTextNodes = filterDeleted(board.textNodes)
+  const nextEquationNodes = filterDeleted(board.equationNodes)
+  const nextShapeNodes = filterDeleted(board.shapeNodes)
+  const nextDiagramNodes = filterDeleted(board.diagramNodes)
+  const nextVectorArtNodes = filterDeleted(board.vectorArtNodes ?? [])
   const nextVectorDiagramMeta = { ...(board.vectorDiagramMeta ?? {}) }
-  let nextCodeNodes = [...(board.codeNodes ?? [])]
-  const nextVideoNodes = [...(board.videoNodes ?? [])]
+  let nextCodeNodes = filterDeleted(board.codeNodes ?? [])
+  const nextVideoNodes = filterDeleted(board.videoNodes ?? [])
+  const nextImageNodes = filterDeleted(board.imageNodes ?? [])
 
-  const occupied = collectOccupiedBoardRects(board)
+  const boardAfterDeletes: BoardState = {
+    ...board,
+    strokes: nextStrokes,
+    textNodes: nextTextNodes,
+    equationNodes: nextEquationNodes,
+    shapeNodes: nextShapeNodes,
+    diagramNodes: nextDiagramNodes,
+    vectorArtNodes: nextVectorArtNodes,
+    codeNodes: nextCodeNodes,
+    videoNodes: nextVideoNodes,
+    imageNodes: nextImageNodes
+  }
+  const occupied = collectOccupiedBoardRects(boardAfterDeletes)
   const fallbackView: CanvasTransform = opts.view ?? {
     zoom: 1,
     panX: Math.round(640 - opts.viewportCenter.x),
@@ -393,9 +433,10 @@ export function applyAgentMutationsToBoard(
   }
 
   const createdIds: string[] = []
-  let appliedCount = 0
+  let appliedCount = deletedIds.length > 0 ? 1 : 0
 
   mutations.forEach((m, idx) => {
+    if (m.type === 'delete_elements') return
     const now = Date.now()
     const resolvedPos = explicitPositions.get(idx) ?? {
       x: Math.round(opts.viewportCenter.x - 180),
@@ -696,15 +737,19 @@ export function applyAgentMutationsToBoard(
       ...board,
       layers: nextLayers,
       activeLayerId: nextActiveLayerId,
+      strokes: nextStrokes,
       textNodes: nextTextNodes,
       equationNodes: nextEquationNodes,
       shapeNodes: nextShapeNodes,
       diagramNodes: nextDiagramNodes,
+      vectorArtNodes: nextVectorArtNodes,
       vectorDiagramMeta: nextVectorDiagramMeta,
       codeNodes: nextCodeNodes,
-      videoNodes: nextVideoNodes
+      videoNodes: nextVideoNodes,
+      imageNodes: nextImageNodes
     },
     createdIds,
+    deletedIds,
     appliedCount,
     nextPan: clusterLayout?.nextPan ?? explicitGroupNextPan,
     createdBounds: clusterLayout?.clusterBounds ?? explicitGroupBounds

@@ -26,6 +26,10 @@ asarUnpack:
   - node_modules/sqlite-vec/**
   - node_modules/sqlite-vec-*/**
   - node_modules/@visioncortex/vtracer/**
+  - node_modules/@huggingface/transformers/**
+  - node_modules/onnxruntime-node/**
+  - node_modules/onnxruntime-common/**
+  - node_modules/onnxruntime-web/**
 win:
   executableName: Vexelboard
   icon: build/icon.ico
