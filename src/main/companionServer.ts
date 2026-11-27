@@ -15,6 +15,7 @@ import type {
   CompanionSelectionCaptureResult
 } from '../shared/ipc'
 import { listAllSkills } from './skillManager'
+import { COMPANION_INSTRUCTIONS, getCompanionHelp } from './companionHelp'
 
 export interface CompanionDbProvider {
   getBoardElements: (boardId: string) => any[]
@@ -311,6 +312,17 @@ function validateMutationsPayload(raw: any): AgentBoardMutation[] {
 }
 
 const MCP_TOOLS = [
+  {
+    name: 'vexelboard_help',
+    description:
+      'Compact payload cheat-sheet for every vexelboard_* tool (graph chart/data shapes, diagram nodes/edges, vector scene primitives, 3D presets, code pipelines, connectors). Call this (topic: graph | diagram | scene | 3d | code | pipeline | connect | other | all) instead of reading Vexelboard source code.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic: { type: 'string', enum: ['graph', 'diagram', 'scene', '3d', 'code', 'pipeline', 'connect', 'other', 'all'] }
+      }
+    }
+  },
   {
     name: 'vexelboard_status',
     description: 'Check Vexelboard companion bridge status, active board/project ID, and skill count.',
@@ -721,8 +733,12 @@ async function executeMcpToolCall(
       return { ok: true, count: hits.length, hits }
     }
 
+    case 'vexelboard_help': {
+      return getCompanionHelp(typeof args.topic === 'string' ? args.topic : 'all')
+    }
+
     default:
-      return { ok: false, error: `Unknown MCP tool "${toolName}"` }
+      return { ok: false, error: `Unknown MCP tool "${toolName}". Call vexelboard_help for the tool list.` }
   }
 }
 
@@ -752,7 +768,8 @@ async function handleJsonRpcMessage(msg: any): Promise<any | null> {
           result: {
             protocolVersion: '2025-03-26',
             capabilities: { tools: {} },
-            serverInfo: { name: 'vexelboard-companion', version: '1.0.0' }
+            serverInfo: { name: 'vexelboard-companion', version: '1.0.0' },
+            instructions: COMPANION_INSTRUCTIONS
           }
         }
       case 'ping':
@@ -764,7 +781,19 @@ async function handleJsonRpcMessage(msg: any): Promise<any | null> {
         const toolArgs = (msg.params?.arguments && typeof msg.params.arguments === 'object'
           ? msg.params.arguments
           : {}) as Record<string, any>
-        const out = await executeMcpToolCall(toolName, toolArgs)
+        let out: { ok: boolean; [k: string]: any }
+        try {
+          out = await executeMcpToolCall(toolName, toolArgs)
+        } catch (toolErr) {
+          if (!(toolErr instanceof ClientRequestError)) throw toolErr
+          // Return validation problems as a tool-level error (not a protocol error) with a pointer to the
+          // cheat-sheet, so the agent self-corrects instead of reading Vexelboard source code.
+          out = {
+            ok: false,
+            error: toolErr.safeMessage,
+            hint: 'Fix the payload using this error or call vexelboard_help (topic: graph|diagram|scene|3d|code|pipeline|connect). Do not read app source code.'
+          }
+        }
         if (toolName === 'vexelboard_capture_selection' && out.ok && typeof out.base64Png === 'string') {
           const { base64Png, ...metaWithoutBase64 } = out
           return {
@@ -868,6 +897,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         hasLiveWindow: Boolean(latestSnapshot),
         skillsCount: listAllSkills().length
       })
+      return
+    }
+
+    if (method === 'GET' && pathname === '/api/help') {
+      const topic = parsedUrl.searchParams.get('topic') || 'all'
+      sendJson(res, 200, getCompanionHelp(topic))
       return
     }
 
