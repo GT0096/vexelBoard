@@ -87,6 +87,7 @@ export const AgentBoardMutationSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('add_code_card'),
+    id: z.string().min(1).optional(),
     title: z.string().min(1),
     language: z.string().min(1),
     code: z.string().min(1),
@@ -106,7 +107,21 @@ export const AgentBoardMutationSchema = z.discriminatedUnion('type', [
     y: z.number().optional()
   }),
   z.object({
+    type: z.literal('add_graph_card'),
+    id: z.string().min(1).optional(),
+    cardId: z.string().min(1).optional(),
+    title: z.string().optional(),
+    chartType: z.string().optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
+    spec: z.record(z.string(), z.unknown()).optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    width: z.number().optional(),
+    height: z.number().optional()
+  }),
+  z.object({
     type: z.literal('add_3d_scene'),
+    id: z.string().min(1).optional(),
     title: z.string().optional(),
     preset: z.string().optional(),
     scene: z.unknown().optional(),
@@ -270,6 +285,20 @@ export const AgentBoardSnapshotSchema = z.object({
         title: z.string(),
         preset: z.string().optional(),
         elementCount: z.number(),
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number()
+      })
+    )
+    .default([]),
+  graphs: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        chartType: z.string(),
+        linkedCodeNodeId: z.string().optional(),
         x: z.number(),
         y: z.number(),
         w: z.number(),

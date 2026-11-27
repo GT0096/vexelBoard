@@ -3687,7 +3687,25 @@ def compute_curve():
           }
 
           // 1B. Pure Basic Shapes & Connectors (+ Optional Handwritten Labels Inside/Near Shapes)
-          if (localAnalysis.isPureBasicShapesAndLabels && localAnalysis.shapes.length > 0) {
+          // When AI is configured, reserve fast-path 1B strictly for 1-2 trivial standalone shapes without arrows or outside labels
+          // so full hand-drawn diagrams always go to Tier 2 Vision AI.
+          const allowLocalShapesFastPath =
+            !isAiConfiguredRef.current ||
+            (localAnalysis.shapes.length <= 2 &&
+              !localAnalysis.shapes.some(
+                (s) =>
+                  s.shape === 'arrow' ||
+                  s.shape === 'arrow-bidirectional' ||
+                  s.shape === 'curved-arrow' ||
+                  s.shape === 'elbow'
+              ) &&
+              localAnalysis.labelClusters.every((c) => c.hostShapeIndex !== undefined))
+
+          if (
+            allowLocalShapesFastPath &&
+            localAnalysis.isPureBasicShapesAndLabels &&
+            localAnalysis.shapes.length > 0
+          ) {
             const targetInkLayerId = resolveTargetInkLayerId(curBoard) ?? 'layer-base-ink'
             const groupId = `vloc-${Date.now().toString(36)}`
             const nextShapes = localAnalysis.shapes.map((s) => ({
@@ -4057,9 +4075,21 @@ def compute_curve():
               return
             }
           }
+
+          if (smartRes && !smartRes.ok) {
+            addToast(
+              'error',
+              smartRes.error || 'Could not beautify diagram sketch. Check AI Settings and try again.'
+            )
+            return
+          }
+          if (isAiConfiguredRef.current) {
+            addToast('error', 'Could not interpret diagram selection. Try again or switch vision models.')
+            return
+          }
         }
 
-        // Deterministic local fallback
+        // Deterministic local fallback (only when IPC API / AI is unavailable)
         const localFallback = generateLocalVectorDiagram(curBoard, targetIds, activeFont)
         if (localFallback.shapes.length > 0 || localFallback.texts.length > 0) {
           update((b) => ({
@@ -4081,6 +4111,11 @@ def compute_curve():
         }
       } catch (err: unknown) {
         console.warn('[SmartVectorize] fallback:', err)
+        if (isAiConfiguredRef.current && api?.smartBeautify) {
+          const msg = err instanceof Error ? err.message : String(err)
+          addToast('error', `Beautify failed: ${msg}`)
+          return
+        }
         const localFallback = generateLocalVectorDiagram(curBoard, targetIds, activeFont)
         if (localFallback.shapes.length > 0 || localFallback.texts.length > 0) {
           update((b) => ({
@@ -4939,19 +4974,19 @@ def compute_curve():
           )
           const shiftedVisualTarget = insertingBeforeVisual
             ? (nextGraphs.find((g) => g.id === downstreamGraph?.id) ??
-               nextScenes.find((s3) => s3.id === downstreamScene?.id))
+              nextScenes.find((s3) => s3.id === downstreamScene?.id))
             : undefined
           const extraConn = shiftedVisualTarget
             ? buildFlowConnectorNode({
-                source: spawnedCode,
-                sourcePort: 'right',
-                target: shiftedVisualTarget,
-                targetPort: 'left',
-                color: '#06b6d4',
-                animated: true,
-                fontFamily: settingsRef.current.font,
-                layerId
-              })
+              source: spawnedCode,
+              sourcePort: 'right',
+              target: shiftedVisualTarget,
+              targetPort: 'left',
+              color: '#06b6d4',
+              animated: true,
+              fontFamily: settingsRef.current.font,
+              layerId
+            })
             : null
           const filteredShapes =
             insertingBeforeVisual && downstreamConn

@@ -321,6 +321,189 @@ export interface VectorCritiqueResponse {
 
 
 /**
+ * Normalizes common LLM variations in DiagramGraph JSON (e.g. numeric node IDs,
+ * 'TB'/'LR' direction aliases, 'circle'/'box'/'database' kind aliases, from/to edges,
+ * or dangling edge references) into strict DiagramGraphSchema shape.
+ */
+export function normalizeDiagramGraphInput(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
+  const obj = raw as Record<string, unknown>
+  const unwrap =
+    !Array.isArray(obj.nodes) &&
+    obj.graph &&
+    typeof obj.graph === 'object' &&
+    !Array.isArray(obj.graph)
+      ? (obj.graph as Record<string, unknown>)
+      : obj
+
+  if (!Array.isArray(unwrap.nodes)) return raw
+
+  const rawDir = String(unwrap.direction ?? unwrap.layoutDirection ?? unwrap.orientation ?? 'RIGHT')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+  const dirAliases: Record<string, DiagramDirection> = {
+    tb: 'DOWN',
+    td: 'DOWN',
+    vertical: 'DOWN',
+    top_down: 'DOWN',
+    top_to_bottom: 'DOWN',
+    down: 'DOWN',
+    lr: 'RIGHT',
+    horizontal: 'RIGHT',
+    left_to_right: 'RIGHT',
+    right: 'RIGHT',
+    rl: 'LEFT',
+    right_to_left: 'LEFT',
+    left: 'LEFT',
+    bt: 'UP',
+    bottom_to_top: 'UP',
+    up: 'UP'
+  }
+  const direction: DiagramDirection = dirAliases[rawDir] ?? 'RIGHT'
+
+  const kindAliases: Record<string, DiagramNodeKind> = {
+    rect: 'rect',
+    rectangle: 'rect',
+    box: 'rect',
+    square: 'rect',
+    block: 'rect',
+    rounded_rect: 'rounded_rect',
+    roundedrect: 'rounded_rect',
+    rounded_rectangle: 'rounded_rect',
+    rounded: 'rounded_rect',
+    process: 'rounded_rect',
+    step: 'rounded_rect',
+    action: 'rounded_rect',
+    card: 'rounded_rect',
+    node: 'rounded_rect',
+    service: 'rounded_rect',
+    cloud: 'rounded_rect',
+    actor: 'rounded_rect',
+    sticky: 'rounded_rect',
+    diamond: 'diamond',
+    decision: 'diamond',
+    rhombus: 'diamond',
+    condition: 'diamond',
+    branch: 'diamond',
+    ellipse: 'ellipse',
+    circle: 'ellipse',
+    oval: 'ellipse',
+    start: 'ellipse',
+    end: 'ellipse',
+    terminal: 'ellipse',
+    state: 'ellipse',
+    cylinder: 'cylinder',
+    database: 'cylinder',
+    db: 'cylinder',
+    store: 'cylinder',
+    storage: 'cylinder',
+    parallelogram: 'parallelogram',
+    io: 'parallelogram',
+    input: 'parallelogram',
+    output: 'parallelogram',
+    data: 'parallelogram',
+    group: 'group',
+    subgraph: 'group',
+    container: 'group',
+    frame: 'group',
+    cluster: 'group',
+    boundary: 'group'
+  }
+
+  const seenIds = new Set<string>()
+  const labelToId = new Map<string, string>()
+
+  const preliminaryNodes = unwrap.nodes
+    .filter((n): n is Record<string, unknown> => Boolean(n && typeof n === 'object'))
+    .map((n, idx) => {
+      let id = String(n.id ?? '').trim() || `n${idx + 1}`
+      if (seenIds.has(id)) {
+        id = `${id}_${idx + 1}`
+      }
+      seenIds.add(id)
+
+      const label = String(n.label ?? n.name ?? n.title ?? n.text ?? '').trim()
+      if (label && !labelToId.has(label.toLowerCase())) {
+        labelToId.set(label.toLowerCase(), id)
+      }
+
+      const rawKind = String(n.kind ?? n.type ?? n.shape ?? 'rounded_rect')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_')
+      const kind: DiagramNodeKind = kindAliases[rawKind] ?? 'rounded_rect'
+
+      const parentId =
+        typeof n.parentId === 'string' && n.parentId.trim() ? n.parentId.trim() : undefined
+
+      return {
+        id,
+        kind,
+        label,
+        ...(parentId ? { parentId } : {}),
+        ...(typeof n.fillColor === 'string' && n.fillColor.trim()
+          ? { fillColor: n.fillColor.trim() }
+          : {}),
+        ...(typeof n.strokeColor === 'string' && n.strokeColor.trim()
+          ? { strokeColor: n.strokeColor.trim() }
+          : {}),
+        ...(typeof n.orderHint === 'number' && Number.isFinite(n.orderHint)
+          ? { orderHint: n.orderHint }
+          : {})
+      }
+    })
+
+  const nodes = preliminaryNodes.map((n) => ({
+    ...n,
+    ...(n.parentId && n.parentId !== n.id && seenIds.has(n.parentId)
+      ? { parentId: n.parentId }
+      : { parentId: undefined })
+  }))
+
+  const rawEdges = Array.isArray(unwrap.edges) ? unwrap.edges : []
+  const edges = rawEdges
+    .filter((e): e is Record<string, unknown> => Boolean(e && typeof e === 'object'))
+    .map((e, idx) => {
+      const srcRaw = String(e.source ?? e.from ?? '').trim()
+      const tgtRaw = String(e.target ?? e.to ?? '').trim()
+      const source = seenIds.has(srcRaw) ? srcRaw : (labelToId.get(srcRaw.toLowerCase()) ?? '')
+      const target = seenIds.has(tgtRaw) ? tgtRaw : (labelToId.get(tgtRaw.toLowerCase()) ?? '')
+      if (!source || !target || source === target) return null
+
+      const id = String(e.id ?? '').trim() || `e${idx + 1}`
+      const rawStyle = String(e.style ?? (e.dashed ? 'dashed' : 'solid'))
+        .trim()
+        .toLowerCase()
+      const style: 'solid' | 'dashed' | 'dotted' =
+        rawStyle === 'dashed' || rawStyle === 'dotted' ? rawStyle : 'solid'
+      const labelRaw = e.label ?? e.text
+      const label = labelRaw !== undefined && String(labelRaw).trim() ? String(labelRaw).trim() : undefined
+
+      return {
+        id,
+        source,
+        target,
+        ...(label ? { label } : {}),
+        style,
+        directed: e.directed !== undefined ? Boolean(e.directed) : true,
+        ...(typeof e.bidirectional === 'boolean' ? { bidirectional: e.bidirectional } : {})
+      }
+    })
+    .filter((e): e is NonNullable<typeof e> => e !== null)
+
+  const title =
+    typeof unwrap.title === 'string' && unwrap.title.trim() ? unwrap.title.trim() : undefined
+
+  return {
+    direction,
+    ...(title ? { title } : {}),
+    nodes,
+    edges
+  }
+}
+
+/**
  * Normalizes common LLM structural variations (e.g., grouped { cellStrips, connectors, texts },
  * openEnds: ['top'], connector waypoints/from/to, shape kind aliases) into SpatialSceneSchema shape.
  */
@@ -369,6 +552,23 @@ export function normalizeSpatialSceneInput(raw: unknown): unknown {
     pushGroup('texts', 'text')
   }
 
+  const sanitizeAnimMode = (v: unknown): 'pulse' | 'dash' | 'both' | undefined => {
+    const s = String(v ?? '').trim().toLowerCase()
+    return s === 'pulse' || s === 'dash' || s === 'both' ? s : undefined
+  }
+  const sanitizeFillOpacity = (v: unknown): number | undefined => {
+    const n = Number(v)
+    return v !== undefined && v !== null && Number.isFinite(n)
+      ? Math.max(0, Math.min(1, n))
+      : undefined
+  }
+  const sanitizeStrokeWidth = (v: unknown): number | undefined => {
+    const n = Number(v)
+    return v !== undefined && v !== null && Number.isFinite(n) && n > 0
+      ? Math.max(0.5, n)
+      : undefined
+  }
+
   const normalizedElements = rawElements.map((el, idx) => {
     const rawType = String(el.type ?? '').trim().toLowerCase()
     const id = typeof el.id === 'string' && el.id.trim() ? el.id.trim() : `el-${idx + 1}`
@@ -395,12 +595,12 @@ export function normalizeSpatialSceneInput(raw: unknown): unknown {
       const cells = Array.isArray(el.cells)
         ? el.cells
             .map((c) => {
-              if (typeof c === 'string') return c
+              if (typeof c === 'string') return c.trim()
               if (typeof c === 'number' || typeof c === 'boolean') return String(c)
               if (c && typeof c === 'object') {
                 const o = c as Record<string, unknown>
                 const txt = o.label ?? o.text ?? o.value ?? o.name
-                return txt !== undefined ? String(txt) : ''
+                return txt !== undefined ? String(txt).trim() : ''
               }
               return ''
             })
@@ -420,6 +620,22 @@ export function normalizeSpatialSceneInput(raw: unknown): unknown {
             )
           )
         : undefined
+      const rawConnArrows = String(el.connectorArrows ?? '').trim().toLowerCase()
+      const connectorArrows =
+        rawConnArrows === 'none' ||
+        rawConnArrows === 'forward' ||
+        rawConnArrows === 'bidirectional' ||
+        rawConnArrows === 'circular'
+          ? rawConnArrows
+          : undefined
+      const wallExtension =
+        typeof el.wallExtension === 'number' && Number.isFinite(el.wallExtension)
+          ? Math.max(0, el.wallExtension)
+          : undefined
+      const cellGap =
+        typeof el.cellGap === 'number' && Number.isFinite(el.cellGap)
+          ? Math.max(0, el.cellGap)
+          : undefined
       return {
         ...el,
         type: 'cell_strip' as const,
@@ -430,7 +646,10 @@ export function normalizeSpatialSceneInput(raw: unknown): unknown {
         w,
         h,
         cells,
-        ...(openEnds && openEnds.length > 0 ? { openEnds } : {})
+        connectorArrows,
+        wallExtension,
+        cellGap,
+        ...(openEnds && openEnds.length > 0 ? { openEnds } : { openEnds: undefined })
       }
     }
 
@@ -446,14 +665,34 @@ export function normalizeSpatialSceneInput(raw: unknown): unknown {
         .toLowerCase()
       const strokeStyle: 'solid' | 'dashed' | 'dotted' =
         rawStyle === 'dashed' || rawStyle === 'dotted' ? rawStyle : 'solid'
+      const d = typeof el.d === 'string' && el.d.trim() ? el.d.trim() : undefined
+      const paths = Array.isArray(el.paths)
+        ? el.paths
+            .filter((p): p is Record<string, unknown> => Boolean(p && typeof p === 'object'))
+            .map((p) => {
+              const pd = typeof p.d === 'string' ? p.d.trim() : ''
+              if (!pd) return null
+              return {
+                ...p,
+                d: pd,
+                strokeWidth: sanitizeStrokeWidth(p.strokeWidth)
+              }
+            })
+            .filter((p): p is NonNullable<typeof p> => p !== null)
+        : undefined
       return {
         ...el,
         type: 'svg_path' as const,
         id,
+        d,
+        paths: paths && paths.length > 0 ? paths : undefined,
         x: Number(el.x ?? 0) || 0,
         y: Number(el.y ?? 0) || 0,
         w: Math.max(8, Number(el.w ?? 1000) || 1000),
         h: Math.max(8, Number(el.h ?? 1000) || 1000),
+        fillOpacity: sanitizeFillOpacity(el.fillOpacity),
+        strokeWidth: sanitizeStrokeWidth(el.strokeWidth),
+        animationMode: sanitizeAnimMode(el.animationMode),
         strokeStyle
       }
     }
@@ -469,7 +708,8 @@ export function normalizeSpatialSceneInput(raw: unknown): unknown {
       Array.isArray(el.points) ||
       Array.isArray(el.waypoints) ||
       (Array.isArray(el.from) && Array.isArray(el.to)) ||
-      (el.x1 !== undefined && el.y1 !== undefined && el.x2 !== undefined && el.y2 !== undefined)
+      (el.x1 !== undefined && el.y1 !== undefined && el.x2 !== undefined && el.y2 !== undefined) ||
+      (typeof el.fromId === 'string' && typeof el.toId === 'string')
     ) {
       const toPt = (p: unknown): [number, number] | null => {
         if (Array.isArray(p) && p.length >= 2) {
@@ -517,7 +757,7 @@ export function normalizeSpatialSceneInput(raw: unknown): unknown {
         el.arrowEnd !== undefined
           ? Boolean(el.arrowEnd)
           : el.directed !== undefined
-            ? Boolean(el.directed)
+            ? Boolean(e_directed(el))
             : !isCurveAlias && rawType !== 'line'
 
       return {
@@ -527,6 +767,10 @@ export function normalizeSpatialSceneInput(raw: unknown): unknown {
         points,
         ...(isCurveAlias && el.curved === undefined ? { curved: true } : {}),
         arrowEnd,
+        strokeWidth: sanitizeStrokeWidth(el.strokeWidth),
+        animationMode: sanitizeAnimMode(el.animationMode),
+        fromId: typeof el.fromId === 'string' && el.fromId.trim() ? el.fromId.trim() : undefined,
+        toId: typeof el.toId === 'string' && el.toId.trim() ? el.toId.trim() : undefined,
         style
       }
     }
@@ -541,13 +785,22 @@ export function normalizeSpatialSceneInput(raw: unknown): unknown {
         el.rx === undefined)
     ) {
       const text = String(el.text ?? el.label ?? el.content ?? '').trim()
+      const rawAlign = String(el.align ?? '').trim().toLowerCase()
+      const align =
+        rawAlign === 'left' || rawAlign === 'center' || rawAlign === 'right' ? rawAlign : undefined
+      const fontSize =
+        typeof el.fontSize === 'number' && Number.isFinite(el.fontSize)
+          ? Math.max(8, el.fontSize)
+          : undefined
       return {
         ...el,
         type: 'text' as const,
         id,
         x: Number(el.x ?? 0) || 0,
         y: Number(el.y ?? 0) || 0,
-        text
+        text,
+        align,
+        fontSize
       }
     }
 
@@ -607,6 +860,28 @@ export function normalizeSpatialSceneInput(raw: unknown): unknown {
       h = ry * 2
     }
 
+    const openSides = Array.isArray(el.openSides)
+      ? el.openSides
+          .map((s) => String(s).trim().toLowerCase())
+          .filter(
+            (s): s is 'top' | 'bottom' | 'left' | 'right' =>
+              s === 'top' || s === 'bottom' || s === 'left' || s === 'right'
+          )
+      : undefined
+    const rawStrokeStyle = String(el.strokeStyle ?? '').trim().toLowerCase()
+    const strokeStyle =
+      rawStrokeStyle === 'solid' || rawStrokeStyle === 'dashed' || rawStrokeStyle === 'dotted'
+        ? rawStrokeStyle
+        : undefined
+    const labelSize =
+      typeof el.labelSize === 'number' && Number.isFinite(el.labelSize)
+        ? Math.max(8, el.labelSize)
+        : undefined
+    const borderRadius =
+      typeof el.borderRadius === 'number' && Number.isFinite(el.borderRadius)
+        ? Math.max(0, el.borderRadius)
+        : undefined
+
     return {
       ...el,
       type: 'shape' as const,
@@ -615,12 +890,52 @@ export function normalizeSpatialSceneInput(raw: unknown): unknown {
       x,
       y,
       w,
-      h
+      h,
+      openSides: openSides && openSides.length > 0 ? openSides : undefined,
+      strokeStyle,
+      labelSize,
+      borderRadius,
+      fillOpacity: sanitizeFillOpacity(el.fillOpacity),
+      strokeWidth: sanitizeStrokeWidth(el.strokeWidth),
+      animationMode: sanitizeAnimMode(el.animationMode)
     }
   })
 
+  // Build center lookup for shapes and cell_strips so endpoint-only connectors (fromId + toId) can synthesize points
+  const centerById = new Map<string, [number, number]>()
+  for (const el of normalizedElements) {
+    if (el.type === 'shape' || el.type === 'cell_strip') {
+      centerById.set(el.id, [el.x + el.w / 2, el.y + el.h / 2])
+    }
+  }
+
+  const finalElements = normalizedElements
+    .map((el) => {
+      if (el.type === 'connector' && el.points.length < 2) {
+        const fromId = typeof el.fromId === 'string' ? el.fromId.trim() : ''
+        const toId = typeof el.toId === 'string' ? el.toId.trim() : ''
+        const c1 = fromId ? centerById.get(fromId) : undefined
+        const c2 = toId ? centerById.get(toId) : undefined
+        if (c1 && c2) {
+          return { ...el, points: [c1, c2] as Array<[number, number]> }
+        }
+      }
+      return el
+    })
+    .filter((el) => {
+      if (el.type === 'cell_strip') return el.cells.length > 0
+      if (el.type === 'connector') return el.points.length >= 2
+      if (el.type === 'text') return el.text.length > 0
+      if (el.type === 'svg_path') return Boolean(el.d) || Boolean(el.paths && el.paths.length > 0)
+      return true
+    })
+
   return {
     title: typeof unwrap.title === 'string' ? unwrap.title : undefined,
-    elements: normalizedElements
+    elements: finalElements
   }
+}
+
+function e_directed(el: Record<string, unknown>): boolean {
+  return Boolean(el.directed)
 }

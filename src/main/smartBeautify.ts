@@ -1,6 +1,7 @@
 import {
   SmartClassificationSchema,
   VectorCritiqueResultSchema,
+  normalizeDiagramGraphInput,
   normalizeSpatialSceneInput,
   type IllustrationBrief,
   type IllustrationStyle,
@@ -15,26 +16,46 @@ import { callVisionJsonProvider, hasApiKey, loadApiKey } from './llmRouter'
 import { tracePngToVectorLayers } from './vectorTracer'
 
 const SMART_CLASSIFIER_SYSTEM_PROMPT = `You are a Content-Aware Whiteboard Vision Compiler.
-The image may include subtle numbered coordinate grid ticks (200, 400, 600, 800) along a 0..1000 normalized X/Y canvas to help you read EXACT positions.
-Analyze the user's hand-drawn selection and output EXACTLY ONE structured JSON object.
-NEVER output raw SVG markup, HTML, or markdown fences — output STRICT JSON ONLY.
+Carefully inspect the hand-drawn whiteboard sketch in the image:
+- Read every box, circle, diamond, cylinder, container, and standalone text label literally — distinguish easily confused letters/digits (C vs D, A vs B, 0 vs O, 1 vs I).
+- Trace every arrow's exact tail-to-arrowhead direction (source -> target). Never invent nodes, edges, or labels that do not appear in the sketch.
+- Ignore subtle edge tick marks along the outer image border if present.
+Output EXACTLY ONE STRICT JSON object — NEVER output SVG markup, HTML, or markdown fences.
 
 ROUTING GUARDRAILS (CHOOSE THE BEST FIT):
-1. "spatial_scene": CHOOSE THIS whenever the diagram's exact 2D geometric arrangement, contiguous cell partitions, open-sided containers, shared walls, bent pointer arrows, Venn circles, timelines, coordinate plots, matrices, tables, memory frames, math geometry, or circuits matter.
-   - Instead of abstract graph boxes separated by whitespace, describe the exact scene using composable primitives in 0..1000 coordinates:
-     * "cell_strip": Any vertical or horizontal sequence of adjacent compartments sharing dividers (stacks, queues, arrays, buffers, tables, registers, multi-field blocks). Set "openEnds": ["start"] if top/left is open with extending side walls, ["end"] if bottom/right is open, or ["start","end"] if both ends are open rails! Put the cells in visual top-to-bottom (or left-to-right) order.
-     * "shape": Geometric boxes/circles/diamonds/cylinders/parallelograms/triangles (optionally with "openSides": ["top"] etc. for open trays/containers).
-     * "connector": Straight arrows, bent orthogonal L/U arrows (3+ points), or curved arrows with normalized waypoints [[x1,y1], [x2,y2], ...], arrowStart, arrowEnd, style, optional "fromId"/"toId", and optional label.
-     * "text": Standalone frameless annotations/titles/labels outside boxes (e.g. "Entry", "Exit", "top", "front", "rear", "O(1)"). Use "align": "center" with center (x,y), or "align": "left" with left edge (x,y).
-2. "diagram": Use ONLY for node-and-edge flowcharts, system architectures, trees, ERDs, or state machines made of distinct separated nodes connected by arrows where automated layered routing (ELK) improves clarity.
-   - IMPORTANT: If stick figures or small icons are connected by flowchart arrows or boxes, classify as "diagram" (or "hybrid" if there is a major focal illustration with callout annotations).
-3. "illustration": Use when the drawing itself (human figure, portrait, animal, landscape, scenery, or organic sketch) is the primary artistic subject.
+1. "diagram" (PRIMARY DEFAULT for connected diagrams):
+   CHOOSE THIS for flowcharts, system/cloud architectures, block diagrams, state machines, ERDs, trees, mindmaps, and ANY collection of boxes, rounded boxes, circles, diamonds, or cylinders connected by arrows or grouped in containers.
+2. "spatial_scene":
+   CHOOSE THIS ONLY when exact 2D geometric arrangement or shared walls cannot be expressed as a node-edge graph:
+   - Contiguous cell partitions / open-sided trays ("cell_strip": stacks, queues, arrays, tables, buffers, registers, memory frames with "openEnds": ["start"] | ["end"]).
+   - Venn circles, concentric rings/orbitals, coordinate axes/plots, geometric figures, or bent annotation pointers where relative pixel coordinates matter.
+   - Normalized 0..1000 coordinates: use "cell_strip", "shape", "connector" (waypoints [[x1,y1],[x2,y2],...]), and "text".
+3. "illustration": Use ONLY when the drawing itself (human figure, portrait, animal, landscape, scenery, or organic sketch) is the primary artistic subject.
 4. "hybrid": Use when there is a primary artistic illustration PLUS handwritten text callouts or pointer arrows annotating parts of it.
 5. "text": Use ONLY when the selection is pure handwritten words, sentences, or headings with NO diagram and NO illustration.
 
 EXACT JSON SCHEMAS (return ONLY ONE):
 
-S) Spatial Scene (Preferred for spatial, cellular, open-container, or pointer-annotated diagrams):
+A) Node-Link Graph Diagram (Primary for flowcharts, architectures, trees, state machines):
+{
+  "category": "diagram",
+  "graph": {
+    "direction": "RIGHT",
+    "title": "",
+    "nodes": [
+      { "id": "n1", "kind": "rounded_rect", "label": "Client" },
+      { "id": "g1", "kind": "group", "label": "Backend" },
+      { "id": "n2", "kind": "diamond", "label": "Valid?", "parentId": "g1" }
+    ],
+    "edges": [
+      { "id": "e1", "source": "n1", "target": "n2", "label": "HTTP", "style": "solid", "directed": true }
+    ]
+  }
+}
+- graph.direction: "RIGHT" (left-to-right) | "DOWN" (top-to-bottom) | "LEFT" | "UP"
+- node.kind: "rect" | "rounded_rect" | "diamond" | "ellipse" | "cylinder" | "parallelogram" | "group"
+
+S) Spatial Scene (Stacks, queues, arrays, tables, Venn/geometry, open containers):
 {
   "category": "spatial_scene",
   "scene": {
@@ -59,13 +80,6 @@ S) Spatial Scene (Preferred for spatial, cellular, open-container, or pointer-an
         "style": "solid"
       },
       {
-        "type": "connector",
-        "id": "c2",
-        "points": [[480, 260], [480, 120], [640, 120]],
-        "arrowEnd": true,
-        "style": "solid"
-      },
-      {
         "type": "text",
         "id": "t1",
         "x": 200,
@@ -80,24 +94,6 @@ S) Spatial Scene (Preferred for spatial, cellular, open-container, or pointer-an
 }
 - cell_strip.orientation: "vertical" | "horizontal"
 - shape.kind: "rect" | "rounded_rect" | "ellipse" | "diamond" | "triangle" | "cylinder" | "parallelogram"
-- Double-check every handwritten letter/word carefully from the image before transcribing (e.g. distinguish C vs D, A vs B, 0 vs O).
-
-A) Node-Link Graph Diagram (ELK Auto-Layout):
-{
-  "category": "diagram",
-  "graph": {
-    "direction": "RIGHT",
-    "title": "",
-    "nodes": [
-      { "id": "n1", "kind": "rounded_rect", "label": "Client" },
-      { "id": "g1", "kind": "group", "label": "Backend" },
-      { "id": "n2", "kind": "diamond", "label": "Valid?", "parentId": "g1" }
-    ],
-    "edges": [
-      { "id": "e1", "source": "n1", "target": "n2", "label": "HTTP", "style": "solid", "directed": true }
-    ]
-  }
-}
 
 B) Illustration:
 {
@@ -491,24 +487,18 @@ export async function runSmartBeautify(req: SmartBeautifyRequest): Promise<Smart
 
     const rawObj = extractJsonObject(rawReply)
     if (!rawObj) {
-      // Safe fallback: trace original offline so user always gets clean vectors
-      const traced = await tracePngToVectorLayers(req.base64Png, {
-        clustering: req.isMonochromeHint ? 'bw' : 'color-cluster'
-      })
       return {
-        ok: true,
-        category: 'illustration',
-        vectorArt: {
-          viewBoxWidth: traced.viewBoxWidth,
-          viewBoxHeight: traced.viewBoxHeight,
-          layers: traced.layers,
-          refinementUsed: 'trace_only'
-        }
+        ok: false,
+        error:
+          'Vision model did not return structured JSON for this sketch. Check your vision model in AI Settings and try again.'
       }
     }
 
     if (rawObj.scene && typeof rawObj.scene === 'object') {
       rawObj.scene = normalizeSpatialSceneInput(rawObj.scene)
+    }
+    if (rawObj.graph && typeof rawObj.graph === 'object') {
+      rawObj.graph = normalizeDiagramGraphInput(rawObj.graph)
     }
     const parsed = SmartClassificationSchema.safeParse(rawObj)
     if (!parsed.success) {
@@ -516,18 +506,14 @@ export async function runSmartBeautify(req: SmartBeautifyRequest): Promise<Smart
       // Attempt gentle repair for common LLM minor schema slips
       const repaired = repairClassificationFallback(rawObj)
       if (!repaired) {
-        const traced = await tracePngToVectorLayers(req.base64Png, {
-          clustering: req.isMonochromeHint ? 'bw' : 'color-cluster'
-        })
+        const issueSummary = parsed.error.issues
+          .map((i) => `${i.path.join('.') || 'root'}: ${i.message}`)
+          .slice(0, 3)
+          .join('; ')
+        console.warn('[SmartBeautify] Zod validation failed after repair:', parsed.error.issues)
         return {
-          ok: true,
-          category: 'illustration',
-          vectorArt: {
-            viewBoxWidth: traced.viewBoxWidth,
-            viewBoxHeight: traced.viewBoxHeight,
-            layers: traced.layers,
-            refinementUsed: 'trace_only'
-          }
+          ok: false,
+          error: `Vision model returned an invalid diagram structure (${issueSummary || 'schema mismatch'}).`
         }
       }
       return dispatchClassification(req, repaired)
@@ -544,14 +530,26 @@ export async function runSmartBeautify(req: SmartBeautifyRequest): Promise<Smart
 
 function repairClassificationFallback(obj: Record<string, unknown>): SmartClassification | null {
   if (obj.scene && typeof obj.scene === 'object') {
-    const sc = SmartClassificationSchema.safeParse({ category: 'spatial_scene', scene: obj.scene })
+    const normalized = normalizeSpatialSceneInput(obj.scene)
+    const sc = SmartClassificationSchema.safeParse({ category: 'spatial_scene', scene: normalized })
+    if (sc.success) return sc.data
+  }
+  if (Array.isArray(obj.elements) || Array.isArray(obj.cellStrips) || Array.isArray(obj.shapes)) {
+    const normalized = normalizeSpatialSceneInput(obj)
+    const sc = SmartClassificationSchema.safeParse({ category: 'spatial_scene', scene: normalized })
     if (sc.success) return sc.data
   }
   if (typeof obj.recognizedText === 'string' && obj.recognizedText.trim()) {
     return { category: 'text', recognizedText: obj.recognizedText.trim() }
   }
   if (obj.graph && typeof obj.graph === 'object') {
-    const g = SmartClassificationSchema.safeParse({ category: 'diagram', graph: obj.graph })
+    const normalized = normalizeDiagramGraphInput(obj.graph)
+    const g = SmartClassificationSchema.safeParse({ category: 'diagram', graph: normalized })
+    if (g.success) return g.data
+  }
+  if (Array.isArray(obj.nodes)) {
+    const normalized = normalizeDiagramGraphInput(obj)
+    const g = SmartClassificationSchema.safeParse({ category: 'diagram', graph: normalized })
     if (g.success) return g.data
   }
   if (obj.brief && typeof obj.brief === 'object') {
@@ -658,6 +656,9 @@ export async function runSmartBeautifyCritique(
     }
     if (rawObj.repairedScene && typeof rawObj.repairedScene === 'object') {
       rawObj.repairedScene = normalizeSpatialSceneInput(rawObj.repairedScene)
+    }
+    if (rawObj.repairedGraph && typeof rawObj.repairedGraph === 'object') {
+      rawObj.repairedGraph = normalizeDiagramGraphInput(rawObj.repairedGraph)
     }
     const parsed = VectorCritiqueResultSchema.safeParse(rawObj)
     if (!parsed.success) {

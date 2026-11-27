@@ -18,27 +18,15 @@
 
 **Vexelboard** is an AI-powered, interactive desktop whiteboard and study studio built with **Electron**, **React**, **TypeScript**, and **Vite** in a bold **Neo-Brutalist** interface.
 
-It combines an infinite drawing canvas, background-adaptive color palettes, diagrams and shape libraries, Markdown & LaTeX notes, an embedded multi-language Code Studio, playable YouTube study cards, a local **Knowledge Studio** backed by SQLite + vector search with `@book` chat citations and project-wide context, and flexible AI integrations (local Ollama or BYOK cloud providers).
+It combines an infinite drawing canvas, background-adaptive color palettes, diagrams and shape libraries, Markdown & LaTeX notes, interactive **2D & 3D Graph Cards** (`16` chart types) and **3D Scenes**, an embedded multi-language Code Studio with **visual Code Pipelines**, playable YouTube study cards, a local **Knowledge Studio** backed by SQLite + vector search with `@book` chat citations and project-wide context, flexible AI integrations (local Ollama or BYOK cloud providers), and a local **MCP Companion Server** for Antigravity and Claude.
 
----
-
-## Download Installers
-
-Download the latest pre-built desktop installer for your platform (always points to the newest release automatically):
-
-| Platform | Architecture | Installer |
-| --- | --- | --- |
-| **Windows** | 64-bit (`x64`) | [Download Vexelboard-latest-Setup.exe](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-Setup.exe) |
-| **macOS** | Apple Silicon (`arm64` — M-series: M1 &amp; newer) | [Download Vexelboard-latest-arm64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-arm64.dmg) |
-| **macOS** | Intel (`x64`) | [Download Vexelboard-latest-x64.dmg](https://github.com/GT0096/vexelBoard/releases/latest/download/Vexelboard-latest-x64.dmg) |
-
-> Looking for `.zip` archives, older versions, or release notes? View [Latest Release](https://github.com/GT0096/vexelBoard/releases/latest). Running the installer when Vexelboard is already installed lets you **update in place** (preserving your local boards & Knowledge Studio) or **uninstall** from the same setup (on macOS, double-click **`Update or Uninstall Vexelboard.command`** inside the DMG). On macOS, if Gatekeeper warns about an unsigned build, right-click **Vexelboard.app → Open** (or run `xattr -cr /Applications/Vexelboard.app`) on first launch.
+> New to Vexelboard? Read the full **[Functional User Guide](wiki/User-Guide.md)** for step-by-step workflows and shortcuts.
 
 ---
 
 ## Features
 
-- **Infinite Whiteboard & Adaptive Palettes**: Smooth pan/zoom canvas with Solid, Dot Matrix, or Graph Grid backgrounds and automatic background-adaptive color palettes for ink, text, shapes, React Flow diagrams, and SVG exports.
+- **Infinite Whiteboard & Adaptive Palettes**: Smooth pan/zoom canvas with Solid, Dot Matrix, or Graph Grid backgrounds, automatic background-adaptive color palettes for ink, text, shapes, React Flow diagrams, and SVG exports, plus a **responsive floating bottom toolbar** (`Select`, `Pan`, `Pen · Shapes`, `Lasso`, `Text`, `Image`, `Vectorize`, `Hand`, `Erase`, `Bg`, zoom, undo/redo) that adapts cleanly across narrow and wide windows.
 - **Pen & Writing Pad Tools**:
   - **5 Pen Types**: `Ballpoint`, `Fountain`, `Marker`, `Highlight`, and `Dashed` — available in both the left dock Pen flyout and the bottom `Pad` popover.
   - **Color & Thickness**: Theme ink/accent swatches, palette-matched colors, custom color picker, and `1px–24px` stroke thickness.
@@ -46,9 +34,17 @@ Download the latest pre-built desktop installer for your platform (always points
   - **Writing Pad OCR**: Optional freehand-to-text and freehand-to-LaTeX-equation conversion.
   - **Full History**: Multi-step Undo (`Ctrl+Z`) and Redo (`Ctrl+Y` / `Ctrl+Shift+Z`).
 - **Shapes, Stickies & AI Beautify**: Extensive SVG shape library, animated connectors, sticky notes, one-click diagram templates, and AI-powered **Beautify** to turn hand-drawn sketches into interactive React Flow diagrams.
-- **Code Studio & Video Cards**:
-  - **Code Cards**: Movable, resizable code containers on the canvas with CodeMirror editing and local code execution (`src/main/codeRunner.ts`).
+- **Interactive 2D & 3D Graph Cards & 3D Scenes**:
+  - **Unified Plotly/GeoGebra Graph Cards**: Movable, resizable cards supporting **16 chart types**: `function`, `line`, `smooth`, `area`, `bar`, `histogram`, `scatter`, `pie`, `violin`, `box`, `candlestick`, `heatmap`, `surface3d`, `scatter3d`, `line3d`, and `bar3d`.
+  - **Customize Drawer & Controls**: Built-in color palettes, per-series/slice colors, axis/grid/background/text colors, axis styles (`origin`, `frame`, `box`, `none`), legend positions (`bottom`, `top`, `right`, `inside`), 2D hover tooltips/zoom/pan/reset, and 3D **Orbit / Move (Pan)** mode toggle (`Shift+Drag` / right-drag / middle-drag) with **Center & Reset**.
+  - **3D Scenes**: Canvas-immersed interactive 3D object & experimental setup cards (presets + custom primitives), plus inline ```` ```3d ```` blocks inside Markdown notes.
+- **Code Studio, Visual Code Pipelines & Video Cards**:
+  - **Code Cards**: Movable, resizable code containers on the canvas with CodeMirror editing and local execution across **16 runnable languages** (`Python`, `JavaScript`, `TypeScript`, `C++`, `C`, `Java`, `Go`, `Rust`, `R`, `Ruby`, `PHP`, `C#`, `PowerShell`, `Bash`, `Lua`, `Perl`) plus live `HTML / CSS / JS` browser preview (`src/main/codeRunner.ts`).
+  - **Visual Code Pipelines**: Click or drag any Code Card's cyan connector dot to chain `Code → Code → Graph` or `Code → 3D Scene` stages with non-overlapping placement and automatic re-execution on connect. Features zero-boilerplate Python auto-emit/auto-receive (`x = [...]; y = [...]`, `def transform(data):`, `INPUT`/`DATA`/`PREV`, or clean `sys.stdin`), cross-language `stdout → stdin` piping across all 16 languages, and an inline **`Guide`** drawer with 3-step instructions and 1-click stage templates.
   - **YouTube Video Cards**: Embed videos directly on the canvas with timestamped bookmarks and notes.
+- **Antigravity & Claude Companion (MCP & Agent Skills)**:
+  - Local HTTP/MCP server (`http://127.0.0.1:45789/mcp`) in `src/main/companionServer.ts` lets external agents inspect the active board and create/update notes, diagrams, vector scenes, 2D/3D graphs (`vexelboard_create_graph`), 3D scenes (`vexelboard_create_3d_scene`), code cards (`vexelboard_add_code_card`), and live pipeline connectors (`vexelboard_connect_elements`).
+  - Bundled workspace skills under `.agents/skills/vexelboard-canvas` (`vexel.mjs` CLI with `add-graph` & `add-pipeline`) and `.agents/skills/vexelboard-knowledge`.
 - **Knowledge Studio & `@` Book Citations**:
   - Index `.pdf`, `.txt`, `.md`, code files, YouTube transcripts, and whiteboard snapshots into local SQLite (`better-sqlite3` with automatic `node:sqlite` fallback) + `sqlite-vec` hybrid FTS5/vector RAG.
   - Generate **Study Guides**, **FAQ & Quizzes**, **Podcast Scripts**, **Visual Tutorials**, and **Board Recall** analyses.
@@ -76,6 +72,7 @@ Download the latest pre-built desktop installer for your platform (always points
 
 ```text
 vexelboard/
+├── .agents/skills/           # Bundled Antigravity & Claude skills (vexelboard-canvas, vexelboard-knowledge) & vexel.mjs CLI
 ├── build/                    # App icons (.ico, .icns, .png), NSIS installer hook (installer.nsh), macOS setup, entitlements
 ├── public/
 │   ├── favicon.svg           # Vexelboard Kinetic V Nib SVG favicon
@@ -83,17 +80,18 @@ vexelboard/
 ├── resources/                # Unpacked runtime assets (logo.svg, icon.png, icon.ico)
 ├── scripts/                  # Codegen scripts (e.g., generate-shape-library.mjs)
 ├── src/
-│   ├── main/                 # Electron main process, IPC, SQLite DB, LLM router, code runner
+│   ├── main/                 # Electron main process, IPC, SQLite DB, LLM router, code runner, MCP companionServer.ts
 │   ├── preload/              # Context-isolated preload API bridge
-│   ├── shared/               # Shared IPC & provider types
+│   ├── shared/               # Shared IPC, provider, and agent mutation schemas
 │   └── renderer/
 │       ├── index.html        # App entry HTML & CSP
 │       └── src/
-│           ├── board/        # Board state/undo-redo, rendering, palettes, eraser, export, store
-│           ├── components/   # Toolbar, Left Dock, Settings, Code Studio, Knowledge Hub, Diagrams, Chat
+│           ├── board/        # Board state/undo-redo, graph plot builder, pipeline parser, agent executor, palettes, export, store
+│           ├── components/   # Toolbar, Left Dock, CanvasGraphCard, Canvas3DScene, Code Studio, Knowledge Hub, Diagrams, Chat
 │           ├── shapes/       # Shape library catalog & SVG renderer
 │           ├── types/        # Whiteboard domain types
 │           └── vision/       # MediaPipe webcam hand-tracking engine
+├── wiki/                     # Functional User Guide (wiki/User-Guide.md)
 ├── electron-builder.yml      # Windows (NSIS), macOS (DMG/ZIP), Linux packaging config
 ├── electron.vite.config.ts   # Main, preload, and renderer Vite configuration
 ├── LICENSE                   # Apache License 2.0

@@ -260,8 +260,9 @@ function getModeGuidance(mode: AgentRunRequest['mode']): string {
       return (
         'MODE = diagram: First call `search_board_assets` to discover composable primitives (`shape`, `svg_path`, curved/animated `connector`, `cell_strip`, `text`), library shapes, fonts, and semantic color tokens. ' +
         'Build clean board-native visuals directly on the canvas immediately. Use `create_vector_diagram` (composable `SpatialScene` primitives in `0..1000` space) ' +
-        'to synthesize ANY 2D visual from first principles (atomic orbitals, biological membranes/pathways, chemical reaction energy curves, physics force/wave diagrams, coordinate/trading plots, arrays/stacks/chains). ' +
-        'For 3D objects, vehicles/cars, experimental lab setups, or 3D z=f(x,y) surfaces, call `create_3d_scene` (which renders canvas-immersed 3D scenes directly on the board, or embed ```3d JSON blocks inside `add_note_card`). ' +
+        'to synthesize ANY 2D visual from first principles (atomic orbitals, biological membranes/pathways, chemical reaction energy curves, physics force/wave diagrams, arrays/stacks/chains). ' +
+        'For interactive 2D/3D plots, histograms, bar/pie/scatter/violin/box, stock OHLC candlesticks, heatmaps, or 3D surfaces/scatter/line/bar charts, call `create_or_update_graph` (all 16 Plotly/GeoGebra chart types). ' +
+        'For 3D objects, vehicles/cars, or experimental lab setups, call `create_3d_scene` (canvas-immersed 3D scenes, or embed ```3d JSON blocks inside `add_note_card`). ' +
         'Use `create_interactive_diagram` with discovered shape IDs for connected cyclic/system topologies or flowcharts (`animated: true` for stage-synchronized traveling pulse waves). Never emit raw <svg> outside SpatialScene `svg_path`.'
       )
     case 'fix_code':
@@ -276,7 +277,7 @@ function getModeGuidance(mode: AgentRunRequest['mode']): string {
       )
     default:
       return (
-        'MODE = general: Fulfill requests proactively on the board. When the user asks to explain visually, draw, create diagrams, 3D objects/setups (`create_3d_scene`), notes (can include ```3d blocks), equations, or connected code workflows (`create_or_patch_code` + `connect_board_elements` to wire Code Cards to downstream Code Cards, 2D Graphs, or 3D Scenes), ' +
+        'MODE = general: Fulfill requests proactively on the board. When the user asks to explain visually, draw, create diagrams, interactive 2D/3D plots (`create_or_update_graph`), 3D objects/setups (`create_3d_scene`), notes (can include ```3d blocks), equations, or connected Python/code processing pipelines (`create_or_patch_code` + `connect_board_elements` with deterministic `id`s wiring Code Cards via `def transform(data):` / `INPUT` to downstream Code Cards, `create_or_update_graph`, or `create_3d_scene`), ' +
         'IMMEDIATELY call the creation tools (batching multiple tools in `action.type = "tools"` when helpful) — NEVER just respond with prose saying you will create them.'
       )
   }
