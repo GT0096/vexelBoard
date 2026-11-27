@@ -391,12 +391,16 @@ Every AI response includes one-click board actions:
 
 ### Connecting External AI Agents (Antigravity & Claude via MCP)
 
-While Vexelboard is open, its local **Companion MCP Server** runs at `http://127.0.0.1:45789/mcp`, allowing external coding assistants such as **Antigravity** and **Claude** to inspect your live board and push structured visuals directly onto the active canvas:
+While Vexelboard is open, its local **Companion MCP Server** runs at `http://127.0.0.1:45789/mcp`, allowing external coding assistants such as **Antigravity** and **Claude** to inspect your live board, visually verify layouts, and push or rearrange structured visuals directly on the active canvas:
 
-- **Graph & 3D Tools**: `vexelboard_create_graph` (all 16 chart types + styling options) and `vexelboard_create_3d_scene` (presets and custom 3D primitives).
-- **Code & Pipeline Tools**: `vexelboard_add_code_card` and `vexelboard_connect_elements` (auto-links Code → Code, Code → Graph, or Code → 3D Scene pipelines with deterministic element IDs).
-- **Board & Knowledge Tools**: Inspect live board state (`graphs`, notes, diagrams, code cards), add notes/diagrams/vector scenes, and query your Knowledge Studio.
-- **Bundled Workspace Skills & CLI**: External agents in this workspace include `.agents/skills/vexelboard-canvas` (with the `vexel.mjs` helper CLI supporting `add-graph` and `add-pipeline`) and `.agents/skills/vexelboard-knowledge`.
+- **Full Board Inspection & Visual Capture**:
+  - `vexelboard_inspect_board` (`vexel.mjs board`) returns all notes, ReactFlow/native diagrams, `SpatialScene` `vectorGroups`, code cards, graphs, 3D scenes, equations, videos, connectors, standalone shapes, and `boardBounds` with exact `{ x, y, w, h }` coordinates and IDs.
+  - `vexelboard_capture_board` (`vexel.mjs capture-board` / `capture-viewport`) captures the full board (auto-fit and restored), current viewport, or a target world region as a PNG for visual verification; `vexelboard_capture_selection` (`capture-selection`) captures the active selection for sketch vectorization.
+- **Create, Move, Resize & Delete**:
+  - Pass explicit `x`/`y`/`w`/`h`/`id` on `vexelboard_add_note`, `vexelboard_add_equation`, `vexelboard_add_code_card`, `vexelboard_create_diagram`, `vexelboard_create_vector_scene`, `vexelboard_create_graph`, and `vexelboard_create_3d_scene` for deterministic multi-step layouts (or omit `x`/`y` to auto-place in empty space).
+  - `vexelboard_move_elements` (`vexel.mjs move-elements`) repositions or resizes individual cards or entire `SpatialScene`/diagram `vectorGroups` and automatically re-routes bound connectors; `vexelboard_delete_elements` accepts both individual element IDs and group IDs.
+- **Graph, 3D & Code Pipelines**: `vexelboard_create_graph` (all 16 chart types + styling options), `vexelboard_create_3d_scene` (presets and custom 3D primitives), `vexelboard_add_code_card`, and `vexelboard_connect_elements` (auto-links Code → Code, Code → Graph, or Code → 3D Scene pipelines).
+- **Bundled Workspace Skills & CLI**: External agents in this workspace include `.agents/skills/vexelboard-canvas` (with the `vexel.mjs` helper CLI) and `.agents/skills/vexelboard-knowledge` (`search-knowledge` over local SQLite/FTS5/vector Knowledge Studio sources).
 
 ---
 

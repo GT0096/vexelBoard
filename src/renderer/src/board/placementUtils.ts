@@ -347,7 +347,7 @@ export function planEmptyClusterLayout(
   items: ClusterLayoutItem[],
   view: CanvasTransform,
   screenSafe: ScreenSafeRect,
-  opts?: { gap?: number; clusterGap?: number }
+  opts?: { gap?: number; clusterGap?: number; maxCols?: number }
 ): {
   positions: Record<string, { x: number; y: number }>
   clusterBounds: BoxRect
@@ -368,14 +368,14 @@ export function planEmptyClusterLayout(
     clusterW = items[0].w
     clusterH = items[0].h
   } else {
-    // 2 columns max so visuals sit left and companion cards stack cleanly right
-    const cols = 2
+    // 2 columns max by default so visuals sit left and companion cards stack cleanly right; pipelines can override maxCols
+    const cols = Math.max(1, opts?.maxCols ?? 2)
     const rows: Array<ClusterLayoutItem[]> = []
     for (let i = 0; i < items.length; i += cols) {
       rows.push(items.slice(i, i + cols))
     }
 
-    const colWidths: number[] = [0, 0]
+    const colWidths: number[] = new Array(cols).fill(0)
     for (const row of rows) {
       row.forEach((it, cIdx) => {
         colWidths[cIdx] = Math.max(colWidths[cIdx], it.w)

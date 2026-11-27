@@ -48,6 +48,7 @@ export const AgentDiagramEdgeSchema = z.object({
 export const AgentBoardMutationSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('add_note'),
+    id: z.string().min(1).optional(),
     title: z.string().optional(),
     content: z.string().min(1),
     x: z.number().optional(),
@@ -58,13 +59,17 @@ export const AgentBoardMutationSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('add_equation'),
+    id: z.string().min(1).optional(),
     latex: z.string().min(1),
     title: z.string().optional(),
     x: z.number().optional(),
-    y: z.number().optional()
+    y: z.number().optional(),
+    w: z.number().optional(),
+    h: z.number().optional()
   }),
   z.object({
     type: z.literal('add_reactflow_diagram'),
+    id: z.string().min(1).optional(),
     title: z.string().min(1),
     diagramType: z
       .enum(['flowchart', 'mindmap', 'architecture', 'erd', 'sequence', 'concept'])
@@ -78,6 +83,7 @@ export const AgentBoardMutationSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('add_spatial_scene'),
+    id: z.string().min(1).optional(),
     title: z.string().optional(),
     scene: SpatialSceneSchema,
     x: z.number().optional(),
@@ -104,7 +110,9 @@ export const AgentBoardMutationSchema = z.discriminatedUnion('type', [
       )
       .optional(),
     x: z.number().optional(),
-    y: z.number().optional()
+    y: z.number().optional(),
+    w: z.number().optional(),
+    h: z.number().optional()
   }),
   z.object({
     type: z.literal('add_graph_card'),
@@ -167,6 +175,23 @@ export const AgentBoardMutationSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('delete_elements'),
     elementIds: z.array(z.string().min(1)).min(1).max(500)
+  }),
+  z.object({
+    type: z.literal('move_elements'),
+    moves: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          x: z.number().optional(),
+          y: z.number().optional(),
+          dx: z.number().optional(),
+          dy: z.number().optional(),
+          w: z.number().optional(),
+          h: z.number().optional()
+        })
+      )
+      .min(1)
+      .max(200)
   })
 ])
 export type AgentBoardMutation = z.infer<typeof AgentBoardMutationSchema>
@@ -232,6 +257,8 @@ export const AgentBoardSnapshotSchema = z.object({
         diagramType: z.string(),
         nodeCount: z.number(),
         edgeCount: z.number(),
+        elementCount: z.number().optional(),
+        memberIds: z.array(z.string()).optional(),
         x: z.number(),
         y: z.number(),
         w: z.number(),
@@ -239,6 +266,94 @@ export const AgentBoardSnapshotSchema = z.object({
       })
     )
     .default([]),
+  vectorGroups: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        kind: z.enum(['spatial_scene', 'diagram', 'vector_group']),
+        elementCount: z.number(),
+        memberIds: z.array(z.string()),
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number()
+      })
+    )
+    .default([]),
+  connectors: z
+    .array(
+      z.object({
+        id: z.string(),
+        sourceId: z.string().optional(),
+        targetId: z.string().optional(),
+        sourcePort: z.string().optional(),
+        targetPort: z.string().optional(),
+        label: z.string().optional(),
+        routing: z.string().optional(),
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number()
+      })
+    )
+    .default([]),
+  shapes: z
+    .array(
+      z.object({
+        id: z.string(),
+        shape: z.string(),
+        label: z.string().optional(),
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number()
+      })
+    )
+    .default([]),
+  images: z
+    .array(
+      z.object({
+        id: z.string(),
+        caption: z.string().optional(),
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number()
+      })
+    )
+    .default([]),
+  vectorArts: z
+    .array(
+      z.object({
+        id: z.string(),
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number()
+      })
+    )
+    .default([]),
+  immersedTexts: z
+    .array(
+      z.object({
+        id: z.string(),
+        textPreview: z.string(),
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number()
+      })
+    )
+    .default([]),
+  boardBounds: z
+    .object({
+      x: z.number(),
+      y: z.number(),
+      w: z.number(),
+      h: z.number()
+    })
+    .optional(),
   codeCards: z
     .array(
       z.object({

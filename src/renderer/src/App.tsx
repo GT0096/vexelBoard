@@ -985,7 +985,8 @@ export default function App(): React.JSX.Element {
           view: viewRef.current,
           screenSafe: getSafeViewportScreenRect(),
           fontFamily: curSettings.font,
-          defaultInkColor: tokens.accent
+          defaultInkColor: tokens.accent,
+          honorExplicitCoords: true
         })
         applied = outcome.appliedCount
         createdIdsOut = outcome.createdIds
@@ -1133,6 +1134,130 @@ export default function App(): React.JSX.Element {
     })
     return () => off?.()
   }, [buildCurrentSelectionCapturePayload])
+
+  // Answer live full-board / viewport / region capture requests from Antigravity / Companion Bridge
+  useEffect(() => {
+    const savedViews = new Map<string, CanvasTransform>()
+    const offPrepare = window.glassAPI?.onPrepareBoardCapture?.((req) => {
+      const curBoard = boardRef.current
+      const sec = activeSectionRef.current
+      const boardId = sec?.id || 'default-board'
+      const projectId = sec?.projectId || undefined
+      const occupied = collectOccupiedBoardRects(curBoard)
+      const elementCount = occupied.length
+
+      let boardBounds: { x: number; y: number; width: number; height: number } | undefined
+      if (occupied.length > 0) {
+        let minX = Infinity
+        let minY = Infinity
+        let maxX = -Infinity
+        let maxY = -Infinity
+        for (const r of occupied) {
+          minX = Math.min(minX, r.x)
+          minY = Math.min(minY, r.y)
+          maxX = Math.max(maxX, r.x + r.w)
+          maxY = Math.max(maxY, r.y + r.h)
+        }
+        if (Number.isFinite(minX)) {
+          boardBounds = {
+            x: Math.round(minX),
+            y: Math.round(minY),
+            width: Math.max(40, Math.round(maxX - minX)),
+            height: Math.max(40, Math.round(maxY - minY))
+          }
+        }
+      }
+
+      const targetRect =
+        req.mode === 'region' && req.region
+          ? {
+              x: req.region.x,
+              y: req.region.y,
+              w: Math.max(40, req.region.w),
+              h: Math.max(40, req.region.h)
+            }
+          : req.mode === 'board' && boardBounds
+            ? {
+                x: boardBounds.x,
+                y: boardBounds.y,
+                w: boardBounds.width,
+                h: boardBounds.height
+              }
+            : null
+
+      if (targetRect) {
+        savedViews.set(req.requestId, { ...viewRef.current })
+        const safe = getSafeViewportScreenRect()
+        const availW = Math.max(200, safe.right - safe.left - 72)
+        const availH = Math.max(160, safe.bottom - safe.top - 72)
+        const zoom = Math.max(
+          0.1,
+          Math.min(2.0, Math.min(availW / Math.max(1, targetRect.w), availH / Math.max(1, targetRect.h)))
+        )
+        const panX = Math.round((safe.left + safe.right) / 2 - (targetRect.x + targetRect.w / 2) * zoom)
+        const panY = Math.round((safe.top + safe.bottom) / 2 - (targetRect.y + targetRect.h / 2) * zoom)
+        const nextView: CanvasTransform = { zoom, panX, panY }
+        viewRef.current = nextView
+        setView(nextView)
+        scheduleRenderRef.current()
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.setTimeout(() => {
+              window.glassAPI?.respondBoardCapturePrepared?.(req.requestId, {
+                ok: true,
+                boardId,
+                projectId,
+                mode: req.mode,
+                boardBounds,
+                capturedBounds: {
+                  x: Math.round(targetRect.x),
+                  y: Math.round(targetRect.y),
+                  width: Math.round(targetRect.w),
+                  height: Math.round(targetRect.h)
+                },
+                elementCount
+              })
+            }, 80)
+          })
+        })
+        return
+      }
+
+      const curView = viewRef.current
+      const zoom = Math.max(0.1, curView.zoom)
+      const capturedBounds = {
+        x: Math.round((0 - curView.panX) / zoom),
+        y: Math.round((0 - curView.panY) / zoom),
+        width: Math.round(window.innerWidth / zoom),
+        height: Math.round(window.innerHeight / zoom)
+      }
+      window.glassAPI?.respondBoardCapturePrepared?.(req.requestId, {
+        ok: true,
+        boardId,
+        projectId,
+        mode: req.mode,
+        boardBounds,
+        capturedBounds,
+        elementCount
+      })
+    })
+
+    const offFinish = window.glassAPI?.onFinishBoardCapture?.((requestId) => {
+      const prev = savedViews.get(requestId)
+      if (prev) {
+        savedViews.delete(requestId)
+        viewRef.current = prev
+        setView(prev)
+        scheduleRenderRef.current()
+      }
+    })
+
+    return () => {
+      offPrepare?.()
+      offFinish?.()
+    }
+  }, [])
 
   const handleSendSelectionToAntigravity = useCallback(async () => {
     const payload = buildCurrentSelectionCapturePayload()

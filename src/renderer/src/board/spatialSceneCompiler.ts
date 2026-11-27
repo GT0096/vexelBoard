@@ -36,6 +36,13 @@ interface BoxObstacle {
   h: number
   openEnds?: Array<'start' | 'end'>
   orientation?: 'vertical' | 'horizontal'
+  isStrip?: boolean
+  isContainer?: boolean
+  hasLabel?: boolean
+  fillOpacity?: number
+  isTransparentOrDashed?: boolean
+  normW?: number
+  normH?: number
 }
 
 interface TextRect {
@@ -416,7 +423,10 @@ export function compileSpatialScene(
         w: sw,
         h: sh + (strip.openEnds?.includes('start') ? Math.round(ext * 0.4) : 0),
         openEnds: strip.openEnds,
-        orientation: 'vertical'
+        orientation: 'vertical',
+        isStrip: true,
+        isContainer: false,
+        hasLabel: true
       })
       stripInteriorRects.push({ x: sx, y: sy, w: sw, h: sh })
     } else {
@@ -535,7 +545,10 @@ export function compileSpatialScene(
           w: totalSpannedW,
           h: sh,
           openEnds: strip.openEnds,
-          orientation: 'horizontal'
+          orientation: 'horizontal',
+          isStrip: true,
+          isContainer: false,
+          hasLabel: true
         })
         stripInteriorRects.push({ x: sx - 8, y: sy - 6, w: totalSpannedW + 16, h: sh + 12 })
         return
@@ -641,7 +654,10 @@ export function compileSpatialScene(
         w: sw,
         h: sh,
         openEnds: strip.openEnds,
-        orientation: 'horizontal'
+        orientation: 'horizontal',
+        isStrip: true,
+        isContainer: false,
+        hasLabel: true
       })
       stripInteriorRects.push({ x: sx, y: sy, w: sw, h: sh })
     }
@@ -775,7 +791,24 @@ export function compileSpatialScene(
       bindableShapeNodes.push(createdShape)
     }
 
-    obstacles.push({ id: sh.id, x: wx, y: wy, w: ww, h: wh })
+    obstacles.push({
+      id: sh.id,
+      x: wx,
+      y: wy,
+      w: ww,
+      h: wh,
+      isStrip: false,
+      hasLabel: Boolean(sh.label?.trim()),
+      fillOpacity: sh.fillOpacity,
+      isTransparentOrDashed:
+        sh.fill === 'transparent' ||
+        sh.fill === 'none' ||
+        Boolean(sh.dashed) ||
+        sh.strokeStyle === 'dashed' ||
+        sh.strokeStyle === 'dotted',
+      normW: sh.w,
+      normH: sh.h
+    })
   })
 
   // 2.5 Compile Arbitrary Custom SVG Vector Paths (Organs, Membranes, Orbitals, Energy Barriers, Chemical Structures)
@@ -1016,13 +1049,50 @@ export function compileSpatialScene(
     }
   }
 
-  // 4. Compile Frameless Board-Immersed Texts with Collision Avoidance
+  // 4. Compile Frameless Board-Immersed Texts with Container-Aware Collision Avoidance
+  const rawTextPts = rawTexts.map((t) => ({ x: toWorldX(t.x), y: toWorldY(t.y) }))
+  for (const box of obstacles) {
+    if (box.isStrip) {
+      box.isContainer = false
+      continue
+    }
+    const boxArea = box.w * box.h
+    const hasNestedObstacle =
+      !box.hasLabel &&
+      obstacles.some((other) => {
+        if (other === box || other.id === box.id) return false
+        if (other.w * other.h >= boxArea * 0.9) return false
+        const cx = other.x + other.w / 2
+        const cy = other.y + other.h / 2
+        return cx > box.x && cx < box.x + box.w && cy > box.y && cy < box.y + box.h
+      })
+    const hasInteriorText =
+      !box.hasLabel &&
+      rawTextPts.some(
+        (pt) =>
+          pt.x > box.x + 6 &&
+          pt.x < box.x + box.w - 6 &&
+          pt.y > box.y + 6 &&
+          pt.y < box.y + box.h - 6
+      )
+    const isLargeUnlabeledPanel =
+      !box.hasLabel && (box.normW ?? 0) >= 260 && (box.normH ?? 0) >= 200
+    box.isContainer = Boolean(
+      box.isTransparentOrDashed ||
+        (box.fillOpacity !== undefined && box.fillOpacity < 0.5) ||
+        hasNestedObstacle ||
+        hasInteriorText ||
+        isLargeUnlabeledPanel
+    )
+  }
+
   const placedTextRects: TextRect[] = []
   rawTexts.forEach((t, idx) => {
     const cleanText = t.text.trim()
     if (!cleanText) return
     const scaleFactor = clamp(Math.min(worldW, worldH) / 480, 0.85, 1.45)
-    const fontSize = clamp(Math.round((t.fontSize ?? 20) * scaleFactor), 15, 34)
+    const minFs = t.fontSize !== undefined ? Math.min(15, Math.max(11, Math.round(t.fontSize))) : 14
+    const fontSize = clamp(Math.round((t.fontSize ?? 20) * scaleFactor), minFs, 34)
     const bold = t.bold !== false
     const dims = measure(cleanText, fontSize, bold)
 
@@ -1036,9 +1106,38 @@ export function compileSpatialScene(
           : rawX
     let ty = Math.round(rawY - dims.h / 2)
 
-    // Avoid colliding with solid box walls / cells (nudge along shortest escape vector)
+    const enclosingContainers = obstacles.filter(
+      (b) =>
+        b.isContainer &&
+        rawX >= b.x &&
+        rawX <= b.x + b.w &&
+        rawY >= b.y &&
+        rawY <= b.y + b.h
+    )
+
+    // Avoid colliding with solid box walls / cells (never kick interior text outside its panel)
     const pad = 10
     for (const box of obstacles) {
+      if (
+        box.isContainer &&
+        rawX >= box.x &&
+        rawX <= box.x + box.w &&
+        rawY >= box.y &&
+        rawY <= box.y + box.h
+      ) {
+        continue
+      }
+      if (
+        !box.isStrip &&
+        !box.hasLabel &&
+        rawX > box.x + 6 &&
+        rawX < box.x + box.w - 6 &&
+        rawY > box.y + 6 &&
+        rawY < box.y + box.h - 6
+      ) {
+        continue
+      }
+
       const candidate: TextRect = { x: tx, y: ty, w: dims.w, h: dims.h }
       if (!rectsOverlap(candidate, box, 4)) continue
 
@@ -1054,17 +1153,49 @@ export function compileSpatialScene(
         { dx: 0, dy: downShift, cost: Math.abs(downShift) }
       ].sort((a, b) => a.cost - b.cost)
 
-      if (shifts[0].cost <= 110) {
-        tx += Math.round(shifts[0].dx)
-        ty += Math.round(shifts[0].dy)
+      const bestClean = shifts.find((s) => {
+        if (s.cost > 110) return false
+        const shifted: TextRect = {
+          x: tx + Math.round(s.dx),
+          y: ty + Math.round(s.dy),
+          w: dims.w,
+          h: dims.h
+        }
+        return !obstacles.some(
+          (o) => o.isStrip && o !== box && rectsOverlap(shifted, o, 4)
+        )
+      })
+      const chosenShift = bestClean ?? (shifts[0].cost <= 110 ? shifts[0] : undefined)
+      if (chosenShift) {
+        tx += Math.round(chosenShift.dx)
+        ty += Math.round(chosenShift.dy)
       }
     }
 
-    // Avoid overlapping previously placed text labels
+    // Avoid overlapping previously placed text labels without pushing into cell_strips or out of containers
     for (const prev of placedTextRects) {
       const cur: TextRect = { x: tx, y: ty, w: dims.w, h: dims.h }
       if (rectsOverlap(cur, prev, 4)) {
-        ty = Math.round(prev.y + prev.h + 8)
+        const downY = Math.round(prev.y + prev.h + 6)
+        const upY = Math.round(prev.y - dims.h - 6)
+        const downHitsStrip = obstacles.some(
+          (o) => o.isStrip && rectsOverlap({ x: tx, y: downY, w: dims.w, h: dims.h }, o, 4)
+        )
+        const downExitsContainer = enclosingContainers.some(
+          (c) => downY + dims.h > c.y + c.h - 4
+        )
+        const upHitsStripOrText =
+          obstacles.some(
+            (o) => o.isStrip && rectsOverlap({ x: tx, y: upY, w: dims.w, h: dims.h }, o, 4)
+          ) ||
+          placedTextRects.some(
+            (p) => p !== prev && rectsOverlap({ x: tx, y: upY, w: dims.w, h: dims.h }, p, 4)
+          )
+        if ((downHitsStrip || downExitsContainer) && !upHitsStripOrText) {
+          ty = upY
+        } else {
+          ty = downY
+        }
       }
     }
 

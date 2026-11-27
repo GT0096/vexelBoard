@@ -10,6 +10,9 @@ import {
 import { SpatialSceneSchema, normalizeSpatialSceneInput } from '../shared/beautifySchema'
 import { normalizeScene3DInput } from '../shared/scene3dSchema'
 import type {
+  CompanionBoardCaptureMode,
+  CompanionBoardCaptureRegion,
+  CompanionBoardCaptureResult,
   CompanionBridgeStatus,
   CompanionSelectionCapturePayload,
   CompanionSelectionCaptureResult
@@ -31,6 +34,10 @@ export interface CompanionStartOptions {
   bridgeFilePath?: string
   captureDir?: string
   requestLiveSelectionCapture?: () => Promise<CompanionSelectionCapturePayload | null>
+  requestLiveBoardCapture?: (opts: {
+    mode: CompanionBoardCaptureMode
+    region?: CompanionBoardCaptureRegion
+  }) => Promise<CompanionBoardCaptureResult | null>
 }
 
 const DEFAULT_PORTS = [45789, 45790, 45791, 45792, 45793, 45794, 45795]
@@ -46,6 +53,7 @@ let activeBridgeFilePath = join(homedir(), '.vexelboard-bridge.json')
 let activeCaptureDir = join(tmpdir(), 'vexelboard-companion-captures')
 let latestSelectionCapture: CompanionSelectionCaptureResult | null = null
 let liveSelectionCaptureRequester: CompanionStartOptions['requestLiveSelectionCapture'] | null = null
+let liveBoardCaptureRequester: CompanionStartOptions['requestLiveBoardCapture'] | null = null
 
 function cleanPngBase64(raw: string): string {
   return raw.replace(/^data:image\/[^;]+;base64,/i, '').trim()
@@ -154,6 +162,60 @@ export async function captureSelectionForCompanion(opts?: {
     selectionBounds: latestSnapshot?.selectionBounds,
     error:
       'No captured selection PNG available. Select elements on the Vexelboard canvas (or click Antigravity on the selection bar) and retry.'
+  }
+}
+
+export async function captureBoardForCompanion(opts?: {
+  mode?: CompanionBoardCaptureMode
+  region?: CompanionBoardCaptureRegion
+  includeBase64?: boolean
+}): Promise<CompanionBoardCaptureResult> {
+  const mode: CompanionBoardCaptureMode = opts?.mode ?? 'board'
+  const includeBase64 = Boolean(opts?.includeBase64)
+  const formatOut = (res: CompanionBoardCaptureResult): CompanionBoardCaptureResult => {
+    if (includeBase64) return res
+    const { base64Png: _omitted, ...meta } = res
+    return meta
+  }
+
+  if (liveBoardCaptureRequester) {
+    try {
+      const livePayload = await liveBoardCaptureRequester({ mode, region: opts?.region })
+      if (livePayload) {
+        if (livePayload.ok && livePayload.base64Png) {
+          const cleanB64 = cleanPngBase64(livePayload.base64Png)
+          let filePath = livePayload.filePath
+          if (!filePath) {
+            mkdirSync(activeCaptureDir, { recursive: true })
+            const fileName = mode === 'viewport' ? 'latest-viewport.png' : 'latest-board.png'
+            filePath = join(activeCaptureDir, fileName)
+            writeFileSync(filePath, Buffer.from(cleanB64, 'base64'))
+          }
+          const saved: CompanionBoardCaptureResult = {
+            ...livePayload,
+            mode,
+            filePath,
+            mimeType: 'image/png',
+            base64Png: cleanB64,
+            capturedAt: livePayload.capturedAt ?? Date.now()
+          }
+          return formatOut(saved)
+        }
+        return formatOut({ ...livePayload, mode })
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  return {
+    ok: false,
+    mode,
+    boardId: latestSnapshot?.boardId,
+    projectId: latestSnapshot?.projectId,
+    elementCount: 0,
+    error:
+      'Live Vexelboard window is not available to capture the board. Open Vexelboard and retry.'
   }
 }
 
@@ -330,7 +392,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'vexelboard_inspect_board',
-    description: 'Inspect notes, diagrams, code cards, 2D/3D graph cards, 3D scenes, equations, videos, selection bounds, and layers on the active Vexelboard whiteboard.',
+    description: 'Inspect all elements on the active Vexelboard whiteboard: notes, diagrams, SpatialScene vectorGroups, code cards, 2D/3D graph cards, 3D scenes, equations, videos, connectors, standalone shapes, boardBounds, selection bounds, and layers.',
     inputSchema: { type: 'object', properties: {} }
   },
   {
@@ -345,8 +407,57 @@ const MCP_TOOLS = [
     }
   },
   {
+    name: 'vexelboard_capture_board',
+    description:
+      'Capture the entire whiteboard (mode="board", auto-fit and restored), current viewport (mode="viewport"), or a specific world coordinate region (mode="region", region:{x,y,w,h}) as a PNG image on disk (filePath) plus MCP image block so you can visually verify layout and overlaps.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mode: { type: 'string', enum: ['board', 'viewport', 'region'] },
+        region: {
+          type: 'object',
+          properties: {
+            x: { type: 'number' },
+            y: { type: 'number' },
+            w: { type: 'number' },
+            h: { type: 'number' }
+          },
+          required: ['x', 'y', 'w', 'h']
+        },
+        includeBase64: { type: 'boolean' }
+      }
+    }
+  },
+  {
+    name: 'vexelboard_move_elements',
+    description:
+      'Move or resize existing board elements (notes, equations, code cards, graphs, 3D scenes, shapes, or entire SpatialScene/diagram vectorGroups by group ID) and automatically re-route bound connectors.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        moves: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              x: { type: 'number' },
+              y: { type: 'number' },
+              dx: { type: 'number' },
+              dy: { type: 'number' },
+              w: { type: 'number' },
+              h: { type: 'number' }
+            },
+            required: ['id']
+          }
+        }
+      },
+      required: ['moves']
+    }
+  },
+  {
     name: 'vexelboard_delete_elements',
-    description: 'Delete specific canvas element IDs (such as raw hand-drawn stroke IDs from selectedIds). Supports undo.',
+    description: 'Delete specific canvas element IDs or entire SpatialScene/diagram vectorGroup IDs. Supports undo.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -357,13 +468,20 @@ const MCP_TOOLS = [
   },
   {
     name: 'vexelboard_add_note',
-    description: 'Place a structured Markdown sticky note onto an empty area of the Vexelboard canvas.',
+    description: 'Place a structured Markdown sticky note onto the Vexelboard canvas (honors explicit x/y/w/h or auto-places if omitted).',
     inputSchema: {
       type: 'object',
       properties: {
+        id: { type: 'string' },
         title: { type: 'string' },
         content: { type: 'string' },
-        color: { type: 'string' }
+        color: { type: 'string' },
+        x: { type: 'number' },
+        y: { type: 'number' },
+        w: { type: 'number' },
+        h: { type: 'number' },
+        width: { type: 'number' },
+        height: { type: 'number' }
       },
       required: ['content']
     }
@@ -374,6 +492,7 @@ const MCP_TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
+        id: { type: 'string' },
         title: { type: 'string' },
         diagramType: { type: 'string', enum: ['flowchart', 'mindmap', 'architecture', 'erd', 'sequence', 'concept'] },
         direction: { type: 'string', enum: ['TB', 'LR'] },
@@ -393,6 +512,7 @@ const MCP_TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
+        id: { type: 'string' },
         title: { type: 'string' },
         scene: { type: 'object' },
         x: { type: 'number' },
@@ -406,12 +526,19 @@ const MCP_TOOLS = [
   },
   {
     name: 'vexelboard_add_equation',
-    description: 'Add a rendered KaTeX LaTeX equation card onto an empty area of the board.',
+    description: 'Add a rendered KaTeX LaTeX equation card onto the board (honors explicit x/y/w/h or auto-places if omitted).',
     inputSchema: {
       type: 'object',
       properties: {
+        id: { type: 'string' },
         title: { type: 'string' },
-        latex: { type: 'string' }
+        latex: { type: 'string' },
+        x: { type: 'number' },
+        y: { type: 'number' },
+        w: { type: 'number' },
+        h: { type: 'number' },
+        width: { type: 'number' },
+        height: { type: 'number' }
       },
       required: ['latex']
     }
@@ -477,7 +604,13 @@ const MCP_TOOLS = [
         language: { type: 'string' },
         code: { type: 'string' },
         pipelineMode: { type: 'boolean' },
-        tabs: { type: 'array', items: { type: 'object' } }
+        tabs: { type: 'array', items: { type: 'object' } },
+        x: { type: 'number' },
+        y: { type: 'number' },
+        w: { type: 'number' },
+        h: { type: 'number' },
+        width: { type: 'number' },
+        height: { type: 'number' }
       },
       required: ['language', 'code']
     }
@@ -558,6 +691,34 @@ async function executeMcpToolCall(
       })
     }
 
+    case 'vexelboard_capture_board': {
+      const mode: CompanionBoardCaptureMode =
+        args.mode === 'viewport' || args.mode === 'region' ? args.mode : 'board'
+      const region =
+        args.region && typeof args.region === 'object'
+          ? {
+              x: Number(args.region.x ?? 0),
+              y: Number(args.region.y ?? 0),
+              w: Number(args.region.w ?? 600),
+              h: Number(args.region.h ?? 400)
+            }
+          : undefined
+      return await captureBoardForCompanion({
+        mode,
+        region,
+        includeBase64: args.includeBase64 !== false
+      })
+    }
+
+    case 'vexelboard_move_elements': {
+      const m = validateMutationsPayload({
+        type: 'move_elements',
+        moves: Array.isArray(args.moves) ? args.moves : []
+      })
+      const moveCount = m[0]?.type === 'move_elements' ? m[0].moves.length : 0
+      return pushAndReply(m, `move of ${moveCount} element(s)`)
+    }
+
     case 'vexelboard_delete_elements': {
       const m = validateMutationsPayload({
         type: 'delete_elements',
@@ -567,11 +728,18 @@ async function executeMcpToolCall(
     }
 
     case 'vexelboard_add_note': {
+      const noteW = typeof args.w === 'number' ? args.w : typeof args.width === 'number' ? args.width : undefined
+      const noteH = typeof args.h === 'number' ? args.h : typeof args.height === 'number' ? args.height : undefined
       const m = validateMutationsPayload({
         type: 'add_note',
+        ...(typeof args.id === 'string' && args.id.trim() ? { id: args.id.trim() } : {}),
         title: args.title,
         content: args.content,
-        color: args.color
+        color: args.color,
+        ...(typeof args.x === 'number' ? { x: args.x } : {}),
+        ...(typeof args.y === 'number' ? { y: args.y } : {}),
+        ...(typeof noteW === 'number' ? { w: noteW } : {}),
+        ...(typeof noteH === 'number' ? { h: noteH } : {})
       })
       return pushAndReply(m, `note "${args.title || 'Note'}"`)
     }
@@ -592,6 +760,7 @@ async function executeMcpToolCall(
         mutations: [
           {
             type: 'add_reactflow_diagram',
+            ...(typeof args.id === 'string' && args.id.trim() ? { id: args.id.trim() } : {}),
             title: args.title || 'Diagram',
             diagramType: args.diagramType || 'flowchart',
             direction: args.direction || 'TB',
@@ -620,6 +789,7 @@ async function executeMcpToolCall(
         mutations: [
           {
             type: 'add_spatial_scene',
+            ...(typeof args.id === 'string' && args.id.trim() ? { id: args.id.trim() } : {}),
             title: args.title || checked.data.title,
             scene: checked.data,
             x: typeof args.x === 'number' ? args.x : undefined,
@@ -679,10 +849,17 @@ async function executeMcpToolCall(
     }
 
     case 'vexelboard_add_equation': {
+      const eqW = typeof args.w === 'number' ? args.w : typeof args.width === 'number' ? args.width : undefined
+      const eqH = typeof args.h === 'number' ? args.h : typeof args.height === 'number' ? args.height : undefined
       const m = validateMutationsPayload({
         type: 'add_equation',
+        ...(typeof args.id === 'string' && args.id.trim() ? { id: args.id.trim() } : {}),
         title: args.title,
-        latex: args.latex
+        latex: args.latex,
+        ...(typeof args.x === 'number' ? { x: args.x } : {}),
+        ...(typeof args.y === 'number' ? { y: args.y } : {}),
+        ...(typeof eqW === 'number' ? { w: eqW } : {}),
+        ...(typeof eqH === 'number' ? { h: eqH } : {})
       })
       return pushAndReply(m, `equation`)
     }
@@ -698,6 +875,8 @@ async function executeMcpToolCall(
         })
         return pushAndReply(m, `code patch for ${args.cardId}`)
       }
+      const codeW = typeof args.w === 'number' ? args.w : typeof args.width === 'number' ? args.width : undefined
+      const codeH = typeof args.h === 'number' ? args.h : typeof args.height === 'number' ? args.height : undefined
       const m = validateMutationsPayload({
         type: 'add_code_card',
         ...(typeof args.id === 'string' && args.id.trim() ? { id: args.id.trim() } : {}),
@@ -705,7 +884,11 @@ async function executeMcpToolCall(
         language: args.language || 'python',
         code: args.code,
         pipelineMode: args.pipelineMode,
-        tabs: args.tabs
+        tabs: args.tabs,
+        ...(typeof args.x === 'number' ? { x: args.x } : {}),
+        ...(typeof args.y === 'number' ? { y: args.y } : {}),
+        ...(typeof codeW === 'number' ? { w: codeW } : {}),
+        ...(typeof codeH === 'number' ? { h: codeH } : {})
       })
       return pushAndReply(m, `code card "${args.title || 'Snippet'}"`)
     }
@@ -794,7 +977,11 @@ async function handleJsonRpcMessage(msg: any): Promise<any | null> {
             hint: 'Fix the payload using this error or call vexelboard_help (topic: graph|diagram|scene|3d|code|pipeline|connect). Do not read app source code.'
           }
         }
-        if (toolName === 'vexelboard_capture_selection' && out.ok && typeof out.base64Png === 'string') {
+        if (
+          (toolName === 'vexelboard_capture_selection' || toolName === 'vexelboard_capture_board') &&
+          out.ok &&
+          typeof out.base64Png === 'string'
+        ) {
           const { base64Png, ...metaWithoutBase64 } = out
           return {
             jsonrpc: '2.0',
@@ -936,6 +1123,39 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       return
     }
 
+    if (method === 'GET' && pathname === '/api/board-image') {
+      const rawMode = parsedUrl.searchParams.get('mode') || 'board'
+      const mode: CompanionBoardCaptureMode =
+        rawMode === 'viewport' || rawMode === 'region' ? rawMode : 'board'
+      const includeBase64 = parsedUrl.searchParams.get('includeBase64') === '1'
+      let region: CompanionBoardCaptureRegion | undefined
+      if (mode === 'region') {
+        const rx = Number(parsedUrl.searchParams.get('x'))
+        const ry = Number(parsedUrl.searchParams.get('y'))
+        const rw = Number(parsedUrl.searchParams.get('w'))
+        const rh = Number(parsedUrl.searchParams.get('h'))
+        if (
+          !Number.isFinite(rx) ||
+          !Number.isFinite(ry) ||
+          !Number.isFinite(rw) ||
+          !Number.isFinite(rh) ||
+          rw <= 0 ||
+          rh <= 0
+        ) {
+          sendJson(res, 400, {
+            ok: false,
+            mode,
+            error: 'Region capture requires finite x, y, w (>0), h (>0) query parameters.'
+          })
+          return
+        }
+        region = { x: rx, y: ry, w: rw, h: rh }
+      }
+      const captured = await captureBoardForCompanion({ mode, region, includeBase64 })
+      sendJson(res, 200, captured)
+      return
+    }
+
     if (method === 'GET' && pathname === '/api/projects') {
       const db = await getDb()
       sendJson(res, 200, {
@@ -1009,6 +1229,7 @@ export async function startCompanionServer(
   customDbProvider = opts.db ?? null
   customWebSearchFn = opts.webSearchFn ?? null
   liveSelectionCaptureRequester = opts.requestLiveSelectionCapture ?? null
+  liveBoardCaptureRequester = opts.requestLiveBoardCapture ?? null
   if (opts.bridgeFilePath) activeBridgeFilePath = opts.bridgeFilePath
   if (opts.captureDir) activeCaptureDir = opts.captureDir
 
@@ -1076,6 +1297,7 @@ export function stopCompanionServer(): void {
   mutationDispatcher = null
   liveSelectionCaptureRequester = null
   latestSelectionCapture = null
+  liveBoardCaptureRequester = null
   try {
     if (existsSync(activeBridgeFilePath)) {
       const parsed = JSON.parse(readFileSync(activeBridgeFilePath, 'utf8'))

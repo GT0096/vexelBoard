@@ -39,6 +39,18 @@ const glassAPI: GlassAPI = {
   },
   respondSelectionCapture: (requestId, capture) =>
     ipcRenderer.send('companion:selectionCaptureResponse', { requestId, capture }),
+  onPrepareBoardCapture: (callback) => {
+    const listener = (_e: Electron.IpcRendererEvent, req: any): void => callback(req)
+    ipcRenderer.on('companion:prepareBoardCapture', listener)
+    return () => ipcRenderer.removeListener('companion:prepareBoardCapture', listener)
+  },
+  respondBoardCapturePrepared: (requestId, payload) =>
+    ipcRenderer.send('companion:boardCapturePrepared', { requestId, payload }),
+  onFinishBoardCapture: (callback) => {
+    const listener = (_e: Electron.IpcRendererEvent, requestId: string): void => callback(requestId)
+    ipcRenderer.on('companion:finishBoardCapture', listener)
+    return () => ipcRenderer.removeListener('companion:finishBoardCapture', listener)
+  },
   onAgentEvent: (callback) => {
     const listener = (_e: Electron.IpcRendererEvent, event: any): void => callback(event)
     ipcRenderer.on('agent:event', listener)
