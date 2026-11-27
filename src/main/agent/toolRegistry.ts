@@ -30,7 +30,7 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
     defineAgentTool({
       name: 'inspect_board',
       description:
-        'Inspect detailed elements currently on the board (layers, notes, diagrams, code cards, equations, videos, and suggestedEmptyArea).',
+        'Inspect detailed elements currently on the board (layers, notes, diagrams, code cards, 2D/3D graphs, 3D scenes, equations, videos, and suggestedEmptyArea).',
       argHint: '{"includeRecentHistory":true}',
       inputSchema: z.object({
         includeRecentHistory: z.boolean().optional()
@@ -47,7 +47,7 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
 
         return {
           ok: true,
-          summary: `Board has ${snap.strokesCount} strokes, ${snap.notes.length} notes, ${snap.diagrams.length} diagrams, ${snap.codeCards.length} code cards, ${snap.equations.length} equations, ${snap.knowledgeSourceCount ?? 0} indexed sources.`,
+          summary: `Board has ${snap.strokesCount} strokes, ${snap.notes.length} notes, ${snap.diagrams.length} diagrams, ${snap.graphs?.length ?? 0} graphs, ${snap.scenes3d?.length ?? 0} 3D scenes, ${snap.codeCards.length} code cards, ${snap.equations.length} equations, ${snap.knowledgeSourceCount ?? 0} indexed sources.`,
           data: {
             layers: snap.layers,
             activeLayerId: snap.activeLayerId,
@@ -57,6 +57,8 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
             suggestedEmptyArea: snap.suggestedEmptyArea,
             notes: snap.notes,
             diagrams: snap.diagrams,
+            graphs: snap.graphs,
+            scenes3d: snap.scenes3d,
             codeCards: snap.codeCards,
             equations: snap.equations,
             videos: snap.videos,
@@ -520,12 +522,53 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
       }
     }),
     defineAgentTool({
+      name: 'create_or_update_graph',
+      description:
+        'Create a unified interactive Plotly/GeoGebra 2D or 3D Graph Card (or update an existing graph when `cardId` is supplied). Supports 16 chart types (`function`, `line`, `smooth`, `area`, `bar`, `histogram`, `scatter`, `pie`, `violin`, `box`, `candlestick`, `heatmap`, `surface3d`, `scatter3d`, `line3d`, `bar3d`) and any data hashmap (`{"x": ..., "y": ...}`, `{"x", "y", "z"}`, 1D `{"x": [...]}`, stock OHLC `{"x", "open", "high", "low", "close"}`, `{"expr": "..."}`, `{"expr3d": "..."}`, `{"series": [...]}`) plus styling (`axisColor`, `gridColor`, `backgroundColor`, `textColor`, `legendPosition`, `axisStyle`, `bins`, `showKde`, `donut`). Pass deterministic `id` to wire from Code Cards using `connect_board_elements`.',
+      argHint:
+        '{"id":"graph-1","title":"Sales vs Target","chartType":"bar","data":{"x":["Q1","Q2","Q3"],"series":[{"label":"Actual","y":[120,165,210],"color":"#2563EB"},{"label":"Target","y":[110,150,200],"color":"#10B981"}]}}',
+      inputSchema: z.object({
+        id: z.string().optional(),
+        cardId: z.string().optional(),
+        title: z.string().optional(),
+        chartType: z.string().optional(),
+        data: z.record(z.string(), z.unknown()).optional(),
+        spec: z.record(z.string(), z.unknown()).optional(),
+        x: z.number().optional(),
+        y: z.number().optional(),
+        width: z.number().optional(),
+        height: z.number().optional()
+      }),
+      execute: async (args, ctx) => {
+        ctx.pushMutation({
+          type: 'add_graph_card',
+          id: args.id,
+          cardId: args.cardId,
+          title: args.title,
+          chartType: args.chartType,
+          data: args.data,
+          spec: args.spec,
+          x: args.x,
+          y: args.y,
+          width: args.width,
+          height: args.height
+        })
+        return {
+          ok: true,
+          summary: args.cardId
+            ? `Queued update for Graph Card "${args.cardId}".`
+            : `Queued interactive Graph Card "${args.title || args.chartType || 'Graph'}".`
+        }
+      }
+    }),
+    defineAgentTool({
       name: 'create_3d_scene',
       description:
-        'Render an interactive 3D object, simulation, mathematical surface, or experimental setup directly immersed onto the Vexelboard canvas (e.g. a 3D car, optics_bench, mechanics_rig, chemistry_setup, electromagnetism, surface_wave, OR custom elements composed of box/sphere/cylinder/cone/torus/wheel/spring/lens/prism/flask/plane/arrow3d/curve3d/surface3d/mesh/label3d). Omit x/y for collision-free placement.',
+        'Render an interactive 3D object, simulation, mathematical surface, or experimental setup directly immersed onto the Vexelboard canvas (e.g. a 3D car, optics_bench, mechanics_rig, chemistry_setup, electromagnetism, surface_wave, OR custom elements composed of box/sphere/cylinder/cone/torus/wheel/spring/lens/prism/flask/plane/arrow3d/curve3d/surface3d/mesh/label3d). Pass deterministic `id` to wire with Code Cards via `connect_board_elements`. Omit x/y for collision-free placement.',
       argHint:
-        '{"title":"3D Car Kinematics","preset":"car","immersed":true,"scene":{"elements":[{"id":"vec-v","type":"arrow3d","from":[2.2,0.1,0],"to":[3.8,0.1,0],"color":"#10B981","anim":{"pulseFlow":true}}]}}',
+        '{"id":"scene-1","title":"3D Car Kinematics","preset":"car","immersed":true,"scene":{"elements":[{"id":"vec-v","type":"arrow3d","from":[2.2,0.1,0],"to":[3.8,0.1,0],"color":"#10B981","anim":{"pulseFlow":true}}]}}',
       inputSchema: z.object({
+        id: z.string().optional(),
         title: z.string().optional(),
         preset: z.string().optional(),
         scene: z.unknown().optional(),
@@ -541,6 +584,7 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
         )
         ctx.pushMutation({
           type: 'add_3d_scene',
+          id: args.id,
           title: args.title || normalized.title,
           preset: normalized.preset,
           scene: normalized,
@@ -559,7 +603,7 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
     defineAgentTool({
       name: 'connect_board_elements',
       description:
-        'Draw a bound flowchart connector arrow between two board elements (Code Cards, 2D Graphs via shape/group ID, 3D Scenes, or Flowchart Shapes). Running an upstream Code Card automatically pipes its stdout into downstream Code Cards and updates connected 2D Graphs or 3D Scenes.',
+        'Draw a bound flowchart connector arrow between two board elements (Code Cards, unified 2D/3D Graph Cards, 3D Scenes, or Flowchart Shapes). Running an upstream Code Card automatically pipes its output into downstream Code Cards (`def transform(data):`, `INPUT`, or `stdin`) and live-updates connected Graph Cards or 3D Scenes.',
       argHint: '{"sourceId":"code-1","targetId":"code-2","sourcePort":"right","targetPort":"left","animated":true}',
       inputSchema: z.object({
         sourceId: z.string().min(1),
@@ -592,9 +636,10 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
     defineAgentTool({
       name: 'create_or_patch_code',
       description:
-        'Create a runnable Code Card (or patch an existing one when `cardId` is supplied). To build a multi-stage execution flow, create separate Code Cards and wire them with `connect_board_elements` (or link to a 3D scene / 2D graph so running upstream pipes stdout -> stdin and updates connected visuals).',
-      argHint: '{"cardId":"optional-id","title":"stack.py","language":"python","code":"class Stack: ..."}',
+        'Create a runnable Code Card (or patch an existing one when `cardId` is supplied). Python Code Cards automatically capture returned dicts, assigned plot dicts, or `x = [...]; y = [...]` variables, and downstream cards automatically receive upstream data via `def transform(data):` or `INPUT`. Pass deterministic `id` to wire Code Cards to other Code Cards, `create_or_update_graph`, or `create_3d_scene` with `connect_board_elements`.',
+      argHint: '{"id":"code-1","title":"pipeline.py","language":"python","code":"def transform(data):\\n    return {\\"x\\": data[\\"x\\"], \\"y\\": [v * 2 for v in data[\\"y\\"]]}"}',
       inputSchema: z.object({
+        id: z.string().optional(),
         cardId: z.string().optional(),
         title: z.string().optional(),
         language: z.string().min(1),
@@ -631,6 +676,7 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
         }
         ctx.pushMutation({
           type: 'add_code_card',
+          id: args.id,
           title: args.title || `snippet.${args.language}`,
           language: args.language,
           code: cleanCode,

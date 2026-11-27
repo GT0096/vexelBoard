@@ -358,34 +358,120 @@ export function rasterizeSelectionColorPreserving(
   const paletteHints = Array.from(paletteSet).slice(0, 12)
   const base64Png = canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '')
 
-  // Create coordinate-ruled copy (0..1000 normalized grid ticks) for Vision LLM spatial accuracy
-  const ruledCanvas = document.createElement('canvas')
-  ruledCanvas.width = canvasW
-  ruledCanvas.height = canvasH
-  const rctx = ruledCanvas.getContext('2d')
+  // Create high-contrast vision-optimized PNG (contrastColorForVision, min effective stroke width, outer-border ticks only)
+  const visionCanvas = document.createElement('canvas')
+  visionCanvas.width = canvasW
+  visionCanvas.height = canvasH
+  const vctx = visionCanvas.getContext('2d')
   let ruledBase64Png = base64Png
-  if (rctx) {
-    rctx.drawImage(canvas, 0, 0)
-    rctx.save()
-    rctx.strokeStyle = 'rgba(148, 163, 184, 0.35)'
-    rctx.lineWidth = 1
-    rctx.setLineDash([4, 4])
-    rctx.font = 'bold 11px monospace'
-    rctx.fillStyle = 'rgba(71, 85, 105, 0.85)'
-    for (const tick of [200, 400, 600, 800]) {
-      const gx = (tick / 1000) * canvasW
-      const gy = (tick / 1000) * canvasH
-      rctx.beginPath()
-      rctx.moveTo(gx, 0)
-      rctx.lineTo(gx, canvasH)
-      rctx.moveTo(0, gy)
-      rctx.lineTo(canvasW, gy)
-      rctx.stroke()
-      rctx.fillText(String(tick), gx + 2, 12)
-      rctx.fillText(String(tick), 3, gy - 3)
+  if (vctx) {
+    vctx.fillStyle = '#ffffff'
+    vctx.fillRect(0, 0, canvasW, canvasH)
+
+    vctx.save()
+    vctx.scale(scale, scale)
+    vctx.translate(-bMinX, -bMinY)
+
+    const visionTheme = {
+      ...resolveThemeTokens('minimal-light'),
+      ink: '#0f172a',
+      accent: contrastColorForVision(themeAccent)
     }
-    rctx.restore()
-    ruledBase64Png = ruledCanvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '')
+    const minStrokeWorld = 2.6 / Math.max(0.45, scale)
+
+    for (const va of selVectorArts) {
+      drawVectorArt(vctx, va, visionTheme, rasterPalette)
+    }
+
+    for (const s of selShapes) {
+      const visionShape: ShapeNode = {
+        ...s,
+        color: contrastColorForVision(resolveExactStrokeColor(s.color)),
+        strokeWidth: Math.max(minStrokeWorld, s.strokeWidth ?? 2.5)
+      }
+      drawShape(vctx, visionShape, visionTheme, rasterFontCss, rasterPalette)
+    }
+
+    for (const st of selStrokes) {
+      if (st.points.length < 1) continue
+      vctx.save()
+      const col = contrastColorForVision(resolveExactStrokeColor(st.color))
+      const isHighlighter = st.penType === 'highlighter'
+      vctx.globalAlpha = isHighlighter ? 0.42 : 1.0
+      vctx.strokeStyle = col
+      vctx.fillStyle = col
+      const baseSize = st.size || 3
+      const baseWidth = isHighlighter
+        ? Math.max(8, baseSize * 2.5)
+        : st.penType === 'marker' || st.penType === 'brush'
+          ? Math.max(3, baseSize * 1.45)
+          : st.penType === 'pencil'
+            ? Math.max(1.8, baseSize * 0.85)
+            : Math.max(2.2, baseSize)
+      vctx.lineWidth = Math.max(minStrokeWorld, baseWidth)
+      vctx.lineCap = isHighlighter ? 'butt' : 'round'
+      vctx.lineJoin = 'round'
+      if (st.penType === 'dashed') {
+        vctx.setLineDash([Math.max(4, baseSize * 2.2), Math.max(4, baseSize * 1.6)])
+      }
+
+      if (st.points.length === 1) {
+        vctx.beginPath()
+        vctx.arc(st.points[0][0], st.points[0][1], Math.max(1.8, vctx.lineWidth / 2), 0, Math.PI * 2)
+        vctx.fill()
+      } else {
+        vctx.beginPath()
+        vctx.moveTo(st.points[0][0], st.points[0][1])
+        for (let i = 1; i < st.points.length - 1; i++) {
+          const mx = (st.points[i][0] + st.points[i + 1][0]) / 2
+          const my = (st.points[i][1] + st.points[i + 1][1]) / 2
+          vctx.quadraticCurveTo(st.points[i][0], st.points[i][1], mx, my)
+        }
+        const last = st.points[st.points.length - 1]
+        vctx.lineTo(last[0], last[1])
+        vctx.stroke()
+      }
+      vctx.restore()
+    }
+
+    for (const t of selTexts) {
+      vctx.save()
+      vctx.fillStyle = contrastColorForVision(resolveExactStrokeColor(t.color))
+      vctx.font = `${t.bold ? 'bold ' : ''}${Math.max(16, t.fontSize || 18)}px sans-serif`
+      vctx.textBaseline = 'top'
+      const lines = t.text.split('\n')
+      lines.forEach((line, idx) =>
+        vctx.fillText(line, t.x, t.y + idx * ((t.fontSize || 18) * 1.35))
+      )
+      vctx.restore()
+    }
+
+    vctx.restore()
+
+    // Subtle tick marks strictly along the outermost 10px border edge (zero interior grid lines or numbers)
+    vctx.save()
+    vctx.strokeStyle = 'rgba(148, 163, 184, 0.45)'
+    vctx.lineWidth = 1
+    const tickLen = Math.min(8, Math.floor(Math.min(canvasW, canvasH) * 0.08))
+    if (tickLen >= 3) {
+      vctx.beginPath()
+      for (const tick of [200, 400, 600, 800]) {
+        const gx = Math.round((tick / 1000) * canvasW)
+        const gy = Math.round((tick / 1000) * canvasH)
+        vctx.moveTo(gx, 0)
+        vctx.lineTo(gx, tickLen)
+        vctx.moveTo(gx, canvasH - tickLen)
+        vctx.lineTo(gx, canvasH)
+        vctx.moveTo(0, gy)
+        vctx.lineTo(tickLen, gy)
+        vctx.moveTo(canvasW - tickLen, gy)
+        vctx.lineTo(canvasW, gy)
+      }
+      vctx.stroke()
+    }
+    vctx.restore()
+
+    ruledBase64Png = visionCanvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '')
   }
 
   return {

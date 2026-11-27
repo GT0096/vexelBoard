@@ -13985,21 +13985,41 @@ body[data-font='serif'] {
 .dock-wrap {
   bottom: 18px;
   left: 78px;
-  right: 98px;
+  right: 112px;
   justify-content: center;
-}
-
-@media (max-width: 720px) {
-  .dock-wrap {
-    left: 64px;
-    right: 72px;
-    bottom: 12px;
-  }
+  container-type: inline-size;
+  container-name: main-dock;
 }
 
 .dock-wrap .dock {
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 6px;
+  width: fit-content;
   max-width: 100%;
   overflow: visible;
+  gap: 6px;
+  padding: 6px 9px;
+}
+
+.dock .segmented {
+  flex-shrink: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.dock .segmented button {
+  padding: 5px 10px;
+  font-size: 12.5px;
+  gap: 5px;
+}
+
+.dock .icon-btn {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
 }
 
 .dock .zoom-controls button {
@@ -14017,6 +14037,110 @@ body[data-font='serif'] {
   text-align: center;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+
+@media (max-width: 1500px) {
+  .dock-wrap .dock {
+    gap: 5px;
+    padding: 5px 8px;
+  }
+
+  .dock .segmented button {
+    padding: 5px 8px;
+    font-size: 12px;
+    gap: 4px;
+  }
+
+  .dock .zoom-controls button {
+    padding: 0 7px;
+  }
+
+  .dock-divider {
+    margin: 0 1px;
+  }
+
+  .dock .icon-btn {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@container main-dock (max-width: 1320px) {
+  .dock-wrap .dock {
+    gap: 5px;
+    padding: 5px 8px;
+  }
+
+  .dock .segmented button {
+    padding: 5px 8px;
+    font-size: 12px;
+    gap: 4px;
+  }
+
+  .dock .zoom-controls button {
+    padding: 0 7px;
+  }
+
+  .dock-divider {
+    margin: 0 1px;
+  }
+
+  .dock .icon-btn {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@media (max-width: 1340px) {
+  .dock .segmented:first-child button > span:not(.combo-arrow):not(.bg-color-swatch-indicator):not(.font-btn-aa) {
+    display: none;
+  }
+
+  .dock .segmented:first-child button {
+    padding: 5px 7px;
+    gap: 3px;
+  }
+}
+
+@container main-dock (max-width: 1160px) {
+  .dock .segmented:first-child button > span:not(.combo-arrow):not(.bg-color-swatch-indicator):not(.font-btn-aa) {
+    display: none;
+  }
+
+  .dock .segmented:first-child button {
+    padding: 5px 7px;
+    gap: 3px;
+  }
+}
+
+@media (max-width: 920px) {
+  .dock-wrap .dock .dock-divider {
+    display: none;
+  }
+
+  .dock .icon-btn {
+    width: 30px;
+    height: 30px;
+  }
+}
+
+@container main-dock (max-width: 740px) {
+  .dock-wrap .dock .dock-divider {
+    display: none;
+  }
+
+  .dock .icon-btn {
+    width: 30px;
+    height: 30px;
+  }
+}
+
+@media (max-width: 720px) {
+  .dock-wrap {
+    left: 66px;
+    right: 86px;
+    bottom: 12px;
+  }
 }
 
 .tool-font-btn {

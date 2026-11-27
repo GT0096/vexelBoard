@@ -159,10 +159,10 @@ export const Toolbar = React.memo(function Toolbar(p: ToolbarProps): React.JSX.E
             <span>
               {p.shapesMode
                 ? p.penType === 'pencil'
-                  ? 'Pencil·Shapes'
+                  ? 'Pencil · Shapes'
                   : p.penType === 'brush'
-                    ? 'Brush·Shapes'
-                    : 'Pen·Shapes'
+                    ? 'Brush · Shapes'
+                    : 'Pen · Shapes'
                 : p.penType === 'pencil'
                   ? 'Pencil'
                   : p.penType === 'brush'

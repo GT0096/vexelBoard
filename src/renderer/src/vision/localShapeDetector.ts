@@ -1202,22 +1202,57 @@ export function analyzeSelectionLocally(
   }
 
   if (unassignedStrokes.length > 0 && shapes.length > 0 && largeUnclassifiedCount === 0) {
-    let minX = Infinity
-    let minY = Infinity
-    let maxX = -Infinity
-    let maxY = -Infinity
-    for (const st of unassignedStrokes) {
+    const items = unassignedStrokes.map((st) => {
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = -Infinity
+      let maxY = -Infinity
       for (const [x, y] of st.points) {
-        minX = Math.min(minX, x)
-        minY = Math.min(minY, y)
-        maxX = Math.max(maxX, x)
-        maxY = Math.max(maxY, y)
+        if (x < minX) minX = x
+        if (y < minY) minY = y
+        if (x > maxX) maxX = x
+        if (y > maxY) maxY = y
       }
-    }
-    labelClusters.push({
-      strokes: unassignedStrokes,
-      bounds: { minX, minY, maxX, maxY }
+      if (!Number.isFinite(minX)) minX = minY = maxX = maxY = 0
+      return { st, minX, minY, maxX, maxY }
     })
+
+    const visited = new Array<boolean>(items.length).fill(false)
+    for (let i = 0; i < items.length; i++) {
+      if (visited[i]) continue
+      visited[i] = true
+      const queue = [i]
+      const component: typeof items = []
+      while (queue.length > 0) {
+        const curIdx = queue.shift()!
+        const a = items[curIdx]
+        component.push(a)
+        for (let j = 0; j < items.length; j++) {
+          if (visited[j]) continue
+          const b = items[j]
+          const hGap = Math.max(0, b.minX - a.maxX, a.minX - b.maxX)
+          const vGap = Math.max(0, b.minY - a.maxY, a.minY - b.maxY)
+          if (hGap <= 60 && vGap <= 40) {
+            visited[j] = true
+            queue.push(j)
+          }
+        }
+      }
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = -Infinity
+      let maxY = -Infinity
+      for (const c of component) {
+        minX = Math.min(minX, c.minX)
+        minY = Math.min(minY, c.minY)
+        maxX = Math.max(maxX, c.maxX)
+        maxY = Math.max(maxY, c.maxY)
+      }
+      labelClusters.push({
+        strokes: component.map((c) => c.st),
+        bounds: { minX, minY, maxX, maxY }
+      })
+    }
   }
 
   const isPureHandwriting = shapes.length === 0 && remaining.length > 0 && largeUnclassifiedCount === 0

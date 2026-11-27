@@ -28,6 +28,14 @@ import {
 import { compileSpatialScene } from './spatialSceneCompiler'
 import { measureBoardText } from './vectorizeUtils'
 import { unescapeLlmCode, unescapeLlmText } from '@shared/textUnescape'
+import { mergeCodeVisualIntoGraphSpec, parseCodeOutputToVisuals } from './codeVisualParser'
+import {
+  GRAPH_PRESETS,
+  is3DGraphChartType,
+  resolveGraphChartType,
+  type GraphChartType,
+  type GraphPlotSpec
+} from './graphPlotBuilder'
 
 function uid(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -142,6 +150,16 @@ export function buildAgentBoardSnapshot(args: {
       w: Math.round(s.w),
       h: Math.round(s.h)
     })),
+    graphs: (board.graphNodes ?? []).slice(0, 20).map((g) => ({
+      id: g.id,
+      title: g.title || g.spec?.title || 'Graph',
+      chartType: resolveGraphChartType(g.spec),
+      ...(g.linkedCodeNodeId ? { linkedCodeNodeId: g.linkedCodeNodeId } : {}),
+      x: Math.round(g.x),
+      y: Math.round(g.y),
+      w: Math.round(g.w),
+      h: Math.round(g.h)
+    })),
     imageBase64
   }
 }
@@ -217,7 +235,7 @@ export function applyAgentMutationsToBoard(
   const nextVideoNodes = filterDeleted(board.videoNodes ?? [])
   const nextImageNodes = filterDeleted(board.imageNodes ?? [])
   const nextScene3dNodes = filterDeleted(board.scene3dNodes ?? [])
-  const nextGraphNodes: GraphNode[] = filterDeleted(board.graphNodes ?? [])
+  let nextGraphNodes: GraphNode[] = filterDeleted(board.graphNodes ?? [])
 
   const boardAfterDeletes: BoardState = {
     ...board,
@@ -354,6 +372,16 @@ export function applyAgentMutationsToBoard(
       } else {
         clusterQueue.push({ key: `m-${idx}`, mutationIndex: idx, w, h })
       }
+    } else if (m.type === 'add_graph_card') {
+      if (!m.cardId) {
+        const w = Math.max(320, Math.round(m.width ?? 520))
+        const h = Math.max(240, Math.round(m.height ?? 380))
+        if (typeof m.x === 'number' && typeof m.y === 'number') {
+          rawExplicitItems.push({ mutationIndex: idx, x: Math.round(m.x), y: Math.round(m.y), w, h, topMargin: 0 })
+        } else {
+          clusterQueue.push({ key: `m-${idx}`, mutationIndex: idx, w, h })
+        }
+      }
     } else if (m.type === 'add_3d_scene') {
       const w = Math.max(280, Math.round(m.width ?? 480))
       const h = Math.max(220, Math.round(m.height ?? 380))
@@ -422,11 +450,18 @@ export function applyAgentMutationsToBoard(
     }
   }
 
-  // Order unpositioned items pedagogically: explanation notes first -> diagrams -> equations -> code cards -> videos
+  // Order unpositioned items pedagogically: explanation notes first -> diagrams/graphs -> equations -> code cards -> videos
   const typePriority = (idx: number): number => {
     const t = mutations[idx]?.type
     if (t === 'add_note') return 1
-    if (t === 'add_spatial_scene' || t === 'add_reactflow_diagram' || t === 'add_3d_scene') return 2
+    if (
+      t === 'add_spatial_scene' ||
+      t === 'add_reactflow_diagram' ||
+      t === 'add_3d_scene' ||
+      t === 'add_graph_card'
+    ) {
+      return 2
+    }
     if (t === 'add_equation') return 3
     if (t === 'add_code_card') return 4
     return 5
@@ -580,7 +615,7 @@ export function applyAgentMutationsToBoard(
       }
 
       case 'add_code_card': {
-        const id = uid('code')
+        const id = m.id?.trim() || uid('code')
         const rawTabs = Array.isArray(m.tabs) && m.tabs.length > 0 ? m.tabs : null
         const tabs = rawTabs
           ? rawTabs.map((t, tIdx) => ({
@@ -620,13 +655,127 @@ export function applyAgentMutationsToBoard(
         break
       }
 
+      case 'add_graph_card': {
+        const VALID_TYPES = new Set<GraphChartType>([
+          'function',
+          'line',
+          'smooth',
+          'area',
+          'bar',
+          'histogram',
+          'scatter',
+          'pie',
+          'violin',
+          'box',
+          'candlestick',
+          'heatmap',
+          'surface3d',
+          'scatter3d',
+          'line3d',
+          'bar3d'
+        ])
+        const reqChartType =
+          typeof m.chartType === 'string' && VALID_TYPES.has(m.chartType as GraphChartType)
+            ? (m.chartType as GraphChartType)
+            : undefined
+        const fallbackPreset =
+          (reqChartType
+            ? GRAPH_PRESETS.find((p) => resolveGraphChartType(p.spec) === reqChartType)
+            : undefined) ?? GRAPH_PRESETS[0]
+
+        let resolvedSpec: GraphPlotSpec = { ...fallbackPreset.spec }
+        let parsedFromPayload: ReturnType<typeof parseCodeOutputToVisuals> | null = null
+
+        if (m.spec && (Array.isArray(m.spec.functions) || Array.isArray(m.spec.dataSeries))) {
+          resolvedSpec = {
+            ...fallbackPreset.spec,
+            ...(m.spec as Partial<GraphPlotSpec>),
+            ...(m.title ? { title: m.title } : {}),
+            ...(reqChartType
+              ? {
+                  chartType: reqChartType,
+                  mode: is3DGraphChartType(reqChartType)
+                    ? '3d'
+                    : reqChartType === 'function'
+                      ? 'function'
+                      : 'data'
+                }
+              : {})
+          }
+        } else {
+          const payloadObj: Record<string, unknown> = {
+            ...(m.data ?? {}),
+            ...(reqChartType ? { type: reqChartType } : {}),
+            ...(m.title ? { title: m.title } : {})
+          }
+          if (Object.keys(payloadObj).length > 0) {
+            parsedFromPayload = parseCodeOutputToVisuals(JSON.stringify(payloadObj), m.title)
+          }
+          if (parsedFromPayload?.plot2d) {
+            resolvedSpec = parsedFromPayload.plot2d
+          } else if (reqChartType) {
+            resolvedSpec = {
+              ...fallbackPreset.spec,
+              ...(m.title ? { title: m.title } : {}),
+              chartType: reqChartType,
+              mode: is3DGraphChartType(reqChartType)
+                ? '3d'
+                : reqChartType === 'function'
+                  ? 'function'
+                  : 'data'
+            }
+          }
+        }
+
+        const existingTarget = m.cardId
+          ? nextGraphNodes.find((g) => g.id === m.cardId)
+          : undefined
+        if (existingTarget) {
+          const mergedSpec = mergeCodeVisualIntoGraphSpec(
+            existingTarget.spec,
+            resolvedSpec,
+            Boolean(reqChartType || parsedFromPayload?.hasExplicitChartType)
+          )
+          nextGraphNodes = nextGraphNodes.map((g) =>
+            g.id === existingTarget.id
+              ? {
+                  ...g,
+                  title: m.title || mergedSpec.title || g.title,
+                  spec: mergedSpec
+                }
+              : g
+          )
+          createdIds.push(existingTarget.id)
+          appliedCount += 1
+          break
+        }
+
+        const w = Math.max(320, Math.round(m.width ?? 520))
+        const h = Math.max(240, Math.round(m.height ?? 380))
+        const id = m.id?.trim() || uid('graph')
+        const graphNode: GraphNode = {
+          id,
+          x: resolvedPos.x,
+          y: resolvedPos.y,
+          w,
+          h,
+          title: m.title || resolvedSpec.title || 'Graph',
+          spec: resolvedSpec,
+          createdAt: now
+        }
+        nextGraphNodes.push(graphNode)
+        createdIds.push(id)
+        appliedCount += 1
+        break
+      }
+
       case 'add_3d_scene': {
         const w = Math.max(280, Math.round(m.width ?? 480))
         const h = Math.max(220, Math.round(m.height ?? 380))
         const normalizedSpec = normalizeScene3DInput(
           m.scene ?? { preset: m.preset || 'car', title: m.title, immersed: m.immersed }
         )
-        const id = uid('s3d')
+        const id = m.id?.trim() || uid('s3d')
         const sceneNode: Scene3DNode = {
           id,
           x: resolvedPos.x,
@@ -804,6 +953,38 @@ export function applyAgentMutationsToBoard(
           if (m.label) conn.label = m.label
           nextShapeNodes.push(conn)
           createdIds.push(conn.id)
+
+          const isSourceCode = nextCodeNodes.some((c) => c.id === sourceEl.id)
+          const isTargetCode = nextCodeNodes.some((c) => c.id === targetEl.id)
+          const isSourceGraph = nextGraphNodes.some((g) => g.id === sourceEl.id)
+          const isTargetGraph = nextGraphNodes.some((g) => g.id === targetEl.id)
+          const isSource3D = nextScene3dNodes.some((s3) => s3.id === sourceEl.id)
+          const isTarget3D = nextScene3dNodes.some((s3) => s3.id === targetEl.id)
+
+          if (isSourceCode && isTargetGraph) {
+            nextCodeNodes = nextCodeNodes.map((c) =>
+              c.id === sourceEl.id ? { ...c, linkedGraphId: targetEl.id } : c
+            )
+            nextGraphNodes = nextGraphNodes.map((g) =>
+              g.id === targetEl.id ? { ...g, linkedCodeNodeId: sourceEl.id } : g
+            )
+          } else if (isSourceGraph && isTargetCode) {
+            nextCodeNodes = nextCodeNodes.map((c) =>
+              c.id === targetEl.id ? { ...c, linkedGraphId: sourceEl.id } : c
+            )
+            nextGraphNodes = nextGraphNodes.map((g) =>
+              g.id === sourceEl.id ? { ...g, linkedCodeNodeId: targetEl.id } : g
+            )
+          } else if (isSourceCode && isTarget3D) {
+            nextCodeNodes = nextCodeNodes.map((c) =>
+              c.id === sourceEl.id ? { ...c, linkedScene3DId: targetEl.id } : c
+            )
+          } else if (isSource3D && isTargetCode) {
+            nextCodeNodes = nextCodeNodes.map((c) =>
+              c.id === targetEl.id ? { ...c, linkedScene3DId: sourceEl.id } : c
+            )
+          }
+
           appliedCount += 1
         }
         break

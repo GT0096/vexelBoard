@@ -304,7 +304,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'vexelboard_inspect_board',
-    description: 'Inspect notes, diagrams, code cards, equations, videos, selection bounds, and layers on the active Vexelboard whiteboard.',
+    description: 'Inspect notes, diagrams, code cards, 2D/3D graph cards, 3D scenes, equations, videos, selection bounds, and layers on the active Vexelboard whiteboard.',
     inputSchema: { type: 'object', properties: {} }
   },
   {
@@ -391,12 +391,41 @@ const MCP_TOOLS = [
     }
   },
   {
-    name: 'vexelboard_create_3d_scene',
+    name: 'vexelboard_create_graph',
     description:
-      'Render an interactive 3D object, mathematical surface, or experimental setup directly immersed onto the Vexelboard canvas (e.g. preset car, optics_bench, mechanics_rig, chemistry_setup, electromagnetism, surface_wave, OR custom 3D elements composed of box, sphere, cylinder, cone, torus, wheel, spring, lens, prism, flask, plane, arrow3d, curve3d, surface3d, mesh, label3d).',
+      'Create a unified movable/resizable Plotly/GeoGebra 2D or 3D Graph Card (or update an existing one when `cardId` is passed). Supports 16 chart types: function, line, smooth, area, bar, histogram, scatter, pie, violin, box, candlestick, heatmap, surface3d, scatter3d, line3d, bar3d. Pass `data` as any hashmap ({x, y}, {x, y, z}, 1D {x}, stock OHLC {x, open, high, low, close}, {expr}, {expr3d}, {series}) plus styling options (axisColor, gridColor, backgroundColor, textColor, legendPosition, axisStyle, bins, showKde, donut). Pass deterministic `id` to wire from Code Cards in the same batch.',
     inputSchema: {
       type: 'object',
       properties: {
+        id: { type: 'string' },
+        cardId: { type: 'string' },
+        title: { type: 'string' },
+        chartType: {
+          type: 'string',
+          enum: [
+            'function', 'line', 'smooth', 'area', 'bar', 'histogram', 'scatter',
+            'pie', 'violin', 'box', 'candlestick', 'heatmap',
+            'surface3d', 'scatter3d', 'line3d', 'bar3d'
+          ]
+        },
+        data: { type: 'object' },
+        spec: { type: 'object' },
+        x: { type: 'number' },
+        y: { type: 'number' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        replaceElementIds: { type: 'array', items: { type: 'string' } }
+      }
+    }
+  },
+  {
+    name: 'vexelboard_create_3d_scene',
+    description:
+      'Render an interactive 3D object, mathematical surface, or experimental setup directly immersed onto the Vexelboard canvas (e.g. preset car, optics_bench, mechanics_rig, chemistry_setup, electromagnetism, surface_wave, OR custom 3D elements composed of box, sphere, cylinder, cone, torus, wheel, spring, lens, prism, flask, plane, arrow3d, curve3d, surface3d, mesh, label3d). Pass deterministic `id` to wire with Code Cards via vexelboard_connect_elements.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
         title: { type: 'string' },
         preset: { type: 'string' },
         scene: { type: 'object' },
@@ -412,10 +441,11 @@ const MCP_TOOLS = [
   {
     name: 'vexelboard_add_code_card',
     description:
-      'Create a runnable Code Card (or patch an existing one when cardId is passed) on the board. Connect multiple Code Cards, 2D Graphs, or 3D Scenes using vexelboard_connect_elements.',
+      'Create a runnable Code Card (or patch an existing one when cardId is passed) on the board. Python Code Cards automatically capture returned/assigned hashmaps ({"x": ..., "y": ...}, 3D {"x", "y", "z"}, stock OHLC) and receive connected upstream data via `def transform(data):` or `INPUT`/`DATA` without sys.stdin/json boilerplate. Pass deterministic `id` to wire stages or Graphs/3D Scenes via vexelboard_connect_elements.',
     inputSchema: {
       type: 'object',
       properties: {
+        id: { type: 'string' },
         cardId: { type: 'string' },
         title: { type: 'string' },
         language: { type: 'string' },
@@ -429,7 +459,7 @@ const MCP_TOOLS = [
   {
     name: 'vexelboard_connect_elements',
     description:
-      'Draw a bound flowchart connector arrow between two board elements (Code Cards, 2D Graphs, 3D Scenes, or Shapes) so running an upstream Code Card pipes stdout to downstream Code Cards and updates connected 2D/3D visuals.',
+      'Draw a bound flowchart connector arrow between two board elements (Code Cards, unified Graph Cards, 3D Scenes, or Shapes). Connecting Code -> Code pipes outputs to `data`/`INPUT`/`stdin`; connecting Code -> Graph/3D live-updates the visual whenever the upstream Code Card runs.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -576,6 +606,28 @@ async function executeMcpToolCall(
       return pushAndReply(m, `vector scene "${args.title || checked.data.title || 'Scene'}"`)
     }
 
+    case 'vexelboard_create_graph': {
+      const m = validateMutationsPayload({
+        replaceElementIds: args.replaceElementIds,
+        mutations: [
+          {
+            type: 'add_graph_card',
+            ...(typeof args.id === 'string' && args.id.trim() ? { id: args.id.trim() } : {}),
+            ...(typeof args.cardId === 'string' && args.cardId.trim() ? { cardId: args.cardId.trim() } : {}),
+            title: args.title,
+            chartType: args.chartType,
+            data: args.data,
+            spec: args.spec,
+            x: typeof args.x === 'number' ? args.x : undefined,
+            y: typeof args.y === 'number' ? args.y : undefined,
+            width: typeof args.width === 'number' ? args.width : undefined,
+            height: typeof args.height === 'number' ? args.height : undefined
+          }
+        ]
+      })
+      return pushAndReply(m, `graph "${args.title || args.chartType || 'Graph'}"`)
+    }
+
     case 'vexelboard_create_3d_scene': {
       const normalized = normalizeScene3DInput(
         args.scene ?? { preset: args.preset || 'car', title: args.title, immersed: args.immersed }
@@ -585,6 +637,7 @@ async function executeMcpToolCall(
         mutations: [
           {
             type: 'add_3d_scene',
+            ...(typeof args.id === 'string' && args.id.trim() ? { id: args.id.trim() } : {}),
             title: args.title || normalized.title,
             preset: normalized.preset,
             scene: normalized,
@@ -621,6 +674,7 @@ async function executeMcpToolCall(
       }
       const m = validateMutationsPayload({
         type: 'add_code_card',
+        ...(typeof args.id === 'string' && args.id.trim() ? { id: args.id.trim() } : {}),
         title: args.title || `snippet.${args.language || 'py'}`,
         language: args.language || 'python',
         code: args.code,

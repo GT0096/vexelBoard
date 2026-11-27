@@ -2,7 +2,7 @@
 
 > **AI-powered interactive desktop whiteboard & study studio for Windows, macOS, and Linux.**
 
-**Vexelboard** combines an infinite Neo-Brutalist drawing canvas, background-adaptive color palettes, interactive diagrams and a 347+ SVG shape library, Markdown/LaTeX/Mermaid note cards, an embedded multi-language Code Studio, playable YouTube study cards, a local **Knowledge Studio** (SQLite + `sqlite-vec` hybrid RAG), and a flexible multi-provider AI Co-Pilot in one local-first desktop application.
+**Vexelboard** combines an infinite Neo-Brutalist drawing canvas, background-adaptive color palettes, interactive diagrams and a 347+ SVG shape library, Markdown/LaTeX/Mermaid note cards, interactive **2D & 3D Graph Cards** (`16` chart types) and **3D Scenes**, an embedded multi-language Code Studio with **visual Code Pipelines**, playable YouTube study cards, a local **Knowledge Studio** (SQLite + `sqlite-vec` hybrid RAG), a flexible multi-provider AI Co-Pilot, and a local **MCP Companion Server** for external agents in one local-first desktop application.
 
 ---
 
@@ -14,12 +14,13 @@
 - [3. Navigating the Infinite Canvas & Appearance](#3-navigating-the-infinite-canvas--appearance)
 - [4. Drawing, Writing Pad OCR & Erasing](#4-drawing-writing-pad-ocr--erasing)
 - [5. Notes, Equations, Shapes, Stickies & Diagrams](#5-notes-equations-shapes-stickies--diagrams)
-- [6. Embedded Code Studio](#6-embedded-code-studio)
-- [7. Interactive YouTube Video Study Cards](#7-interactive-youtube-video-study-cards)
-- [8. AI Co-Pilot Chat & Detached Multi-Monitor Mode](#8-ai-co-pilot-chat--detached-multi-monitor-mode)
-- [9. Knowledge Studio (Local RAG, Synthesis & Recall)](#9-knowledge-studio-local-rag-synthesis--recall)
-- [10. Keyboard Shortcuts & Controls Reference](#10-keyboard-shortcuts--controls-reference)
-- [11. Local Storage, Privacy & Troubleshooting](#11-local-storage-privacy--troubleshooting)
+- [6. Interactive 2D/3D Graph Cards & 3D Scenes](#6-interactive-2d3d-graph-cards--3d-scenes)
+- [7. Embedded Code Studio & Visual Code Pipelines](#7-embedded-code-studio--visual-code-pipelines)
+- [8. Interactive YouTube Video Study Cards](#8-interactive-youtube-video-study-cards)
+- [9. AI Co-Pilot Chat, Detached Mode & External Agents (MCP)](#9-ai-co-pilot-chat-detached-mode--external-agents-mcp)
+- [10. Knowledge Studio (Local RAG, Synthesis & Recall)](#10-knowledge-studio-local-rag-synthesis--recall)
+- [11. Keyboard Shortcuts & Controls Reference](#11-keyboard-shortcuts--controls-reference)
+- [12. Local Storage, Privacy & Troubleshooting](#12-local-storage-privacy--troubleshooting)
 
 ---
 
@@ -33,9 +34,10 @@ flowchart LR
     Proj --> Sec["Topic Sections (Infinite Whiteboards)"]
     Sec --> Draw["Pen, Writing Pad OCR & Eraser"]
     Sec --> Visuals["Notes, Equations, 347+ Shapes & React Flow Diagrams"]
-    Sec --> Media["Code Studio & YouTube Study Cards"]
+    Sec --> Media["Code Pipelines & YouTube Study Cards"]
+    Media -->|"Auto-plot / Pipe JSON"| Graphs["2D/3D Graph Cards & 3D Scenes"]
     Sec --> KS["Knowledge Studio (SQLite-Vec RAG)"]
-    Sec --> Chat["AI Co-Pilot (Floating or Detached Window)"]
+    Sec --> Chat["AI Co-Pilot & MCP External Agents"]
     KS -->|"@book citations & 1-click synthesis"| Chat
     Chat -->|"Add to Notes / Create Diagram / To Tutorial"| Visuals
 ```
@@ -128,6 +130,7 @@ When Vexelboard opens, you land on the **Home Hub**, your command center for man
   - **`X · Y` Coordinates**: Click to re-center at origin `(0, 0)`.
   - **`Fit` (`Shift+1`)**: Automatically fits all elements on the current section into view.
   - **`100%` (`Ctrl+0` / `Cmd+0`)**: Resets zoom to `100%` at the origin.
+- **Responsive Floating Bottom Toolbar**: Houses `Select`, `Pan`, `Pen · Shapes`, `Lasso`, `Text`, `Image`, `Vectorize`, `Hand`, `Erase`, `Bg`, zoom controls, and `Undo`/`Redo`/`Clear` — automatically adapting its layout and compact button labels on smaller windows so tools stay accessible without colliding with the floating AI button.
 
 ### Canvas Backgrounds & Adaptive Palettes
 
@@ -253,7 +256,33 @@ Turn rough whiteboard drawings into polished visuals:
 
 ---
 
-## 6. Embedded Code Studio
+## 6. Interactive 2D/3D Graph Cards & 3D Scenes
+
+### Unified 2D & 3D Graph Cards (16 Chart Types)
+
+Vexelboard renders plots inside movable, resizable **Plotly / GeoGebra-style Graph Cards** directly on the whiteboard. Create graphs via the Graph Builder, by connecting a **Code Card** to a Graph Card, or through the AI Co-Pilot / external MCP agents.
+
+| Group | Supported Chart Types |
+| --- | --- |
+| **Math & Curves** | `function` ($y = f(x)$), `line`, `smooth`, `area` |
+| **Statistical & Categorical** | `bar`, `histogram`, `scatter`, `pie`, `violin`, `box` |
+| **Financial & Matrix** | `candlestick` (OHLC), `heatmap` |
+| **Interactive 3D** | `surface3d`, `scatter3d`, `line3d`, `bar3d` |
+
+#### Customizing & Interacting with Graphs
+
+- **Customize Drawer**: Open the drawer inside any Graph Card to switch color palettes, customize per-series or slice colors, adjust axis/grid/background/text colors, pick axis styles (`origin`, `frame`, `box`, `none`), and set legend placement (`bottom`, `top`, `right`, `inside`).
+- **2D Graph Interaction**: Hover over plotted data points for live value tooltips, drag/scroll to zoom and pan, and reset the view with one click.
+- **3D Graph Interaction**: Switch between **Orbit** and **Move (Pan)** modes using the toolbar toggle (or hold **`Shift + Drag`**, **Right-Drag**, or **Middle-Drag** to pan while orbiting), scroll to zoom, and click **Center & Reset** (`⌖`) to re-center the 3D camera.
+
+### Canvas-Immersed 3D Objects & Experimental Setups
+
+- Add interactive **3D Scene Cards** directly onto the board using built-in presets or custom 3D primitives (spheres, boxes, cylinders, cones, tori, vectors, planes).
+- You can also embed interactive 3D scenes inline inside Markdown note cards using fenced ```` ```3d ```` code blocks.
+
+---
+
+## 7. Embedded Code Studio & Visual Code Pipelines
 
 Click the **Code (`</>`)** button in the Left Dock to place a movable, resizable **Coding Tab Container** directly onto the whiteboard.
 
@@ -261,8 +290,8 @@ Click the **Code (`</>`)** button in the Left Dock to place a movable, resizable
 
 - **Multi-Tab Containers**: Click `+` to add multiple code tabs inside a single card; double-click a tab or container header to rename it.
 - **100+ Syntax-Highlighted Languages**: Powered by CodeMirror 6 with searchable language picker.
-- **17 Locally Runnable Languages + Live Web Preview**:
-  - **Interpreted / Scripting**: `Python`, `JavaScript (Node)`, `TypeScript`, `Ruby`, `PHP`, `PowerShell`, `Bash / Shell`, `Lua`, `Perl`, `R`
+- **16 Locally Runnable Languages + Live Web Preview**:
+  - **Interpreted / Scripting**: `Python`, `JavaScript`, `TypeScript`, `Ruby`, `PHP`, `PowerShell`, `Bash`, `Lua`, `Perl`, `R`
   - **Compiled**: `C++`, `C`, `Java`, `Go`, `Rust`, `C#`
   - **Live Browser Preview**: `HTML / CSS / JS (Live)` renders an interactive sandboxed preview pane right inside the card.
 - **Runtime Status Indicator**: A dot beside the language selector shows whether the required local compiler/interpreter is detected on your machine (or if the language is in browser preview / syntax-only mode).
@@ -275,12 +304,41 @@ Click the **Code (`</>`)** button in the Left Dock to place a movable, resizable
 4. Drag the horizontal divider between the editor and output pane to resize them (double-click to reset).
 5. View stdout/stderr, exit status, and execution duration — then **Copy Output**, **Clear Output**, or click **Insert to Notes** to pin the code snippet and its output onto the whiteboard as a formatted Markdown note card.
 
+### Building Visual Code Pipelines (`Code → Code → Graph / 3D`)
+
+Chain multiple Code Cards, Graph Cards, and 3D Scenes directly on the whiteboard to build live data-processing workflows:
+
+1. **Connect Stages**: Click or drag from a Code Card's **cyan connector dot** to spawn a non-overlapping next stage (`Code Card`, `Graph Card`, or `3D Scene`) or wire it to an existing card. Connecting or re-running an upstream card automatically pipes its output forward and refreshes downstream cards.
+2. **Zero-Boilerplate Python Mode**:
+   - **Auto-Emit Upstream**: Return a dict / plot hashmap, evaluate a trailing expression, or assign top-level variables like `x = [...]` and `y = [...]` — Vexelboard automatically serializes them as JSON to the next stage or connected Graph Card.
+   - **Auto-Receive Downstream**: Access upstream data via `def transform(data):`, pre-populated `INPUT` / `DATA` / `PREV` dictionaries, top-level keys (`x`, `y`, `values`), or clean single-line `sys.stdin`.
+
+```python
+# Stage 1 (Generator Code Card)
+x = [0, 1, 2, 3, 4, 5]
+y = [v ** 2 for v in x]
+```
+
+```python
+# Stage 2 (Connected Downstream Code Card -> Connected Graph Card)
+def transform(data):
+    return {
+        "type": "line",
+        "title": "Scaled Squares",
+        "x": data["x"],
+        "y": [val * 0.5 for val in data["y"]],
+    }
+```
+
+3. **All 16 Runnable Languages Supported**: Every locally runnable language (`Python`, `JavaScript`, `TypeScript`, `C++`, `C`, `Java`, `Go`, `Rust`, `R`, `Ruby`, `PHP`, `C#`, `PowerShell`, `Bash`, `Lua`, `Perl`) can participate in pipelines — upstream cards print JSON or text to `stdout`, and connected downstream cards receive that output on `stdin`.
+4. **Inline `? Guide` Drawer**: Click **`Guide`** inside any Code Card to view quick 3-step pipeline instructions and insert 1-click starter templates for generators, transforms, and plot outputs.
+
 > [!NOTE]
 > Local execution uses compilers/interpreters installed on your machine (e.g., `python`, `node`, `g++`, `javac`/`java`, `go`, `rustc`). `HTML / CSS / JS (Live)` requires no external runtime.
 
 ---
 
-## 7. Interactive YouTube Video Study Cards
+## 8. Interactive YouTube Video Study Cards
 
 Click the **Video** icon in the Left Dock (or click **Pin** / **Pin to Board** on any YouTube link in Chat or Knowledge Studio) to add an embedded **YouTube Study Hub** card to the canvas.
 
@@ -294,7 +352,7 @@ Click the **Video** icon in the Left Dock (or click **Pin** / **Pin to Board** o
 
 ---
 
-## 8. AI Co-Pilot Chat & Detached Multi-Monitor Mode
+## 9. AI Co-Pilot Chat, Detached Mode & External Agents (MCP)
 
 Click **AI Panel** in the Top Bar to open the floating **AI Co-Pilot**.
 
@@ -331,9 +389,18 @@ Every AI response includes one-click board actions:
 - **To Tutorial**: Turns the response into a multi-card visual tutorial on the board.
 - **Quick-Bar (`Create Tutorial` & `Knowledge Studio`)**: Launch a custom visual tutorial on any topic or open the Knowledge Studio directly from the chat header.
 
+### Connecting External AI Agents (Antigravity & Claude via MCP)
+
+While Vexelboard is open, its local **Companion MCP Server** runs at `http://127.0.0.1:45789/mcp`, allowing external coding assistants such as **Antigravity** and **Claude** to inspect your live board and push structured visuals directly onto the active canvas:
+
+- **Graph & 3D Tools**: `vexelboard_create_graph` (all 16 chart types + styling options) and `vexelboard_create_3d_scene` (presets and custom 3D primitives).
+- **Code & Pipeline Tools**: `vexelboard_add_code_card` and `vexelboard_connect_elements` (auto-links Code → Code, Code → Graph, or Code → 3D Scene pipelines with deterministic element IDs).
+- **Board & Knowledge Tools**: Inspect live board state (`graphs`, notes, diagrams, code cards), add notes/diagrams/vector scenes, and query your Knowledge Studio.
+- **Bundled Workspace Skills & CLI**: External agents in this workspace include `.agents/skills/vexelboard-canvas` (with the `vexel.mjs` helper CLI supporting `add-graph` and `add-pipeline`) and `.agents/skills/vexelboard-knowledge`.
+
 ---
 
-## 9. Knowledge Studio (Local RAG, Synthesis & Recall)
+## 10. Knowledge Studio (Local RAG, Synthesis & Recall)
 
 Open **Knowledge Studio** from the Left Dock (`📖` icon) or the AI Chat quick-bar. Everything is indexed locally into SQLite (`better-sqlite3` / `node:sqlite`) with `sqlite-vec` hybrid full-text + vector search.
 
@@ -363,7 +430,7 @@ Use your whiteboard itself as spatial memory:
 
 ---
 
-## 10. Keyboard Shortcuts & Controls Reference
+## 11. Keyboard Shortcuts & Controls Reference
 
 | Shortcut / Input | Action |
 | --- | --- |
@@ -379,6 +446,9 @@ Use your whiteboard itself as spatial memory:
 | `Ctrl+0` / `Cmd+0` | Reset canvas zoom to `100%` at `(0, 0)` |
 | `Shift+1` | Fit all board content to screen |
 | `Ctrl+Wheel` / Trackpad Pinch | Zoom in / out |
+| `Drag` *(Inside 3D Graph / 3D Scene)* | Orbit 3D camera |
+| `Shift+Drag` *(or Right-Drag / Middle-Drag inside 3D Graph / 3D Scene)* | Pan / Move 3D view *(or toggle Move mode button)* |
+| `Scroll` *(Inside 3D Graph / 3D Scene)* | Zoom 3D camera |
 | `Arrow Keys` | Nudge selected elements (`2px`) |
 | `Shift + Arrow Keys` | Nudge selected elements (`10px`) |
 | `Delete` / `Backspace` | Delete selected elements (or selected React Flow node/edge) |
@@ -390,18 +460,19 @@ Use your whiteboard itself as spatial memory:
 
 ---
 
-## 11. Local Storage, Privacy & Troubleshooting
+## 12. Local Storage, Privacy & Troubleshooting
 
 ### Data Storage & Privacy
 
 - **Local-First Database**: Projects, sections, whiteboard state, chat history, activity logs, and Knowledge Studio chunks/embeddings are stored locally in `board_store.db` inside your OS Electron `userData` directory.
 - **Encrypted API Keys**: Cloud provider API keys (OpenAI, Gemini, Grok, Claude) are encrypted via Electron's `safeStorage` API and never exposed to the renderer process.
-- **Offline Capability**: Drawing, diagrams, notes, local Code Studio execution, Knowledge Studio search, and **Ollama** local AI models work completely offline.
+- **Offline Capability**: Drawing, diagrams, graphs, 3D scenes, notes, local Code Studio execution, Knowledge Studio search, and **Ollama** local AI models work completely offline.
 
 ### Troubleshooting
 
 - **Ollama shows "Offline"**: Ensure Ollama is running (`ollama serve`) and that the host URL in **AI Settings** matches (default `http://localhost:11434`), then click **Re-check Ollama**.
 - **Cloud AI requests fail**: Verify that an API key is marked **stored** in **AI Settings** and that the configured Model ID is valid for your account.
 - **Code Studio says a runtime is unavailable**: Install the corresponding compiler or interpreter (e.g., Python 3, Node.js, GCC/Clang, JDK, Go, Rust) and make sure it is available on your system `PATH`.
+- **Connected Code Pipeline or Graph Card isn't updating**: Make sure the cyan connector runs from the source Code Card's output to the downstream Code/Graph/3D card, and press **Run (`Ctrl+Enter`)** on the upstream card; for non-Python languages, check that your program prints valid JSON or newline-delimited data to `stdout`.
 - **YouTube transcript is empty**: Some YouTube videos disable or lack captions; playback, manual seeking, and timestamped notes (`Add Note @ mm:ss`) still work without captions.
 - **Cannot click on the whiteboard**: Check the Top Bar for the `Click-through · Alt+Space` badge and press **`Alt+Space`** to exit desktop pass-through mode.
