@@ -37,22 +37,28 @@ function createCombinedAbortSignal(timeoutMs: number, callerSignal?: AbortSignal
   return AbortSignal.any(signals)
 }
 
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' '
+}
+
 function decodeHtmlEntities(input: string): string {
-  return input
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#0*39;|&apos;/gi, "'")
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&#(\d+);/g, (_m, dec) => {
-      const code = Number(dec)
-      return Number.isFinite(code) && code > 0 ? String.fromCodePoint(code) : ''
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (_m, hex) => {
-      const code = Number.parseInt(hex, 16)
-      return Number.isFinite(code) && code > 0 ? String.fromCodePoint(code) : ''
-    })
+  return input.replace(
+    /&(?:(amp|lt|gt|quot|apos|nbsp)|#0*(\d+)|#x([0-9a-f]+));/gi,
+    (_match, named: string | undefined, dec: string | undefined, hex: string | undefined) => {
+      if (named) {
+        return NAMED_HTML_ENTITIES[named.toLowerCase()] ?? ''
+      }
+      const code = dec ? Number.parseInt(dec, 10) : hex ? Number.parseInt(hex, 16) : Number.NaN
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff
+        ? String.fromCodePoint(code)
+        : ''
+    }
+  )
 }
 
 function cleanSnippetText(raw: string | undefined | null, maxLen = 300): string {

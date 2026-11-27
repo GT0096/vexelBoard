@@ -213,6 +213,18 @@ function isAllowedHostAndOrigin(req: IncomingMessage): boolean {
   return true
 }
 
+class ClientRequestError extends Error {
+  readonly statusCode: number
+  readonly safeMessage: string
+
+  constructor(safeMessage: string, statusCode = 400) {
+    super(safeMessage)
+    this.name = 'ClientRequestError'
+    this.statusCode = statusCode
+    this.safeMessage = safeMessage
+  }
+}
+
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   const body = JSON.stringify(payload)
   res.writeHead(status, {
@@ -229,7 +241,7 @@ async function readJsonBody(req: IncomingMessage): Promise<any> {
     req.on('data', (chunk: Buffer) => {
       total += chunk.byteLength
       if (total > MAX_BODY_BYTES) {
-        reject(new Error('Request body too large'))
+        reject(new ClientRequestError('Request body too large', 413))
         req.destroy()
         return
       }
@@ -244,10 +256,12 @@ async function readJsonBody(req: IncomingMessage): Promise<any> {
       try {
         resolve(JSON.parse(text))
       } catch {
-        reject(new Error('Invalid JSON body'))
+        reject(new ClientRequestError('Invalid JSON body', 400))
       }
     })
-    req.on('error', reject)
+    req.on('error', () => {
+      reject(new ClientRequestError('Failed to read request body', 400))
+    })
   })
 }
 
@@ -286,12 +300,12 @@ function validateMutationsPayload(raw: any): AgentBoardMutation[] {
     const parsed = AgentBoardMutationSchema.safeParse(item)
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
-      throw new Error(`Invalid mutation payload (${issues})`)
+      throw new ClientRequestError(`Invalid mutation payload (${issues})`, 400)
     }
     valid.push(parsed.data)
   }
   if (valid.length === 0) {
-    throw new Error('Expected at least one valid mutation item')
+    throw new ClientRequestError('Expected at least one valid mutation item', 400)
   }
   return valid
 }
@@ -782,10 +796,18 @@ async function handleJsonRpcMessage(msg: any): Promise<any | null> {
         }
     }
   } catch (err) {
+    if (err instanceof ClientRequestError) {
+      return {
+        jsonrpc: '2.0',
+        id: msg.id,
+        error: { code: -32602, message: err.safeMessage }
+      }
+    }
+    console.warn('[CompanionServer] JSON-RPC error:', err)
     return {
       jsonrpc: '2.0',
       id: msg.id,
-      error: { code: -32603, message: err instanceof Error ? err.message : String(err) }
+      error: { code: -32603, message: 'Internal error' }
     }
   }
 }
@@ -936,7 +958,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
     sendJson(res, 404, { ok: false, error: `Unknown endpoint: ${method} ${pathname}` })
   } catch (err) {
-    sendJson(res, 400, { ok: false, error: err instanceof Error ? err.message : String(err) })
+    if (err instanceof ClientRequestError) {
+      sendJson(res, err.statusCode, { ok: false, error: err.safeMessage })
+      return
+    }
+    console.warn('[CompanionServer] Request error:', err)
+    sendJson(res, 500, { ok: false, error: 'Internal server error' })
   }
 }
 
