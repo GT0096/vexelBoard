@@ -59,6 +59,8 @@ import type {
   AIRequest,
   ByokProvider,
   CodeExecutionRequest,
+  CompanionBoardCapturePreparedPayload,
+  CompanionBoardCaptureResult,
   CompanionSelectionCapturePayload,
   DisplayMode,
   LocalOcrRequest,
@@ -113,6 +115,10 @@ let modeABounds: Rectangle | null = null
 const pendingSelectionCaptures = new Map<
   string,
   (payload: CompanionSelectionCapturePayload) => void
+>()
+const pendingBoardCaptures = new Map<
+  string,
+  (payload: CompanionBoardCapturePreparedPayload) => void
 >()
 
 function isExternalBrowserUrl(rawUrl: string): boolean {
@@ -570,6 +576,22 @@ function registerIpc(): void {
       )
     }
   })
+  ipcMain.on('companion:boardCapturePrepared', (_e, data: any) => {
+    const requestId = typeof data?.requestId === 'string' ? data.requestId : ''
+    const resolver = pendingBoardCaptures.get(requestId)
+    if (resolver) {
+      pendingBoardCaptures.delete(requestId)
+      resolver(
+        data?.payload ?? {
+          ok: false,
+          boardId: 'unknown',
+          mode: 'board',
+          elementCount: 0,
+          error: 'Empty board capture response from renderer'
+        }
+      )
+    }
+  })
 
   // --- Media & YouTube Transcript IPC ---
   ipcMain.handle('media:fetchYouTube', async (_e, url: string) => {
@@ -1011,6 +1033,65 @@ app.whenReady().then(() => {
         })
         mainWindow!.webContents.send('companion:requestSelectionCapture', requestId)
       })
+    },
+    requestLiveBoardCapture: async ({ mode, region }): Promise<CompanionBoardCaptureResult | null> => {
+      if (!mainWindow || mainWindow.isDestroyed()) return null
+      const requestId = `boardcap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+      try {
+        const prepared = await new Promise<CompanionBoardCapturePreparedPayload | null>((resolve) => {
+          const timer = setTimeout(() => {
+            pendingBoardCaptures.delete(requestId)
+            resolve(null)
+          }, 5000)
+          pendingBoardCaptures.set(requestId, (payload) => {
+            clearTimeout(timer)
+            resolve(payload)
+          })
+          mainWindow!.webContents.send('companion:prepareBoardCapture', {
+            requestId,
+            mode,
+            region
+          })
+        })
+        if (!prepared || !prepared.ok) {
+          return {
+            ok: false,
+            mode,
+            boardId: prepared?.boardId,
+            projectId: prepared?.projectId,
+            boardBounds: prepared?.boardBounds,
+            elementCount: prepared?.elementCount ?? 0,
+            error: prepared?.error || 'Renderer failed to prepare board capture.'
+          }
+        }
+        const image = await mainWindow.webContents.capturePage()
+        const pngBuf = image.toPNG()
+        const size = image.getSize()
+        const captureDir = join(app.getPath('userData'), 'companion-captures')
+        mkdirSync(captureDir, { recursive: true })
+        const fileName = mode === 'viewport' ? 'latest-viewport.png' : 'latest-board.png'
+        const filePath = join(captureDir, fileName)
+        writeFileSync(filePath, pngBuf)
+        return {
+          ok: true,
+          mode,
+          boardId: prepared.boardId,
+          projectId: prepared.projectId,
+          boardBounds: prepared.boardBounds,
+          capturedBounds: prepared.capturedBounds,
+          elementCount: prepared.elementCount,
+          filePath,
+          mimeType: 'image/png',
+          width: size.width,
+          height: size.height,
+          base64Png: pngBuf.toString('base64'),
+          capturedAt: Date.now()
+        }
+      } finally {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('companion:finishBoardCapture', requestId)
+        }
+      }
     }
   })
 

@@ -8,8 +8,8 @@
 
 export const COMPANION_INSTRUCTIONS = [
   'Vexelboard companion: you can draw on the user\'s LIVE whiteboard through the vexelboard_* MCP tools (or `node .agents/skills/vexelboard-canvas/scripts/vexel.mjs <cmd>`).',
-  'Do NOT read, grep, or edit the Vexelboard app source (src/**) to place or change board content: payload shapes are documented in the tool schemas and in `vexelboard_help` (topics: graph, diagram, scene, 3d, code, pipeline, connect, all).',
-  'Workflow: (1) vexelboard_inspect_board only if you need existing element IDs/positions, (2) call the create tool directly (omit x/y so cards auto-place in empty space), (3) if a call returns an error, fix the payload using the error text or `vexelboard_help`, never by reading source.',
+  'Do NOT read, grep, or edit the Vexelboard app source (src/**) to place or change board content: payload shapes are documented in the tool schemas and in `vexelboard_help` (topics: graph, diagram, scene, 3d, code, pipeline, connect, other, all).',
+  'Workflow: (1) vexelboard_inspect_board returns all notes, diagrams, SpatialScene vectorGroups, code cards, graphs, 3D scenes, equations, connectors, shapes, and boardBounds with exact {x,y,w,h} and IDs, (2) create cards/diagrams with explicit x/y/w/h/id for structured sequential layouts or omit x/y to auto-place in empty space, (3) use vexelboard_move_elements to reposition/resize cards or whole vectorGroups, (4) use vexelboard_capture_board (mode: board | viewport | region) to visually inspect and verify layout, (5) if a call returns an error, fix the payload using the error text or `vexelboard_help`.',
   'Use deterministic `id`s when wiring cards (Code -> Code -> Graph/3D) with vexelboard_connect_elements. Use `replaceElementIds` to swap a rough sketch for a clean result.'
 ].join('\n')
 
@@ -26,13 +26,13 @@ data shapes:
 style keys (optional): color backgroundColor axisColor gridColor textColor axisStyle(origin|frame|box|none) showGrid showLegend legendPosition(bottom|top|right|inside) donut showTrendline bullColor bearColor`
 
 const DIAGRAM = `DIAGRAM  (vexelboard_create_diagram | vexel.mjs add-diagram)
-{ title, diagramType(flowchart|mindmap|architecture|erd|sequence|concept), direction(TB|LR), animated?,
+{ id?, title, diagramType(flowchart|mindmap|architecture|erd|sequence|concept), direction(TB|LR), animated?,
   nodes:[{id,label,type?(process|decision|database|cloud|actor|start|end|note|group),description?}],
   edges:[{source,target,label?,animated?}], x?, y?, replaceElementIds? }
 Use for node-and-arrow diagrams. Edges reference node ids.`
 
 const SCENE = `VECTOR SCENE  (vexelboard_create_vector_scene | vexel.mjs add-scene)
-{ title, scene:{ elements:[...] }, x?, y?, width?, height?, replaceElementIds? }   coordinates are a 0..1000 local box
+{ id?, title, scene:{ elements:[...] }, x?, y?, width?, height?, replaceElementIds? }   coordinates are a 0..1000 local box
 element types:
   shape:      {type:"shape",id,kind:"rect|rounded_rect|ellipse|circle|diamond|triangle|cylinder|parallelogram|hexagon",x,y,w,h | cx,cy,r,fill?,stroke?,fillOpacity?,strokeStyle?,label?}
   connector:  {type:"connector",id,points:[[x1,y1],[x2,y2],...],curved?,arrowEnd?,arrowStart?,style?,label?,fromId?,toId?}
@@ -48,7 +48,7 @@ element types: box sphere cylinder cone torus wheel spring lens prism flask plan
 common element keys: id type color position:[x,y,z] size/radius/from:[..]/to:[..] anim:{pulseFlow:true}`
 
 const CODE = `CODE CARD  (vexelboard_add_code_card | vexel.mjs add-code)
-{ id?, cardId?(patch existing), title, language(python|javascript|typescript|cpp|c|java|go|rust|r|ruby|php|csharp|powershell|bash|lua|perl), code, tabs?, pipelineMode? }
+{ id?, cardId?(patch existing), title, language(python|javascript|typescript|cpp|c|java|go|rust|r|ruby|php|csharp|powershell|bash|lua|perl), code, tabs?, pipelineMode?, x?, y?, w?, h? }
 Python auto-emits JSON from returned dicts, top-level x=[..]/y=[..], or a trailing expression.`
 
 const PIPELINE = `PIPELINE  (Code -> Code -> Graph/3D)   vexel.mjs add-pipeline --json '{"stages":[{"title":"1.py","code":".."},{"title":"2.py","code":"def transform(data): ..."}],"graph":{"chartType":"bar","title":".."}}'
@@ -59,7 +59,14 @@ const CONNECT = `CONNECT  (vexelboard_connect_elements | vexel.mjs connect --fro
 { sourceId, targetId, sourcePort?(top|right|bottom|left), targetPort?, routing?(orthogonal|curved|straight), color?, label?, animated? }
 Code->Code pipes output; Code->Graph/3D live-updates the visual whenever the upstream card runs.`
 
-const OTHER = `OTHER: vexelboard_add_note {title?,content(Markdown),color?} | vexelboard_add_equation {title?,latex} | vexelboard_delete_elements {elementIds[]} | vexelboard_capture_selection (returns PNG file path + selectedIds + selectionBounds) | vexelboard_search_knowledge {query,limit?}`
+const OTHER = `OTHER:
+  vexelboard_add_note {id?,title?,content(Markdown),color?,x?,y?,w?,h?}
+  vexelboard_add_equation {id?,title?,latex,x?,y?,w?,h?}
+  vexelboard_move_elements {moves:[{id,x?,y?,dx?,dy?,w?,h?}]} (moves cards or entire SpatialScene/diagram vectorGroups and re-routes bound connectors)
+  vexelboard_delete_elements {elementIds[]} (accepts individual IDs or SpatialScene/diagram group IDs)
+  vexelboard_capture_board {mode?:"board"|"viewport"|"region",region?:{x,y,w,h}} (captures full board/viewport PNG for visual inspection)
+  vexelboard_capture_selection (returns PNG file path + selectedIds + selectionBounds)
+  vexelboard_search_knowledge {query,limit?}`
 
 export const HELP_TOPICS: Record<string, string> = {
   graph: GRAPH,

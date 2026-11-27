@@ -205,3 +205,75 @@ test('compileSpatialScene spaces linked list strips into separate nodes with gap
     assert.ok(arr.x + arr.w <= rightBox.x, 'Arrow must end at or outside left border of target node')
   }
 })
+
+test('compileSpatialScene keeps interior labels inside rounded_rect panels without ejecting them onto cell_strips', () => {
+  const scene: SpatialScene = {
+    title: 'Traversal Modes',
+    elements: [
+      {
+        type: 'shape',
+        id: 'left_panel',
+        kind: 'rounded_rect',
+        x: 60,
+        y: 80,
+        w: 420,
+        h: 760,
+        fill: '#EEF2FF',
+        stroke: '#6366F1'
+      },
+      {
+        type: 'text',
+        id: 'hdr_left',
+        x: 270,
+        y: 135,
+        text: 'BFS (Breadth-First)',
+        fontSize: 20,
+        bold: true,
+        align: 'center'
+      },
+      {
+        type: 'cell_strip',
+        id: 'bfs_queue',
+        orientation: 'horizontal',
+        x: 100,
+        y: 520,
+        w: 340,
+        h: 110,
+        cells: ['A', 'B', 'C']
+      },
+      {
+        type: 'text',
+        id: 'ftr_left',
+        x: 270,
+        y: 770,
+        text: 'Sample Path: A -> B -> C',
+        fontSize: 12,
+        bold: false,
+        align: 'center'
+      }
+    ]
+  }
+
+  const res = compileSpatialScene(scene, { x: 100, y: 100, width: 640, height: 480 }, 'jakarta')
+  const panel = res.shapes.find((s) => s.shape === 'rounded-rect')
+  const stripCells = res.shapes.filter((s) => s.shape === 'rect')
+  const hdr = res.texts.find((t) => t.text.includes('BFS'))
+  const ftr = res.texts.find((t) => t.text.includes('Sample Path'))
+
+  assert.ok(panel, 'Expected rounded_rect panel shape')
+  assert.ok(stripCells.length === 3, 'Expected 3 cell_strip rects')
+  assert.ok(hdr, 'Expected header text')
+  assert.ok(ftr, 'Expected footer text')
+
+  // Header and footer must remain strictly inside the panel's vertical bounds (never kicked below panel.y + panel.h)
+  assert.ok(hdr!.y >= panel!.y && hdr!.y < panel!.y + panel!.h, 'Header should stay inside panel')
+  assert.ok(
+    ftr!.y >= panel!.y && ftr!.y + 18 <= panel!.y + panel!.h,
+    `Footer (${ftr!.y}) should stay inside panel [${panel!.y}, ${panel!.y + panel!.h}]`
+  )
+  // Footer must not collide with the cell_strip above it
+  const stripBottom = Math.max(...stripCells.map((c) => c.y + c.h))
+  assert.ok(ftr!.y >= stripBottom, `Footer (${ftr!.y}) should stay clear below cell_strip (${stripBottom})`)
+  // Explicit small fontSize (12) should be respected (< 15)
+  assert.ok(ftr!.fontSize < 15, `Expected compact fontSize < 15, got ${ftr!.fontSize}`)
+})

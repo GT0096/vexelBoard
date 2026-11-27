@@ -600,6 +600,14 @@ export interface GlassAPI {
     requestId: string,
     capture: CompanionSelectionCapturePayload
   ) => void
+  onPrepareBoardCapture?: (
+    callback: (req: CompanionBoardCapturePrepareRequest) => void
+  ) => () => void
+  respondBoardCapturePrepared?: (
+    requestId: string,
+    payload: CompanionBoardCapturePreparedPayload
+  ) => void
+  onFinishBoardCapture?: (callback: (requestId: string) => void) => () => void
 }
 
 export type SkillSourceKind =
@@ -671,6 +679,49 @@ export interface CompanionSelectionCaptureResult {
   height?: number
   base64Png?: string
   elementSummary?: string
+  capturedAt?: number
+  error?: string
+}
+
+export type CompanionBoardCaptureMode = 'board' | 'viewport' | 'region'
+
+export interface CompanionBoardCaptureRegion {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface CompanionBoardCapturePrepareRequest {
+  requestId: string
+  mode: CompanionBoardCaptureMode
+  region?: CompanionBoardCaptureRegion
+}
+
+export interface CompanionBoardCapturePreparedPayload {
+  ok: boolean
+  boardId: string
+  projectId?: string
+  mode: CompanionBoardCaptureMode
+  boardBounds?: { x: number; y: number; width: number; height: number }
+  capturedBounds?: { x: number; y: number; width: number; height: number }
+  elementCount: number
+  error?: string
+}
+
+export interface CompanionBoardCaptureResult {
+  ok: boolean
+  mode: CompanionBoardCaptureMode
+  boardId?: string
+  projectId?: string
+  boardBounds?: { x: number; y: number; width: number; height: number }
+  capturedBounds?: { x: number; y: number; width: number; height: number }
+  elementCount: number
+  filePath?: string
+  mimeType?: 'image/png'
+  width?: number
+  height?: number
+  base64Png?: string
   capturedAt?: number
   error?: string
 }
