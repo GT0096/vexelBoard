@@ -356,6 +356,8 @@ export interface SectionItem {
 
 export interface LocalOcrRequest {
   imagesBase64: string[]
+  /** Optional 0-based line index per image; chunks sharing a lineIndex are joined with a space */
+  lineIndices?: number[]
 }
 
 export interface LocalOcrResponse {

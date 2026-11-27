@@ -1,15 +1,19 @@
 import type { AgentBoardMutation, AgentBoardSnapshot } from '@shared/agentSchema'
+import { normalizeScene3DInput } from '@shared/scene3dSchema'
 import type {
   BoardState,
   CanvasTransform,
   CodeNode,
   EquationNode,
   FontId,
+  GraphNode,
+  Scene3DNode,
   ShapeNode,
   TextNode,
   VideoNode
 } from '../types/board'
 import { parseAndCleanReactFlow, type CleanReactFlowResult } from './beautifyUtils'
+import { buildFlowConnectorNode, type ConnectableBoardElement } from './connectorUtils'
 import { compileFlowDiagramToBoardElements } from './nativeDiagramCompiler'
 import { ensureBoardLayers, LAYER_OVERLAY_INK_ID, resolveTargetInkLayerId } from './layerUtils'
 import {
@@ -128,6 +132,16 @@ export function buildAgentBoardSnapshot(args: {
       x: Math.round(v.x),
       y: Math.round(v.y)
     })),
+    scenes3d: (board.scene3dNodes ?? []).slice(0, 15).map((s) => ({
+      id: s.id,
+      title: s.title || s.spec?.title || '3D Scene',
+      preset: s.spec?.preset,
+      elementCount: s.spec?.elements?.length ?? 0,
+      x: Math.round(s.x),
+      y: Math.round(s.y),
+      w: Math.round(s.w),
+      h: Math.round(s.h)
+    })),
     imageBase64
   }
 }
@@ -202,6 +216,8 @@ export function applyAgentMutationsToBoard(
   let nextCodeNodes = filterDeleted(board.codeNodes ?? [])
   const nextVideoNodes = filterDeleted(board.videoNodes ?? [])
   const nextImageNodes = filterDeleted(board.imageNodes ?? [])
+  const nextScene3dNodes = filterDeleted(board.scene3dNodes ?? [])
+  const nextGraphNodes: GraphNode[] = filterDeleted(board.graphNodes ?? [])
 
   const boardAfterDeletes: BoardState = {
     ...board,
@@ -213,7 +229,9 @@ export function applyAgentMutationsToBoard(
     vectorArtNodes: nextVectorArtNodes,
     codeNodes: nextCodeNodes,
     videoNodes: nextVideoNodes,
-    imageNodes: nextImageNodes
+    imageNodes: nextImageNodes,
+    scene3dNodes: nextScene3dNodes,
+    graphNodes: nextGraphNodes
   }
   const occupied = collectOccupiedBoardRects(boardAfterDeletes)
   const fallbackView: CanvasTransform = opts.view ?? {
@@ -336,6 +354,14 @@ export function applyAgentMutationsToBoard(
       } else {
         clusterQueue.push({ key: `m-${idx}`, mutationIndex: idx, w, h })
       }
+    } else if (m.type === 'add_3d_scene') {
+      const w = Math.max(280, Math.round(m.width ?? 480))
+      const h = Math.max(220, Math.round(m.height ?? 380))
+      if (typeof m.x === 'number' && typeof m.y === 'number') {
+        rawExplicitItems.push({ mutationIndex: idx, x: Math.round(m.x), y: Math.round(m.y), w, h, topMargin: 0 })
+      } else {
+        clusterQueue.push({ key: `m-${idx}`, mutationIndex: idx, w, h })
+      }
     }
   })
 
@@ -400,7 +426,7 @@ export function applyAgentMutationsToBoard(
   const typePriority = (idx: number): number => {
     const t = mutations[idx]?.type
     if (t === 'add_note') return 1
-    if (t === 'add_spatial_scene' || t === 'add_reactflow_diagram') return 2
+    if (t === 'add_spatial_scene' || t === 'add_reactflow_diagram' || t === 'add_3d_scene') return 2
     if (t === 'add_equation') return 3
     if (t === 'add_code_card') return 4
     return 5
@@ -555,7 +581,27 @@ export function applyAgentMutationsToBoard(
 
       case 'add_code_card': {
         const id = uid('code')
-        const tabId = uid('tab')
+        const rawTabs = Array.isArray(m.tabs) && m.tabs.length > 0 ? m.tabs : null
+        const tabs = rawTabs
+          ? rawTabs.map((t, tIdx) => ({
+              id: uid(`tab${tIdx + 1}`),
+              title: t.title,
+              language: t.language,
+              code: unescapeLlmCode(t.code),
+              stdin: t.stdin ?? '',
+              upstreamTabId: t.upstreamTabId ?? (tIdx > 0 && m.pipelineMode ? 'prev' : null),
+              output: null
+            }))
+          : [
+              {
+                id: uid('tab'),
+                title: m.title,
+                language: m.language,
+                code: unescapeLlmCode(m.code),
+                stdin: '',
+                output: null
+              }
+            ]
         const card: CodeNode = {
           id,
           x: resolvedPos.x,
@@ -563,20 +609,36 @@ export function applyAgentMutationsToBoard(
           w: 520,
           h: 400,
           title: m.title,
-          tabs: [
-            {
-              id: tabId,
-              title: m.title,
-              language: m.language,
-              code: unescapeLlmCode(m.code),
-              stdin: '',
-              output: null
-            }
-          ],
-          activeTabId: tabId,
+          pipelineMode: Boolean(m.pipelineMode || (rawTabs && rawTabs.length > 1)),
+          tabs,
+          activeTabId: tabs[0].id,
           createdAt: now
         }
         nextCodeNodes.push(card)
+        createdIds.push(id)
+        appliedCount += 1
+        break
+      }
+
+      case 'add_3d_scene': {
+        const w = Math.max(280, Math.round(m.width ?? 480))
+        const h = Math.max(220, Math.round(m.height ?? 380))
+        const normalizedSpec = normalizeScene3DInput(
+          m.scene ?? { preset: m.preset || 'car', title: m.title, immersed: m.immersed }
+        )
+        const id = uid('s3d')
+        const sceneNode: Scene3DNode = {
+          id,
+          x: resolvedPos.x,
+          y: resolvedPos.y,
+          w,
+          h,
+          title: m.title || normalizedSpec.title || '3D Object',
+          spec: { ...normalizedSpec, immersed: m.immersed ?? normalizedSpec.immersed ?? true },
+          immersed: m.immersed ?? normalizedSpec.immersed ?? true,
+          createdAt: now
+        }
+        nextScene3dNodes.push(sceneNode)
         createdIds.push(id)
         appliedCount += 1
         break
@@ -711,6 +773,42 @@ export function applyAgentMutationsToBoard(
         break
       }
 
+      case 'add_connector': {
+        const findConnTarget = (id: string): ConnectableBoardElement | undefined =>
+          nextShapeNodes.find((s) => s.id === id) ??
+          nextCodeNodes.find((c) => c.id === id) ??
+          nextScene3dNodes.find((s3) => s3.id === id) ??
+          nextGraphNodes.find((g) => g.id === id) ??
+          nextShapeNodes.find((s) => s.vectorGroupId === id && s.id.endsWith('-frame')) ??
+          nextShapeNodes.find((s) => s.vectorGroupId === id)
+
+        const sourceEl = findConnTarget(m.sourceId)
+        const targetEl = findConnTarget(m.targetId)
+        if (sourceEl && targetEl && sourceEl.id !== targetEl.id) {
+          const sourcePort = m.sourcePort ?? 'right'
+          const targetPort = m.targetPort ?? 'left'
+          const layerId = nextLayers.some((l) => l.id === LAYER_OVERLAY_INK_ID)
+            ? LAYER_OVERLAY_INK_ID
+            : (sourceEl.layerId ?? LAYER_OVERLAY_INK_ID)
+          const conn = buildFlowConnectorNode({
+            source: sourceEl,
+            sourcePort,
+            target: targetEl,
+            targetPort,
+            routing: m.routing ?? 'orthogonal',
+            color: m.color || '#06b6d4',
+            animated: m.animated ?? true,
+            fontFamily: opts.fontFamily,
+            layerId
+          })
+          if (m.label) conn.label = m.label
+          nextShapeNodes.push(conn)
+          createdIds.push(conn.id)
+          appliedCount += 1
+        }
+        break
+      }
+
       case 'add_video_card': {
         const id = uid('video')
         const video: VideoNode = {
@@ -746,7 +844,9 @@ export function applyAgentMutationsToBoard(
       vectorDiagramMeta: nextVectorDiagramMeta,
       codeNodes: nextCodeNodes,
       videoNodes: nextVideoNodes,
-      imageNodes: nextImageNodes
+      imageNodes: nextImageNodes,
+      scene3dNodes: nextScene3dNodes,
+      graphNodes: nextGraphNodes
     },
     createdIds,
     deletedIds,

@@ -8,6 +8,7 @@ import {
   type AgentBoardSnapshot
 } from '../shared/agentSchema'
 import { SpatialSceneSchema, normalizeSpatialSceneInput } from '../shared/beautifySchema'
+import { normalizeScene3DInput } from '../shared/scene3dSchema'
 import type {
   CompanionBridgeStatus,
   CompanionSelectionCapturePayload,
@@ -269,6 +270,11 @@ function validateMutationsPayload(raw: any): AgentBoardMutation[] {
     if (item && item.type === 'add_spatial_scene' && item.scene) {
       item.scene = normalizeSpatialSceneInput(item.scene)
     }
+    if (item && item.type === 'add_3d_scene') {
+      item.scene = normalizeScene3DInput(
+        item.scene ?? { preset: item.preset || 'car', title: item.title, immersed: item.immersed }
+      )
+    }
     if (item && item.type === 'add_reactflow_diagram' && Array.isArray(item.edges)) {
       item.edges = item.edges.map((e: any, idx: number) => ({
         ...e,
@@ -385,17 +391,58 @@ const MCP_TOOLS = [
     }
   },
   {
+    name: 'vexelboard_create_3d_scene',
+    description:
+      'Render an interactive 3D object, mathematical surface, or experimental setup directly immersed onto the Vexelboard canvas (e.g. preset car, optics_bench, mechanics_rig, chemistry_setup, electromagnetism, surface_wave, OR custom 3D elements composed of box, sphere, cylinder, cone, torus, wheel, spring, lens, prism, flask, plane, arrow3d, curve3d, surface3d, mesh, label3d).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        preset: { type: 'string' },
+        scene: { type: 'object' },
+        immersed: { type: 'boolean' },
+        x: { type: 'number' },
+        y: { type: 'number' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        replaceElementIds: { type: 'array', items: { type: 'string' } }
+      }
+    }
+  },
+  {
     name: 'vexelboard_add_code_card',
-    description: 'Create a runnable multi-tab Code Card (or patch an existing one when cardId is passed) on the board.',
+    description:
+      'Create a runnable Code Card (or patch an existing one when cardId is passed) on the board. Connect multiple Code Cards, 2D Graphs, or 3D Scenes using vexelboard_connect_elements.',
     inputSchema: {
       type: 'object',
       properties: {
         cardId: { type: 'string' },
         title: { type: 'string' },
         language: { type: 'string' },
-        code: { type: 'string' }
+        code: { type: 'string' },
+        pipelineMode: { type: 'boolean' },
+        tabs: { type: 'array', items: { type: 'object' } }
       },
       required: ['language', 'code']
+    }
+  },
+  {
+    name: 'vexelboard_connect_elements',
+    description:
+      'Draw a bound flowchart connector arrow between two board elements (Code Cards, 2D Graphs, 3D Scenes, or Shapes) so running an upstream Code Card pipes stdout to downstream Code Cards and updates connected 2D/3D visuals.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourceId: { type: 'string' },
+        targetId: { type: 'string' },
+        sourcePort: { type: 'string', enum: ['top', 'right', 'bottom', 'left'] },
+        targetPort: { type: 'string', enum: ['top', 'right', 'bottom', 'left'] },
+        routing: { type: 'string', enum: ['orthogonal', 'curved', 'straight'] },
+        color: { type: 'string' },
+        label: { type: 'string' },
+        animated: { type: 'boolean' }
+      },
+      required: ['sourceId', 'targetId']
     }
   },
   {
@@ -529,6 +576,29 @@ async function executeMcpToolCall(
       return pushAndReply(m, `vector scene "${args.title || checked.data.title || 'Scene'}"`)
     }
 
+    case 'vexelboard_create_3d_scene': {
+      const normalized = normalizeScene3DInput(
+        args.scene ?? { preset: args.preset || 'car', title: args.title, immersed: args.immersed }
+      )
+      const m = validateMutationsPayload({
+        replaceElementIds: args.replaceElementIds,
+        mutations: [
+          {
+            type: 'add_3d_scene',
+            title: args.title || normalized.title,
+            preset: normalized.preset,
+            scene: normalized,
+            immersed: args.immersed ?? true,
+            x: typeof args.x === 'number' ? args.x : undefined,
+            y: typeof args.y === 'number' ? args.y : undefined,
+            width: args.width,
+            height: args.height
+          }
+        ]
+      })
+      return pushAndReply(m, `3D scene "${args.title || normalized.title || '3D Scene'}"`)
+    }
+
     case 'vexelboard_add_equation': {
       const m = validateMutationsPayload({
         type: 'add_equation',
@@ -553,9 +623,26 @@ async function executeMcpToolCall(
         type: 'add_code_card',
         title: args.title || `snippet.${args.language || 'py'}`,
         language: args.language || 'python',
-        code: args.code
+        code: args.code,
+        pipelineMode: args.pipelineMode,
+        tabs: args.tabs
       })
       return pushAndReply(m, `code card "${args.title || 'Snippet'}"`)
+    }
+
+    case 'vexelboard_connect_elements': {
+      const m = validateMutationsPayload({
+        type: 'add_connector',
+        sourceId: String(args.sourceId),
+        targetId: String(args.targetId),
+        sourcePort: args.sourcePort,
+        targetPort: args.targetPort,
+        routing: args.routing,
+        color: args.color,
+        label: args.label,
+        animated: args.animated
+      })
+      return pushAndReply(m, `connector ${args.sourceId} → ${args.targetId}`)
     }
 
     case 'vexelboard_search_knowledge': {

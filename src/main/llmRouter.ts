@@ -176,9 +176,10 @@ export async function fetchOpenAIModelConfig(model: string): Promise<OpenAIModel
 /* 3. System Prompts                                                   */
 /* ------------------------------------------------------------------ */
 
-const OCR_SYSTEM_PROMPT = `You are a handwriting recognition model for an AR virtual glass whiteboard.
-The user writes in the air or on a drawing pad; input is a white-on-black binary crop of their handwriting stroke.
-Infer the intended English text, digits, or symbols.
+const OCR_SYSTEM_PROMPT = `You are a high-precision handwriting recognition model for an interactive digital whiteboard.
+Input is a high-contrast cropped image of freehand handwritten notes, words, or diagram labels (typically dark ink on a white background, or light ink on dark).
+Transcribe the exact handwritten English text, digits, symbols, and punctuation faithfully, preserving multi-line layout using "\\n" line breaks.
+Do not paraphrase, correct intentional terms, or add commentary.
 Respond with STRICT JSON only, no markdown: {"recognizedText": "string"}
 If nothing legible is present respond {"recognizedText": ""}.`
 

@@ -2121,6 +2121,7 @@ input.model-input {
   cursor: grab;
   padding: 14px 18px;
   border-radius: 12px;
+  width: max-content;
   min-width: 160px;
   max-width: 480px;
   box-sizing: border-box;
@@ -12970,6 +12971,9 @@ input.model-input {
   position: absolute;
   padding: 0;
   margin: 0;
+  width: max-content;
+  min-width: 48px;
+  box-sizing: border-box;
   background: transparent !important;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -12983,6 +12987,14 @@ input.model-input {
   word-break: break-word;
   max-width: 760px;
   transition: border-color 0.12s ease;
+}
+
+.canvas-immersed-text.has-custom-w {
+  max-width: none;
+}
+
+.canvas-immersed-text.has-custom-h {
+  overflow-y: auto;
 }
 
 .canvas-immersed-text:active {
@@ -13001,7 +13013,9 @@ input.model-input {
 }
 
 .immersed-text-span {
-  display: inline-block;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   white-space: pre-wrap;
   line-height: inherit;
   padding: 1px 2px;
@@ -13946,13 +13960,18 @@ body[data-font='serif'] {
 }
 
 .canvas-note-card .note-card-body,
+.canvas-note-card .note-card-body.chat-text-content,
+.canvas-note-card .note-card-body.chat-text-content p,
+.canvas-note-card .note-card-body.chat-text-content li,
+.canvas-note-card .note-card-body.chat-text-content blockquote,
 .canvas-note-card .note-inline-editor {
-  font-family: inherit;
+  font-family: inherit !important;
+  font-size: inherit !important;
 }
 
 .canvas-note-card pre,
 .canvas-note-card code {
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace) !important;
 }
 
 .rf-custom-node,
@@ -15969,3 +15988,841 @@ body[data-font='serif'] {
 .diagram-selection-rot-btn:hover {
   background: #fde047 !important;
 }
+
+/* ---------------- Connected Code Pipelines & 2D/3D Output ---------------- */
+
+.code-tab-pipe-badge {
+  font-size: 10px;
+  font-weight: 900;
+  color: #0284c7;
+  margin-right: 1px;
+}
+
+.code-flow-link-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1.5px solid #06b6d4;
+  background: rgba(6, 182, 212, 0.12);
+  color: #0e7490;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.card-flow-port-handle {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  border: 2px solid #06b6d4;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.25);
+  padding: 0;
+  cursor: crosshair;
+  z-index: 25;
+  transition: transform 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.card-flow-port-handle:hover {
+  background: #06b6d4;
+  border-color: #111111;
+  transform: scale(1.22);
+}
+
+.card-flow-port-handle.pos-top {
+  left: 50%;
+  top: -19px;
+  margin-left: -6.5px;
+}
+
+.card-flow-port-handle.pos-right {
+  right: -19px;
+  top: 50%;
+  margin-top: -6.5px;
+}
+
+.card-flow-port-handle.pos-bottom {
+  left: 50%;
+  bottom: -19px;
+  margin-left: -6.5px;
+}
+
+.card-flow-port-handle.pos-left {
+  left: -19px;
+  top: 50%;
+  margin-top: -6.5px;
+}
+
+.code-out-view-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.code-out-view-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.code-out-view-pill.active {
+  background: #111111;
+  color: #ffffff;
+}
+
+.code-out-btn.visual-spawn {
+  background: #dbeafe !important;
+  color: #1e3a8a !important;
+  border-color: #111111 !important;
+  font-weight: 700;
+}
+
+.code-visual-out-wrap {
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+  overflow: auto;
+}
+
+.code-2d-plot-svg {
+  width: 100%;
+  height: 100%;
+  max-height: 210px;
+  display: block;
+}
+
+/* ---------------- Canvas-Immersed & Inline 3D Scene Engine ---------------- */
+
+.scene3d-viewport-canvas {
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+.scene3d-viewport-canvas:active {
+  cursor: grabbing;
+}
+
+.inline-3d-viewer {
+  border: 1.5px solid #111111;
+  border-radius: 10px;
+  background: rgba(255, 253, 247, 0.92);
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.inline-3d-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1.5px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.inline-3d-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-3d-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.inline-3d-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inline-3d-btn.active {
+  border-color: #111111;
+  background: #fef08a;
+  color: #111111;
+}
+
+.inline-3d-btn.primary {
+  border-color: #111111;
+  background: #a7f3d0;
+  color: #111111;
+}
+
+.inline-3d-stage {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.inline-3d-hint {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  color: #475569;
+  font-size: 9.5px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.canvas-3d-node {
+  position: absolute;
+  user-select: none;
+  overflow: visible;
+}
+
+.canvas-3d-node.immersed {
+  background: transparent;
+  border: 1.5px dashed transparent;
+  border-radius: 12px;
+}
+
+.canvas-3d-node.immersed:hover,
+.canvas-3d-node.immersed.selected {
+  border-color: rgba(6, 182, 212, 0.72);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.canvas-3d-node.framed {
+  background: rgba(255, 253, 247, 0.94);
+  border: 2px solid #111111;
+  border-radius: 14px;
+  box-shadow: 4px 4px 0 #111111;
+}
+
+.canvas-3d-node.selected {
+  z-index: 23;
+}
+
+.canvas-3d-drag-pill {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1.5px solid #111111;
+  background: rgba(255, 253, 247, 0.92);
+  color: #111111;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: grab;
+  box-shadow: 2px 2px 0 #111111;
+}
+
+.canvas-3d-drag-pill:active {
+  cursor: grabbing;
+}
+
+.canvas-3d-toolbar {
+  flex-wrap: wrap;
+  max-width: 620px;
+}
+
+.canvas-3d-preset-select {
+  height: 24px;
+  padding: 0 6px;
+  border: 1.5px solid #111111;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111111;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.canvas-3d-part-dropdown-wrap {
+  position: relative;
+}
+
+.canvas-3d-part-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  width: 158px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px;
+  border: 2px solid #111111;
+  border-radius: 9px;
+  background: #fffdf7;
+  box-shadow: 4px 4px 0 #111111;
+}
+
+.canvas-3d-part-item {
+  text-align: left;
+  padding: 4px 7px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #111111;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.canvas-3d-part-item:hover {
+  background: #fef08a;
+}
+
+.canvas-3d-editor-drawer {
+  position: absolute;
+  top: 8px;
+  left: calc(100% + 10px);
+  width: 268px;
+  padding: 10px;
+  border: 2px solid #111111;
+  border-radius: 12px;
+  background: #fffdf7;
+  box-shadow: 4px 4px 0 #111111;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  z-index: 40;
+}
+
+.canvas-3d-editor-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #111111;
+}
+
+.canvas-3d-toggles-row {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.canvas-3d-toggles-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.canvas-3d-parts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.canvas-3d-part-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+}
+
+.canvas-3d-part-row .part-tag {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-weight: 800;
+}
+
+.canvas-3d-part-row .part-id {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: #334155;
+}
+
+.canvas-3d-part-row .part-expr-input {
+  width: 110px;
+  padding: 2px 4px;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.canvas-3d-json-area {
+  width: 100%;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 6px;
+  border: 1.5px solid #111111;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  resize: vertical;
+}
+
+.canvas-3d-json-err {
+  font-size: 10px;
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.canvas-3d-apply-btn {
+  padding: 6px 10px;
+  border: 1.5px solid #111111;
+  border-radius: 7px;
+  background: #fef08a;
+  color: #111111;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.graph-3d-parts-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.graph-action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.graph-link-code-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1.5px solid #111111;
+  border-radius: 9px;
+  background: #dbeafe;
+  color: #1e3a8a;
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.graph-link-code-btn:hover {
+  background: #bfdbfe;
+}
+
+/* Unified Canvas Graph Card + Plotly / GeoGebra Customizer */
+.canvas-graph-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  border: 2px solid #111111;
+  background: #ffffff;
+  box-shadow: 4px 4px 0 #111111;
+  overflow: visible;
+  user-select: none;
+  z-index: 6;
+}
+
+.canvas-graph-node.selected {
+  box-shadow: 0 0 0 2px #06b6d4, 5px 5px 0 #111111;
+  z-index: 9;
+}
+
+.canvas-graph-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1.5px solid #e2e8f0;
+  border-radius: 12px 12px 0 0;
+  background: #f8fafc;
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.canvas-graph-header:active {
+  cursor: grabbing;
+}
+
+.canvas-graph-drag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.canvas-graph-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-graph-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.canvas-graph-type-select {
+  height: 24px;
+  max-width: 140px;
+  padding: 0 6px;
+  border: 1.5px solid #111111;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.canvas-graph-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 2px 4px 4px;
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
+}
+
+.vx-graph-viewport {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 120px;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.vx-graph-viewport .scene3d-viewport-canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.vx-graph-viewport .graph-preview-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.vx-graph-viewport .graph-preview-svg.is-pannable {
+  cursor: crosshair;
+}
+
+.vx-graph-viewport .graph-preview-svg.is-pannable:active {
+  cursor: grabbing;
+}
+
+.vx-graph-2d-zoom-bar,
+.vx-graph-3d-overlay-ctrls {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 8;
+  display: flex;
+  gap: 3px;
+  padding: 2px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #cbd5e1;
+}
+
+.vx-graph-2d-zoom-bar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #334155;
+  cursor: pointer;
+}
+
+.vx-graph-2d-zoom-bar button:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.vx-graph-tooltip {
+  position: absolute;
+  z-index: 12;
+  pointer-events: none;
+  padding: 5px 8px;
+  border-radius: 7px;
+  border: 1.5px solid #2563eb;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  font-size: 10.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+}
+
+.canvas-graph-custom-drawer {
+  position: absolute;
+  top: 38px;
+  right: 8px;
+  width: 268px;
+  max-height: calc(100% - 46px);
+  display: flex;
+  flex-direction: column;
+  border: 2px solid #111111;
+  border-radius: 10px;
+  background: #fffdf7;
+  box-shadow: 4px 4px 0 #111111;
+  z-index: 20;
+  overflow: hidden;
+}
+
+.canvas-graph-drawer-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1.5px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.canvas-graph-drawer-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #475569;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.canvas-graph-drawer-tabs button.active {
+  background: #fef08a;
+  color: #111111;
+  border-color: #111111;
+}
+
+.canvas-graph-drawer-close {
+  margin-left: auto !important;
+}
+
+.canvas-graph-drawer-body {
+  padding: 8px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.graph-palette-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.graph-palette-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border: 1.2px solid #cbd5e1;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.graph-palette-chip:hover {
+  border-color: #111111;
+  background: #f1f5f9;
+}
+
+.graph-palette-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.graph-palette-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.graph-color-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+}
+
+.graph-color-grid label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.graph-color-grid input[type='color'] {
+  width: 100%;
+  height: 22px;
+  padding: 1px;
+  border: 1.5px solid #111111;
+  border-radius: 5px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.graph-series-mini-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.graph-series-mini-row input[type='color'] {
+  width: 26px;
+  height: 24px;
+  padding: 1px;
+  border: 1.5px solid #111111;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+
+.graph-series-mini-row input[type='text'] {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1.2px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.code-pipeline-guide {
+  margin: 0;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-bottom: 1.5px solid #e2e8f0;
+  font-size: 11px;
+  color: #1e293b;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.code-pipeline-guide-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 800;
+  font-size: 11.5px;
+  color: #0f172a;
+}
+
+.code-guide-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.code-guide-step {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 6px 7px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.code-guide-step strong {
+  font-size: 10.5px;
+  color: #0f172a;
+}
+
+.code-guide-step p {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.35;
+  color: #475569;
+}
+
+.code-guide-step code {
+  background: #f1f5f9;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9.5px;
+}
+
+.code-guide-chip-btn {
+  align-self: flex-start;
+  padding: 3px 7px;
+  border-radius: 5px;
+  border: 1px solid #0ea5e9;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.code-guide-chip-btn:hover {
+  background: #bae6fd;
+}
+

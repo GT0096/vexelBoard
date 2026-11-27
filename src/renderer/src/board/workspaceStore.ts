@@ -1,5 +1,13 @@
-import { EMPTY_BOARD, type BoardLayer, type BoardState, type CanvasTransform, type ChatMessage } from '../types/board'
+import {
+  EMPTY_BOARD,
+  type BoardLayer,
+  type BoardState,
+  type CanvasTransform,
+  type ChatMessage,
+  type GraphNode
+} from '../types/board'
 import { ensureBoardLayers } from './layerUtils'
+import { GRAPH_PRESETS } from './graphPlotBuilder'
 import { unescapeLlmCode, unescapeLlmText } from '@shared/textUnescape'
 import type {
   OverallHistoryEntry,
@@ -75,20 +83,90 @@ export function normalizeBoardState(parsed?: Partial<BoardState> | null): BoardS
     return !(startInside && endInside)
   })
 
+  const baseTextNodes = (parsed.textNodes ?? []).map((t) =>
+    typeof t.text === 'string' && (t.text.includes('\\n') || t.text.includes('\\t'))
+      ? { ...t, text: unescapeLlmText(t.text) }
+      : t
+  )
+
+  // Auto-migrate legacy fragmented graphs (`vectorGroupId: 'graph-...'`) into unified GraphNode cards
+  const legacyGraphGroupIds = new Set<string>()
+  for (const s of cleanedShapes) {
+    if (s.vectorGroupId?.startsWith('graph-')) legacyGraphGroupIds.add(s.vectorGroupId)
+  }
+  const migratedGraphNodes: GraphNode[] = [...(parsed.graphNodes ?? [])]
+  const shapeIdToGraphId = new Map<string, string>()
+  const groupIdToGraphId = new Map<string, string>()
+  const nextVectorMeta = { ...(parsed.vectorDiagramMeta ?? {}) }
+
+  if (legacyGraphGroupIds.size > 0) {
+    const baseTemplate = GRAPH_PRESETS[0].spec
+    for (const gid of legacyGraphGroupIds) {
+      const grpShapes = cleanedShapes.filter((s) => s.vectorGroupId === gid)
+      const grpTexts = baseTextNodes.filter((t) => t.vectorGroupId === gid)
+      const frame = grpShapes.find((s) => s.id.endsWith('-frame')) ?? grpShapes[0]
+      if (!frame) continue
+      const titleNode = grpTexts.find((t) => t.id.endsWith('-title'))
+      const graphId = gid
+      groupIdToGraphId.set(gid, graphId)
+      for (const s of grpShapes) {
+        shapeIdToGraphId.set(s.id, graphId)
+      }
+      if (!migratedGraphNodes.some((g) => g.id === graphId)) {
+        migratedGraphNodes.push({
+          id: graphId,
+          x: Math.round(frame.x),
+          y: Math.round(frame.y),
+          w: Math.max(360, Math.round(frame.w || 500)),
+          h: Math.max(260, Math.round(frame.h || 340)),
+          title: titleNode?.text || 'Graph',
+          spec: {
+            ...baseTemplate,
+            title: titleNode?.text || baseTemplate.title,
+            functions: baseTemplate.functions.map((f) => ({ ...f })),
+            dataSeries: baseTemplate.dataSeries.map((d) => ({ ...d }))
+          },
+          createdAt: Date.now()
+        })
+      }
+      delete nextVectorMeta[gid]
+    }
+  }
+
+  const finalShapes = cleanedShapes
+    .filter((s) => !s.vectorGroupId || !legacyGraphGroupIds.has(s.vectorGroupId))
+    .map((s) => {
+      const nextStart =
+        s.startBinding && shapeIdToGraphId.has(s.startBinding.shapeId)
+          ? { ...s.startBinding, shapeId: shapeIdToGraphId.get(s.startBinding.shapeId)! }
+          : s.startBinding
+      const nextEnd =
+        s.endBinding && shapeIdToGraphId.has(s.endBinding.shapeId)
+          ? { ...s.endBinding, shapeId: shapeIdToGraphId.get(s.endBinding.shapeId)! }
+          : s.endBinding
+      if (nextStart !== s.startBinding || nextEnd !== s.endBinding) {
+        return { ...s, startBinding: nextStart, endBinding: nextEnd }
+      }
+      return s
+    })
+
+  const finalTexts = baseTextNodes.filter(
+    (t) => !t.vectorGroupId || !legacyGraphGroupIds.has(t.vectorGroupId)
+  )
+
   return {
     strokes: parsed.strokes ?? [],
-    textNodes: (parsed.textNodes ?? []).map((t) =>
-      typeof t.text === 'string' && (t.text.includes('\\n') || t.text.includes('\\t'))
-        ? { ...t, text: unescapeLlmText(t.text) }
-        : t
-    ),
+    textNodes: finalTexts,
     equationNodes: parsed.equationNodes ?? [],
-    shapeNodes: cleanedShapes,
+    shapeNodes: finalShapes,
     diagramNodes: parsed.diagramNodes ?? [],
     vectorArtNodes: parsed.vectorArtNodes ?? [],
-    vectorDiagramMeta: parsed.vectorDiagramMeta ?? {},
+    vectorDiagramMeta: nextVectorMeta,
     codeNodes: (parsed.codeNodes ?? []).map((c) => ({
       ...c,
+      linkedGraphId:
+        c.linkedGraphId ??
+        (c.linkedGraphGroupId ? groupIdToGraphId.get(c.linkedGraphGroupId) : undefined),
       tabs: (c.tabs ?? []).map((tab) =>
         typeof tab.code === 'string' && (tab.code.includes('\\n') || tab.code.includes('\\t'))
           ? { ...tab, code: unescapeLlmCode(tab.code) }
@@ -97,6 +175,8 @@ export function normalizeBoardState(parsed?: Partial<BoardState> | null): BoardS
     })),
     videoNodes: parsed.videoNodes ?? [],
     imageNodes: parsed.imageNodes ?? [],
+    scene3dNodes: parsed.scene3dNodes ?? [],
+    graphNodes: migratedGraphNodes,
     layers,
     activeLayerId
   }
@@ -112,7 +192,9 @@ export function isBoardEmpty(board: BoardState): boolean {
     (board.vectorArtNodes?.length ?? 0) === 0 &&
     (board.codeNodes?.length ?? 0) === 0 &&
     (board.videoNodes?.length ?? 0) === 0 &&
-    (board.imageNodes?.length ?? 0) === 0
+    (board.imageNodes?.length ?? 0) === 0 &&
+    (board.scene3dNodes?.length ?? 0) === 0 &&
+    (board.graphNodes?.length ?? 0) === 0
   )
 }
 
@@ -511,6 +593,30 @@ export function buildElementsForDb(
       raw: n
     })
   )
+  board.scene3dNodes?.forEach((n) =>
+    elements.push({
+      id: n.id,
+      kind: 'scene3d',
+      x: n.x,
+      y: n.y,
+      w: n.w,
+      h: n.h,
+      text: n.title || n.spec?.title || '3D Scene',
+      raw: n
+    })
+  )
+  board.graphNodes?.forEach((n) =>
+    elements.push({
+      id: n.id,
+      kind: 'graph',
+      x: n.x,
+      y: n.y,
+      w: n.w,
+      h: n.h,
+      text: n.title || n.spec?.title || 'Graph',
+      raw: n
+    })
+  )
   board.strokes.forEach((st) => {
     const first = st.points[0] ?? [0, 0]
     elements.push({
@@ -553,7 +659,9 @@ export function reconstructBoardFromDbElements(rows: unknown[]): BoardState {
     vectorDiagramMeta: {},
     codeNodes: [],
     videoNodes: [],
-    imageNodes: []
+    imageNodes: [],
+    scene3dNodes: [],
+    graphNodes: []
   }
 
   for (const rawItem of rows) {
@@ -566,6 +674,14 @@ export function reconstructBoardFromDbElements(rows: unknown[]): BoardState {
       }
     } else if (item.kind === 'vector_art' && Array.isArray(item.layers)) {
       board.vectorArtNodes!.push(rawItem as NonNullable<BoardState['vectorArtNodes']>[number])
+    } else if (item.spec && typeof item.spec === 'object' && 'elements' in (item.spec as object)) {
+      board.scene3dNodes!.push(rawItem as NonNullable<BoardState['scene3dNodes']>[number])
+    } else if (
+      item.spec &&
+      typeof item.spec === 'object' &&
+      ('chartType' in (item.spec as object) || 'mode' in (item.spec as object))
+    ) {
+      board.graphNodes!.push(rawItem as NonNullable<BoardState['graphNodes']>[number])
     } else if (Array.isArray(item.points) && typeof item.size === 'number') {
       board.strokes.push(rawItem as BoardState['strokes'][number])
     } else if (typeof item.text === 'string' && typeof item.fontSize === 'number' && 'source' in item) {

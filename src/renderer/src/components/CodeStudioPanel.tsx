@@ -53,12 +53,20 @@ import {
   Clock,
   Globe,
   SlidersHorizontal,
-  Sparkles
+  Sparkles,
+  LineChart,
+  Box,
+  HelpCircle
 } from 'lucide-react'
 import type { CodeRuntimeInfo } from '@shared/ipc'
-import type { CodeNode, CodeTabExecutionOutput, CodeTabItem } from '../types/board'
+import type { Scene3DSpec } from '@shared/scene3dSchema'
+import type { CodeNode, CodeTabExecutionOutput, CodeTabItem, PortSide } from '../types/board'
 import type { ResizeDirection } from './CanvasElements'
 import { TabColorPicker, getReadableTabStyle } from './TabColorPicker'
+import type { GraphPlotSpec } from '../board/graphPlotBuilder'
+import { parseCodeOutputToVisuals, wrapCodeForAutoOutput } from '../board/codeVisualParser'
+import { Inline3DViewer } from './Canvas3DScene'
+import { InteractiveGraphViewport } from './CanvasGraphCard'
 
 const STUDIO_STORAGE_KEY = 'vgb.codingStudio.v1'
 
@@ -481,10 +489,24 @@ function wrapHtmlForPreview(rawHtml: string, previewId: string): string {
 /* Core Multi-Tab Code Runner Workspace (shared by Left Panel & Card) */
 /* ------------------------------------------------------------------ */
 
+export interface CodeFlowConnectionSummary {
+  incomingCount: number
+  outgoingCount: number
+  incomingLabels?: string[]
+  outgoingLabels?: string[]
+}
+
 export interface CodeRunnerWorkspaceProps {
   tabs: CodeTabItem[]
   activeTabId: string
   onChangeTabs: (tabs: CodeTabItem[], nextActiveTabId?: string) => void
+  codeNodeId?: string
+  linkedScene3DId?: string
+  linkedGraphGroupId?: string
+  connectionSummary?: CodeFlowConnectionSummary
+  onExecuteCodeNode?: (cardId: string, tabId?: string) => Promise<void>
+  onSpawnGraphFromCode?: (spec: GraphPlotSpec, sourceCardId?: string) => void
+  onSpawnScene3DFromCode?: (spec: Scene3DSpec, sourceCardId?: string) => void
   isLightTheme?: boolean
   compact?: boolean
   onPinToBoard?: (tab: CodeTabItem) => void
@@ -504,6 +526,13 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
   tabs,
   activeTabId,
   onChangeTabs,
+  codeNodeId,
+  linkedScene3DId,
+  linkedGraphGroupId,
+  connectionSummary,
+  onExecuteCodeNode,
+  onSpawnGraphFromCode,
+  onSpawnScene3DFromCode,
   compact = false,
   onPinToBoard,
   onSendOutputToNote,
@@ -517,6 +546,7 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
 
   const [isRunning, setIsRunning] = useState(false)
   const [showStdin, setShowStdin] = useState(false)
+  const [showGuide, setShowGuide] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
   const [copiedOutput, setCopiedOutput] = useState(false)
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
@@ -669,6 +699,20 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
     })
   }, [activeTab, updateTabById])
 
+  const syncLinkedVisualsForStdout = useCallback(
+    (stdout: string, title: string) => {
+      if (!stdout.trim()) return
+      const visuals = parseCodeOutputToVisuals(stdout, title)
+      if (linkedScene3DId && visuals.scene3d && onSpawnScene3DFromCode) {
+        onSpawnScene3DFromCode(visuals.scene3d, codeNodeId)
+      }
+      if (linkedGraphGroupId && visuals.plot2d && onSpawnGraphFromCode) {
+        onSpawnGraphFromCode(visuals.plot2d, codeNodeId)
+      }
+    },
+    [linkedScene3DId, linkedGraphGroupId, onSpawnScene3DFromCode, onSpawnGraphFromCode, codeNodeId]
+  )
+
   const handleRunCode = useCallback(async () => {
     const tab = activeTab
     if (!tab || isRunning) return
@@ -688,6 +732,18 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
         timestamp: Date.now()
       }
       updateTabById(tab.id, { output: out })
+      return
+    }
+
+    if (codeNodeId && onExecuteCodeNode) {
+      setIsRunning(true)
+      try {
+        await onExecuteCodeNode(codeNodeId, tab.id)
+      } catch (err) {
+        onToast?.('error', err instanceof Error ? err.message : String(err))
+      } finally {
+        setIsRunning(false)
+      }
       return
     }
 
@@ -712,17 +768,30 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
     try {
       const res = await api.runCode({
         language: tab.language,
-        code: tab.code,
-        stdin: tab.stdin,
+        code: wrapCodeForAutoOutput(tab.language, tab.code),
+        stdin: tab.stdin ?? '',
         timeoutMs: 12000,
         filename: tab.title
       })
+      const nextOutput: CodeTabExecutionOutput = {
+        ...res,
+        timestamp: Date.now()
+      }
+      const parsed = res.stdout ? parseCodeOutputToVisuals(res.stdout, tab.title) : null
+      const nextVisualMode =
+        tab.visualMode ??
+        (parsed?.detectedKind === 'scene3d'
+          ? 'scene3d'
+          : parsed?.detectedKind === 'plot2d'
+            ? 'plot2d'
+            : 'terminal')
       updateTabById(tab.id, {
-        output: {
-          ...res,
-          timestamp: Date.now()
-        }
+        output: nextOutput,
+        visualMode: nextVisualMode
       })
+      if (res.ok && res.stdout) {
+        syncLinkedVisualsForStdout(res.stdout, tab.title)
+      }
     } catch (err) {
       updateTabById(tab.id, {
         output: {
@@ -739,7 +808,7 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
     } finally {
       setIsRunning(false)
     }
-  }, [activeTab, isRunning, updateTabById])
+  }, [activeTab, isRunning, codeNodeId, onExecuteCodeNode, onToast, updateTabById, syncLinkedVisualsForStdout])
 
   const editorExtensions = useMemo(() => {
     const exts: Extension[] = [EditorView.lineWrapping]
@@ -798,18 +867,23 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
   const handleSendToNote = (): void => {
     if (!activeTab || !onSendOutputToNote) return
     const out = activeTab.output
+    const visuals = out?.stdout ? parseCodeOutputToVisuals(out.stdout, activeTab.title) : null
+    const visualBlock = visuals?.scene3d
+      ? `\`\`\`3d\n${JSON.stringify(visuals.scene3d, null, 2)}\n\`\`\``
+      : ''
     const resultBlock = out
       ? [
-          out.stdout?.trim() ? `**Output:**\n\`\`\`text\n${out.stdout.trim()}\n\`\`\`` : '',
-          out.stderr?.trim() ? `**Stderr:**\n\`\`\`text\n${out.stderr.trim()}\n\`\`\`` : '',
-          out.error?.trim() ? `**Error:**\n\`\`\`text\n${out.error.trim()}\n\`\`\`` : ''
-        ]
-          .filter(Boolean)
-          .join('\n\n')
+        out.stdout?.trim() && !visualBlock ? `**Output:**\n\`\`\`text\n${out.stdout.trim()}\n\`\`\`` : '',
+        out.stderr?.trim() ? `**Stderr:**\n\`\`\`text\n${out.stderr.trim()}\n\`\`\`` : '',
+        out.error?.trim() ? `**Error:**\n\`\`\`text\n${out.error.trim()}\n\`\`\`` : ''
+      ]
+        .filter(Boolean)
+        .join('\n\n')
       : ''
 
     const md = [
       `\`\`\`${activeTab.language}\n${activeTab.code.trimEnd()}\n\`\`\``,
+      visualBlock,
       resultBlock
     ]
       .filter(Boolean)
@@ -841,6 +915,14 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
     [outputHeightPct]
   )
 
+  const parsedVisuals = useMemo(
+    () =>
+      activeTab?.output?.stdout
+        ? parseCodeOutputToVisuals(activeTab.output.stdout, activeTab.title)
+        : { plot2d: null, scene3d: null, detectedKind: null },
+    [activeTab]
+  )
+
   if (!activeTab) return null
 
   const activeRunnable = getRunnableLanguageDef(activeTab.language)
@@ -848,6 +930,12 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
   const isHtmlMode = activeTab.language.toLowerCase() === 'html' || activeTab.language.toLowerCase() === 'htm'
   const out = activeTab.output
   const hasOutputContent = Boolean(out?.stdout || out?.stderr || out?.error)
+  const outputViewMode: 'terminal' | 'plot2d' | 'scene3d' =
+    activeTab.visualMode === 'scene3d' && parsedVisuals.scene3d
+      ? 'scene3d'
+      : activeTab.visualMode === 'plot2d' && parsedVisuals.plot2d
+        ? 'plot2d'
+        : 'terminal'
 
   return (
     <div
@@ -955,9 +1043,8 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
               <span className="runtime-dot available" title="Live browser preview" />
             ) : activeRunnable ? (
               <span
-                className={`runtime-dot ${
-                  runtimeInfo ? (runtimeInfo.available ? 'available' : 'missing') : 'unknown'
-                }`}
+                className={`runtime-dot ${runtimeInfo ? (runtimeInfo.available ? 'available' : 'missing') : 'unknown'
+                  }`}
                 title={
                   runtimeInfo
                     ? runtimeInfo.available
@@ -1012,15 +1099,14 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
                           onClick={() => handleSwitchLanguage(lang.id)}
                         >
                           <span
-                            className={`runtime-dot ${
-                              lang.runtimeId === 'browser'
-                                ? 'available'
-                                : info
-                                  ? info.available
-                                    ? 'available'
-                                    : 'missing'
-                                  : 'unknown'
-                            }`}
+                            className={`runtime-dot ${lang.runtimeId === 'browser'
+                              ? 'available'
+                              : info
+                                ? info.available
+                                  ? 'available'
+                                  : 'missing'
+                                : 'unknown'
+                              }`}
                           />
                           <span className="code-lang-option-name">{lang.label}</span>
                           <span className="code-lang-option-meta">
@@ -1075,7 +1161,6 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
             title="Load starter example snippet for this language"
           >
             <RotateCcw size={12} />
-            {!compact && <span>Example</span>}
           </button>
 
           {!isHtmlMode && (
@@ -1087,6 +1172,18 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
             >
               <SlidersHorizontal size={12} />
               {!compact && <span>Stdin</span>}
+            </button>
+          )}
+
+          {!isHtmlMode && (
+            <button
+              type="button"
+              className={`code-tool-btn ${showGuide ? 'active' : ''}`}
+              onClick={() => setShowGuide((g) => !g)}
+              title="How to build Code Pipelines & Plot Graphs"
+            >
+              <HelpCircle size={12} />
+              {!compact && <span>Guide</span>}
             </button>
           )}
 
@@ -1158,6 +1255,89 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
         </div>
       </div>
 
+      {/* Inline Code Pipeline & Graph Guide */}
+      {showGuide && (
+        <div
+          className="code-pipeline-guide"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="code-pipeline-guide-hdr">
+            <span>How to Build a Processing Pipeline &amp; Graph</span>
+            <button
+              type="button"
+              className="code-mini-clear-btn"
+              onClick={() => setShowGuide(false)}
+            >
+              Close
+            </button>
+          </div>
+          <div className="code-guide-steps">
+            <div className="code-guide-step">
+              <strong>1. Generate Data (Card 1)</strong>
+              <p>
+                Assign <code>x = [...]</code>, <code>y = [...]</code> or return a{' '}
+                <code>{`{"x": ..., "y": ...}`}</code> dict. No <code>print</code> needed.
+              </p>
+              <button
+                type="button"
+                className="code-guide-chip-btn"
+                onClick={() => {
+                  updateTabById(activeTab.id, {
+                    language: 'python',
+                    code: `import math\n\n# Stage 1: Generate raw data (returned dict goes to connected cards)\nx = [round(i * 0.25, 2) for i in range(0, 36)]\nraw_y = [round(math.sin(v) * 10 + ((i % 4) - 1.5) * 2, 2) for i, v in enumerate(x)]\n\n{"title": "Stage 1 Raw Signal", "x": x, "raw_y": raw_y, "y": raw_y}\n`
+                  })
+                  onToast?.('info', 'Loaded Stage 1 template — press Run!')
+                }}
+              >
+                Load Stage 1 Template
+              </button>
+            </div>
+
+            <div className="code-guide-step">
+              <strong>2. Connect &amp; Process (Card 2)</strong>
+              <p>
+                Click or drag the right <b>cyan dot</b> to link Card 2. Write{' '}
+                <code>def transform(data):</code> to get Card 1&apos;s dict automatically.
+              </p>
+              <button
+                type="button"
+                className="code-guide-chip-btn"
+                onClick={() => {
+                  updateTabById(activeTab.id, {
+                    language: 'python',
+                    code: `# Stage 2: 'data' receives Card 1's output dict automatically!\ndef transform(data):\n    x = data.get("x", [1, 2, 3, 4, 5])\n    raw = data.get("raw_y") or data.get("y") or [1, 3, 2, 5, 4]\n    smooth = [\n        round(sum(raw[max(0, i - 1):i + 2]) / len(raw[max(0, i - 1):i + 2]), 2)\n        for i in range(len(raw))\n    ]\n    return {\n        "type": "line",\n        "title": "Raw vs. Smoothed Signal",\n        "x": x,\n        "series": [\n            {"label": "Raw", "y": raw, "color": "#94A3B8"},\n            {"label": "Smoothed", "y": smooth, "color": "#2563EB"}\n        ]\n    }\n`
+                  })
+                  onToast?.('info', 'Loaded Stage 2 template — connect & press Run!')
+                }}
+              >
+                Load Stage 2 Template
+              </button>
+            </div>
+
+            <div className="code-guide-step">
+              <strong>3. Plot 2D / 3D Graph</strong>
+              <p>
+                Click <b>+ 2D Board</b> in output (or drag a connector dot to any Graph Card). Supports{' '}
+                <code>bar</code>, <code>histogram</code>, <code>candlestick</code>, <code>scatter3d</code>.
+              </p>
+              <button
+                type="button"
+                className="code-guide-chip-btn"
+                onClick={() => {
+                  updateTabById(activeTab.id, {
+                    language: 'python',
+                    code: `# Multi-chart / 3D plot hashmap example — switch chart types anytime on the Graph!\nx = [round(i * 0.3, 2) for i in range(-10, 11)]\nreturn {\n    "type": "line",\n    "title": "Quadratic Comparison",\n    "x": x,\n    "series": [\n        {"label": "0.5x^2", "y": [round(0.5 * v * v, 2) for v in x], "color": "#2563EB"},\n        {"label": "2x + 4", "y": [round(2 * v + 4, 2) for v in x], "color": "#10B981"}\n    ]\n}\n`
+                  })
+                  onToast?.('info', 'Loaded Multi-Series Plot — press Run!')
+                }}
+              >
+                Load Multi-Series Plot
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 3. CodeMirror 6 Editor */}
       <div
         className="code-editor-container"
@@ -1193,7 +1373,12 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
       {showStdin && !isHtmlMode && (
         <div className="code-stdin-drawer">
           <div className="code-stdin-label">
-            <span>Standard Input (stdin)</span>
+            <span>
+              Standard Input (stdin)
+              {connectionSummary && connectionSummary.incomingCount > 0
+                ? ` — Connected input (${connectionSummary.incomingCount})`
+                : ''}
+            </span>
             {activeTab.stdin && (
               <button
                 type="button"
@@ -1207,7 +1392,11 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
           <textarea
             className="code-stdin-textarea"
             rows={2}
-            placeholder="Optional input lines piped to stdin..."
+            placeholder={
+              connectionSummary && connectionSummary.incomingCount > 0
+                ? 'Auto-piped from upstream connected card stdout on Run...'
+                : 'Optional input lines piped to stdin...'
+            }
             value={activeTab.stdin ?? ''}
             onChange={(e) => updateTabById(activeTab.id, { stdin: e.target.value })}
             onKeyDown={(e) => e.stopPropagation()}
@@ -1228,7 +1417,7 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
         <span className="code-split-resizer-bar" />
       </div>
 
-      {/* 6. Execution Result Showcase / Live HTML Preview */}
+      {/* 6. Execution Result Showcase / 2D Graph / 3D Sim / Live HTML Preview */}
       <div
         className="code-output-panel"
         style={{ flex: `0 0 ${outputHeightPct}%`, maxHeight: '72%' }}
@@ -1243,7 +1432,7 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
             ) : isRunning ? (
               <span className="code-status-badge running">
                 <Loader2 size={11} className="spin-animate" />
-                <span>Executing locally...</span>
+                <span>Executing...</span>
               </span>
             ) : out ? (
               <span className={`code-status-badge ${out.ok ? 'ok' : 'err'}`}>
@@ -1261,9 +1450,21 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
             ) : (
               <span className="code-status-badge idle">
                 <Terminal size={11} />
-                <span>Result Output</span>
+                <span>Output</span>
               </span>
             )}
+
+            {connectionSummary &&
+              (connectionSummary.incomingCount > 0 || connectionSummary.outgoingCount > 0) && (
+                <span
+                  className="code-flow-link-badge"
+                  title="Flowchart connectors link this Code Card's stdin/stdout to other Code Cards, 2D Graphs, and 3D Scenes"
+                >
+                  {connectionSummary.incomingCount > 0 ? `← ${connectionSummary.incomingCount} in` : ''}
+                  {connectionSummary.incomingCount > 0 && connectionSummary.outgoingCount > 0 ? ' · ' : ''}
+                  {connectionSummary.outgoingCount > 0 ? `${connectionSummary.outgoingCount} out →` : ''}
+                </span>
+              )}
 
             {out && !isRunning && (
               <span className="code-duration-pill" title={out.command || ''}>
@@ -1272,14 +1473,71 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
               </span>
             )}
 
-            {out?.command && !compact && (
-              <span className="code-cmd-pill" title={out.command}>
-                {out.command}
-              </span>
+            {/* Output View Mode Switcher: Terminal | 2D Graph | 3D Sim */}
+            {(parsedVisuals.plot2d || parsedVisuals.scene3d) && (
+              <div className="code-out-view-pills">
+                <button
+                  type="button"
+                  className={`code-out-view-pill ${outputViewMode === 'terminal' ? 'active' : ''}`}
+                  onClick={() => updateTabById(activeTab.id, { visualMode: 'terminal' })}
+                >
+                  Text
+                </button>
+                {parsedVisuals.plot2d && (
+                  <button
+                    type="button"
+                    className={`code-out-view-pill ${outputViewMode === 'plot2d' ? 'active' : ''}`}
+                    onClick={() => updateTabById(activeTab.id, { visualMode: 'plot2d' })}
+                  >
+                    <LineChart size={10} />
+                    <span>2D</span>
+                  </button>
+                )}
+                {parsedVisuals.scene3d && (
+                  <button
+                    type="button"
+                    className={`code-out-view-pill ${outputViewMode === 'scene3d' ? 'active' : ''}`}
+                    onClick={() => updateTabById(activeTab.id, { visualMode: 'scene3d' })}
+                  >
+                    <Box size={10} />
+                    <span>3D</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
           <div className="code-output-actions">
+            {parsedVisuals.plot2d && onSpawnGraphFromCode && (
+              <button
+                type="button"
+                className="code-out-btn visual-spawn"
+                onClick={() => onSpawnGraphFromCode(parsedVisuals.plot2d!, codeNodeId)}
+                title={
+                  linkedGraphGroupId
+                    ? 'Update linked 2D Graph on whiteboard'
+                    : 'Draw & link 2D Graph onto the whiteboard canvas'
+                }
+              >
+                <LineChart size={11} />
+                <span>{linkedGraphGroupId ? 'Sync 2D' : '+ 2D Board'}</span>
+              </button>
+            )}
+            {parsedVisuals.scene3d && onSpawnScene3DFromCode && (
+              <button
+                type="button"
+                className="code-out-btn visual-spawn"
+                onClick={() => onSpawnScene3DFromCode(parsedVisuals.scene3d!, codeNodeId)}
+                title={
+                  linkedScene3DId
+                    ? 'Update linked 3D Simulation on whiteboard'
+                    : 'Immerse & link 3D Object onto the whiteboard canvas'
+                }
+              >
+                <Box size={11} />
+                <span>{linkedScene3DId ? 'Sync 3D' : '+ 3D Board'}</span>
+              </button>
+            )}
             {onSendOutputToNote && (activeTab.code.trim() || hasOutputContent) && (
               <button
                 type="button"
@@ -1337,11 +1595,33 @@ export const CodeRunnerWorkspace: React.FC<CodeRunnerWorkspaceProps> = ({
                 </div>
               )}
             </div>
+          ) : outputViewMode === 'scene3d' && parsedVisuals.scene3d ? (
+            <div className="code-visual-out-wrap">
+              <Inline3DViewer
+                spec={parsedVisuals.scene3d}
+                height={185}
+                onImmerseOnBoard={
+                  onSpawnScene3DFromCode
+                    ? (spec) => onSpawnScene3DFromCode(spec, codeNodeId)
+                    : undefined
+                }
+                compact={compact}
+              />
+            </div>
+          ) : outputViewMode === 'plot2d' && parsedVisuals.plot2d ? (
+            <div className="code-visual-out-wrap">
+              <InteractiveGraphViewport
+                spec={parsedVisuals.plot2d}
+                height={188}
+                compact={compact}
+                interactive
+              />
+            </div>
           ) : !out ? (
             <div className="code-output-placeholder">
               {activeRunnable
-                ? `Press Run (Ctrl+Enter) to execute ${activeRunnable.label} locally via Electron.`
-                : `Syntax highlighting active for "${activeTab.language}". Select a runnable language (Python, JS, TS, C/C++, Java, Go, Rust, etc.) to execute locally.`}
+                ? `Press Run (Ctrl+Enter) or drag a board connector dot to link Code Cards, 2D Graphs & 3D Scenes.`
+                : `Syntax highlighting active for "${activeTab.language}". Select a runnable language to execute locally.`}
             </div>
           ) : (
             <div className="code-terminal-output">
@@ -1371,6 +1651,8 @@ export interface CodeStudioPanelProps {
   onClose: () => void
   onPinToBoard?: (tab: CodeTabItem) => void
   onSendOutputToNote?: (markdown: string, title?: string) => void
+  onSpawnGraphFromCode?: (spec: GraphPlotSpec, sourceCardId?: string) => void
+  onSpawnScene3DFromCode?: (spec: Scene3DSpec, sourceCardId?: string) => void
   onToast?: (kind: 'info' | 'success' | 'error', message: string) => void
 }
 
@@ -1380,6 +1662,8 @@ export const CodeStudioPanel: React.FC<CodeStudioPanelProps> = ({
   onClose,
   onPinToBoard,
   onSendOutputToNote,
+  onSpawnGraphFromCode,
+  onSpawnScene3DFromCode,
   onToast
 }) => {
   const [studioState, setStudioState] = useState<{ tabs: CodeTabItem[]; activeTabId: string }>(
@@ -1445,6 +1729,8 @@ export const CodeStudioPanel: React.FC<CodeStudioPanelProps> = ({
         isLightTheme={_isLightTheme}
         onPinToBoard={onPinToBoard}
         onSendOutputToNote={onSendOutputToNote}
+        onSpawnGraphFromCode={onSpawnGraphFromCode}
+        onSpawnScene3DFromCode={onSpawnScene3DFromCode}
         onToast={onToast}
       />
     </div>
@@ -1457,6 +1743,7 @@ export const CodeStudioPanel: React.FC<CodeStudioPanelProps> = ({
 
 export interface CanvasCodeCardProps {
   node: CodeNode
+  connectionSummary?: CodeFlowConnectionSummary
   isSelected: boolean
   isResizing?: boolean
   isLightTheme?: boolean
@@ -1466,9 +1753,13 @@ export interface CanvasCodeCardProps {
   onDelete: () => void
   onDuplicate: () => void
   onAddContainer?: () => void
+  onStartConnect?: (sourceId: string, port: PortSide, clientX: number, clientY: number) => void
+  onExecuteCodeNode?: (cardId: string, tabId?: string) => Promise<void>
   onStartMove: (startX: number, startY: number) => void
   onStartResize?: (e: React.PointerEvent, dir: ResizeDirection) => void
   onSendOutputToNote?: (markdown: string, title?: string) => void
+  onSpawnGraphFromCode?: (spec: GraphPlotSpec, sourceCardId?: string) => void
+  onSpawnScene3DFromCode?: (spec: Scene3DSpec, sourceCardId?: string) => void
   onAskAI?: (ctx: {
     title: string
     language: string
@@ -1482,6 +1773,7 @@ export interface CanvasCodeCardProps {
 
 export const CanvasCodeCard: React.FC<CanvasCodeCardProps> = ({
   node,
+  connectionSummary,
   isSelected,
   isResizing = false,
   isLightTheme: _isLightTheme = false,
@@ -1491,9 +1783,13 @@ export const CanvasCodeCard: React.FC<CanvasCodeCardProps> = ({
   onDelete,
   onDuplicate,
   onAddContainer,
+  onStartConnect,
+  onExecuteCodeNode,
   onStartMove,
   onStartResize,
   onSendOutputToNote,
+  onSpawnGraphFromCode,
+  onSpawnScene3DFromCode,
   onAskAI,
   onToast
 }) => {
@@ -1521,7 +1817,7 @@ export const CanvasCodeCard: React.FC<CanvasCodeCardProps> = ({
         const targetEl = e.target as HTMLElement | null
         const isInteractiveChild = Boolean(
           targetEl?.closest(
-            '.cm-editor, .code-output-body, .code-stdin-textarea, .code-lang-popover, .code-split-resizer, .card-resize-handles, .resize-edge, .resize-handle, .resize-corner-grip, button, input, textarea, select'
+            '.cm-editor, .code-output-body, .code-stdin-textarea, .code-lang-popover, .code-split-resizer, .card-flow-port-handle, .inline-3d-viewer, .card-resize-handles, .resize-edge, .resize-handle, .resize-corner-grip, button, input, textarea, select'
           )
         )
         if (!isInteractiveChild && e.button === 0) {
@@ -1623,6 +1919,11 @@ export const CanvasCodeCard: React.FC<CanvasCodeCardProps> = ({
         <CodeRunnerWorkspace
           tabs={node.tabs}
           activeTabId={node.activeTabId}
+          codeNodeId={node.id}
+          linkedScene3DId={node.linkedScene3DId}
+          linkedGraphGroupId={node.linkedGraphId ?? node.linkedGraphGroupId}
+          connectionSummary={connectionSummary}
+          onExecuteCodeNode={onExecuteCodeNode}
           compact={node.w < 460}
           isLightTheme={_isLightTheme}
           onChangeTabs={(tabs, nextActiveId) =>
@@ -1635,10 +1936,32 @@ export const CanvasCodeCard: React.FC<CanvasCodeCardProps> = ({
             )
           }
           onSendOutputToNote={onSendOutputToNote}
+          onSpawnGraphFromCode={onSpawnGraphFromCode}
+          onSpawnScene3DFromCode={onSpawnScene3DFromCode}
           onAskAI={onAskAI}
           onToast={onToast}
         />
       </div>
+
+      {/* Flowchart Connection Ports (4 edge circular dots for linking Code <-> Code / Graph / 3D) */}
+      {!disabledPointerEvents &&
+        onStartConnect &&
+        (isSelected || isHovered || isResizing) &&
+        (['top', 'right', 'bottom', 'left'] as const).map((port) => (
+          <button
+            key={`code-port-${port}`}
+            type="button"
+            className={`card-flow-port-handle pos-${port}`}
+            title="Drag to connect to another Code Card, 2D Graph, or 3D Scene (click to spawn connected Code Card)"
+            onPointerDown={(e) => {
+              if (e.button !== 0) return
+              e.preventDefault()
+              e.stopPropagation()
+              onSelect()
+              onStartConnect(node.id, port, e.clientX, e.clientY)
+            }}
+          />
+        ))}
 
       {/* Bottom-right corner resize grip */}
       {!disabledPointerEvents && onStartResize && (

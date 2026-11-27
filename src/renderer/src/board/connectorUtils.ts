@@ -7,10 +7,22 @@ import type {
   ShapeNode
 } from '../types/board'
 
+export type ConnectableBoardElement = {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  rotation?: number
+  points?: [number, number][]
+  controlPoint?: [number, number]
+  layerId?: string
+}
+
 const PORT_ORDER: PortSide[] = ['top', 'right', 'bottom', 'left']
 
 function getShapeBoundingRect(
-  s: Pick<ShapeNode, 'x' | 'y' | 'w' | 'h' | 'points' | 'controlPoint'>
+  s: Pick<ConnectableBoardElement, 'x' | 'y' | 'w' | 'h' | 'points' | 'controlPoint'>
 ): { x: number; y: number; w: number; h: number } {
   if (s.points && s.points.length >= 2) {
     let minX = Infinity
@@ -81,7 +93,9 @@ export function portNormal(port: PortSide): [number, number] {
   }
 }
 
-export function getShapePorts(s: ShapeNode): Record<PortSide, { x: number; y: number }> {
+export function getShapePorts(
+  s: ConnectableBoardElement
+): Record<PortSide, { x: number; y: number }> {
   const b = getShapeBoundingRect(s)
   const w = Math.max(12, b.w)
   const h = Math.max(12, b.h)
@@ -122,7 +136,10 @@ export interface ShapePortHandle {
  * Computes the 4 visual circular connection handles pushed cleanly outside
  * the 8 square resize handles (`16px / zoom` outward along port normals).
  */
-export function getShapePortHandles(s: ShapeNode, zoom: number): ShapePortHandle[] {
+export function getShapePortHandles(
+  s: ConnectableBoardElement,
+  zoom: number
+): ShapePortHandle[] {
   const ports = getShapePorts(s)
   const offset = 16 / Math.max(0.25, zoom)
   const rad = s.rotation ? (s.rotation * Math.PI) / 180 : 0
@@ -143,7 +160,10 @@ export function getShapePortHandles(s: ShapeNode, zoom: number): ShapePortHandle
   })
 }
 
-export function pickNearestPort(s: ShapeNode, pt: { x: number; y: number }): PortSide {
+export function pickNearestPort(
+  s: ConnectableBoardElement,
+  pt: { x: number; y: number }
+): PortSide {
   const ports = getShapePorts(s)
   let bestPort: PortSide = 'left'
   let bestDist = Infinity
@@ -406,9 +426,9 @@ function buildConnectorGeometryPatch(
 }
 
 export function buildFlowConnectorNode(opts: {
-  source: ShapeNode
+  source: ConnectableBoardElement
   sourcePort: PortSide
-  target?: ShapeNode
+  target?: ConnectableBoardElement
   targetPort?: PortSide
   freeEnd?: { x: number; y: number }
   routing?: ConnectorRouting
@@ -446,7 +466,7 @@ export function buildFlowConnectorNode(opts: {
 
 function resolveConnectorEndpoints(
   conn: ShapeNode,
-  shapeById: Map<string, ShapeNode>
+  shapeById: Map<string, ConnectableBoardElement>
 ): {
   start: { x: number; y: number }
   startPort: PortSide
@@ -494,7 +514,7 @@ function inferConnectorRouting(conn: ShapeNode): ConnectorRouting {
 
 export function recomputeConnectorGeometry(
   conn: ShapeNode,
-  shapeById: Map<string, ShapeNode>
+  shapeById: Map<string, ConnectableBoardElement>
 ): ShapeNode {
   if (!conn.startBinding && !conn.endBinding) return conn
   const { start, startPort, end, endPort } = resolveConnectorEndpoints(conn, shapeById)
@@ -506,12 +526,20 @@ export function recomputeConnectorGeometry(
   }
 }
 
-export function syncBoundConnectors(shapeNodes: ShapeNode[]): ShapeNode[] {
+export function syncBoundConnectors(
+  shapeNodes: ShapeNode[],
+  extraElements?: ConnectableBoardElement[]
+): ShapeNode[] {
   const hasBound = shapeNodes.some((s) => Boolean(s.startBinding || s.endBinding))
   if (!hasBound) return shapeNodes
-  const shapeById = new Map<string, ShapeNode>()
+  const shapeById = new Map<string, ConnectableBoardElement>()
   for (const s of shapeNodes) {
     shapeById.set(s.id, s)
+  }
+  if (extraElements) {
+    for (const el of extraElements) {
+      shapeById.set(el.id, el)
+    }
   }
   return shapeNodes.map((s) =>
     s.startBinding || s.endBinding ? recomputeConnectorGeometry(s, shapeById) : s
@@ -521,7 +549,7 @@ export function syncBoundConnectors(shapeNodes: ShapeNode[]): ShapeNode[] {
 export function convertConnectorRouting(
   conn: ShapeNode,
   nextRouting: ConnectorRouting,
-  shapeById: Map<string, ShapeNode>
+  shapeById: Map<string, ConnectableBoardElement>
 ): ShapeNode {
   const { start, startPort, end, endPort } = resolveConnectorEndpoints(conn, shapeById)
   const geom = buildConnectorGeometryPatch(start, startPort, end, endPort, nextRouting)

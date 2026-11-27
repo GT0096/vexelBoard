@@ -400,6 +400,43 @@ export function SettingsModal(p: SettingsModalProps): React.JSX.Element {
             ))}
           </div>
 
+          {/* Handwriting OCR Engine */}
+          <div className="card">
+            <div className="card-title">
+              <h3>Handwriting OCR</h3>
+              <span className="status-pill ok" id="ocr-mode-status">
+                <span className="dot ok" />
+                {(p.ai.handwritingOcrMode ?? 'api') === 'local'
+                  ? 'Local · TrOCR Base'
+                  : `API · ${PROVIDER_LABELS[p.ai.provider]}`}
+              </span>
+            </div>
+            <div className="provider-grid">
+              <button
+                type="button"
+                id="ocr-mode-api-btn"
+                className={`provider-chip ${(p.ai.handwritingOcrMode ?? 'api') === 'api' ? 'active' : ''}`}
+                onClick={() => p.onChangeAI({ ...p.ai, handwritingOcrMode: 'api' })}
+              >
+                AI Vision API (Default)
+              </button>
+              <button
+                type="button"
+                id="ocr-mode-local-btn"
+                className={`provider-chip ${p.ai.handwritingOcrMode === 'local' ? 'active' : ''}`}
+                onClick={() => p.onChangeAI({ ...p.ai, handwritingOcrMode: 'local' })}
+              >
+                Local CPU (TrOCR Base)
+              </button>
+            </div>
+            <p className="hint">
+              <strong>AI Vision API</strong> uses your active provider ({PROVIDER_LABELS[p.ai.provider]}) for
+              handwriting &amp; multi-line notes and falls back to Local TrOCR Base when offline or
+              unconfigured. <strong>Local CPU</strong> runs <code>Xenova/trocr-base-handwritten</code>{' '}
+              locally with zero API calls. Shape &amp; arrow detection always runs locally.
+            </p>
+          </div>
+
           {/* Web Search (Zero-Config Built-in Open MetaSearch + Optional Custom Endpoint) */}
           <div className="card">
             <div className="card-title">

@@ -232,6 +232,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     openaiModelProfile: resolveOpenAIModelProfile(DEFAULT_PROVIDER_MODELS.openai),
     webSearch: { ...DEFAULT_WEB_SEARCH_SETTINGS },
     activeSkillIds: [],
+    handwritingOcrMode: 'api',
     configured: false
   }
 }
@@ -263,7 +264,8 @@ export function useSettings(): [AppSettings, (patch: Partial<AppSettings>) => vo
             ? p.ai.temperature
             : DEFAULT_SETTINGS.ai.temperature,
         openaiModelProfile:
-          p.ai?.openaiModelProfile ?? resolveOpenAIModelProfile(mergedByok.openai || DEFAULT_PROVIDER_MODELS.openai)
+          p.ai?.openaiModelProfile ?? resolveOpenAIModelProfile(mergedByok.openai || DEFAULT_PROVIDER_MODELS.openai),
+        handwritingOcrMode: p.ai?.handwritingOcrMode === 'local' ? ('local' as const) : ('api' as const)
       }
       if (ai.ollamaModel === 'gemma4:cloud') {
         ai.ollamaModel = DEFAULT_PROVIDER_MODELS.ollama

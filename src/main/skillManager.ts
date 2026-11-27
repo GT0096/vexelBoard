@@ -121,7 +121,7 @@ Use this skill whenever the user asks to design, explain, or refactor a software
   {
     name: 'vexel-first-principles-tutor',
     description:
-      'Break down physics, mathematics, chemistry, biology, or CS concepts from first principles into SpatialScene geometric diagrams, KaTeX derivations, and step-by-step board notes.',
+      'Break down physics, mathematics, chemistry, biology, or CS concepts from first principles into SpatialScene 2D diagrams, interactive canvas-immersed 3D rigs/objects (`create_3d_scene` + in-note ```3d blocks), KaTeX derivations, and step-by-step board notes.',
     body: `# First-Principles Visual Tutor
 
 Activate this skill when teaching or deriving scientific, mathematical, or engineering concepts visually.
@@ -129,24 +129,26 @@ Activate this skill when teaching or deriving scientific, mathematical, or engin
 ## Workflow
 1. Inspect \`search_board_assets\` for domain color tokens, fonts (\`serif\`/\`mono\`), and geometric primitives.
 2. Identify the fundamental governing laws or conservation principles first (e.g., Schrödinger / Conservation / Thermodynamics / Bell Curve / Gradient Descent).
-3. Build a clean \`SpatialScene\` (` + '`create_vector_diagram`' + `) using concentric circles, custom Bezier \`svg_path\` contours, smooth curved \`connector\` splines, and collision-free labels.
-4. Render exact equations via \`add_equation\` (valid LaTeX / KaTeX) right beside the diagram.
-5. Add a structured \`add_note_card\` summarizing intuition, boundary cases, and real-world applications.`
+3. For 2D geometry, build a clean \`SpatialScene\` (` + '`create_vector_diagram`' + `) using concentric circles, custom Bezier \`svg_path\` contours, smooth curved \`connector\` splines, and collision-free labels.
+4. For 3D experimental rigs, kinematics (e.g. \`car\`, \`optics_bench\`, \`mechanics_rig\`, \`chemistry_setup\`, \`electromagnetism\`), or ` + '`z = f(x, y)`' + ` surfaces (\`surface_wave\`), call \`create_3d_scene\` (immersed on the canvas) or embed \`\`\`3d JSON blocks directly inside \`add_note_card\`.
+5. Render exact equations via \`add_equation\` (valid LaTeX / KaTeX) right beside the visual.
+6. Add a structured \`add_note_card\` summarizing intuition, boundary cases, and real-world applications.`
   },
   {
     name: 'vexel-code-workbench',
     description:
-      'Write modular runnable code, test and verify execution locally with `run_code`, place or patch runnable Code Cards on the board, and pair algorithms with complexity math.',
+      'Write modular runnable code, connect Coding Tabs to downstream Code Cards, 2D Graphs, and 3D Scenes with flowchart connectors (`connect_board_elements`), verify locally with `run_code`, and pair algorithms with complexity math.',
     body: `# Vexel Code Workbench
 
-Use this workflow when solving coding problems, debugging active Code Cards, or building interactive algorithm walkthroughs.
+Use this workflow when solving coding problems, building connected multi-card compute -> visualize workflows, or debugging active Code Cards.
 
 ## Workflow
-1. If debugging an existing card, inspect \`activeCodeContext\` or call \`inspect_board\` to read its current code and error output.
-2. Draft clean, well-typed code with a concrete test harness or assertion block.
+1. If debugging an existing card, inspect \`activeCodeContext\` or call \`inspect_board\` to read its current code, element IDs, and error output.
+2. Draft clean, well-typed code that reads incoming upstream stage output from \`sys.stdin\` when wired after another Code Card, and optionally prints \`{"plot2d": ...}\`, numeric CSV/TSV, or \`{"scene3d": ...}\` to drive connected 2D Graphs or 3D Scenes.
 3. Always run \`run_code\` locally to verify stdout/stderr before finalizing (when a local runtime is available).
 4. Use \`create_or_patch_code\` (supplying \`cardId\` to update an existing card in place, or omitting it for a new card).
-5. Pair algorithmic solutions with \`add_equation\` for time/space complexity and an optional \`create_vector_diagram\` trace of data structure states.`
+5. Wire Coding Tabs -> Coding Tabs / 2D Graphs / 3D Scenes on the board using \`connect_board_elements\` (\`sourceId\`, \`targetId\`, \`animated: true\`) — just like flowchart shapes! Running any Code Card executes downstream connected Code Cards and live-updates connected graphs/3D scenes.
+6. Pair algorithmic solutions with \`add_equation\` for time/space complexity and optional \`create_3d_scene\` / \`create_vector_diagram\` visualizations.`
   },
   {
     name: 'vexel-research-synthesizer',

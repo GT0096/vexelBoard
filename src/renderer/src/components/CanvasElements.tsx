@@ -19,7 +19,8 @@ import {
   Minus,
   Plus,
   Image as ImageIcon,
-  GripHorizontal
+  GripHorizontal,
+  Box
 } from 'lucide-react'
 import type {
   BoardLayer,
@@ -28,14 +29,20 @@ import type {
   DiagramNode,
   EquationNode,
   FontId,
+  GraphNode,
   ImageNode,
   InkPoint,
+  PortSide,
+  Scene3DNode,
+  Scene3DSpec,
+  ShapeNode,
   Stroke,
   TextNode,
   TextStyle,
   ToolType,
   VideoNode
 } from '../types/board'
+import type { GraphPlotSpec } from '../board/graphPlotBuilder'
 import { isItemEditable, isItemVisible, resolveItemLayerId } from '../board/layerUtils'
 import { FONTS, FONT_ORDER, resolveFontCss } from '../themes'
 import katex from 'katex'
@@ -53,9 +60,16 @@ const CanvasCodeCard = lazy(() =>
 const CanvasVideoCard = lazy(() =>
   import('./CanvasVideoCard').then((m) => ({ default: m.CanvasVideoCard }))
 )
+const Canvas3DSceneCard = lazy(() =>
+  import('./Canvas3DScene').then((m) => ({ default: m.Canvas3DSceneCard }))
+)
+const CanvasGraphCard = lazy(() =>
+  import('./CanvasGraphCard').then((m) => ({ default: m.CanvasGraphCard }))
+)
 
 const MERMAID_TEMPLATE = '\n```mermaid\ngraph TD\n  A[Start] --> B{Decision}\n  B -->|Yes| C[Do it]\n  B -->|No| D[Skip]\n```\n'
 const TABLE_TEMPLATE = '\n| Col A | Col B |\n| --- | --- |\n| 1 | 2 |\n'
+const SCENE3D_TEMPLATE = '\n```3d\npreset: car\n```\n'
 
 function inkToPath(points: InkPoint[], size: number): string {
   const outline = getStroke(points, { size, thinning: 0.5, smoothing: 0.5, streamline: 0.4 })
@@ -76,7 +90,7 @@ export type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
 interface ResizeState {
   id: string
-  kind: 'text' | 'equation' | 'diagram' | 'code' | 'video' | 'image'
+  kind: 'text' | 'equation' | 'diagram' | 'code' | 'video' | 'image' | 'scene3d' | 'graph'
   direction: ResizeDirection
   startX: number
   startY: number
@@ -85,6 +99,7 @@ interface ResizeState {
   initW: number
   initH: number
   hasExplicitH: boolean
+  isImmersedText?: boolean
 }
 
 interface CanvasElementsProps {
@@ -94,6 +109,9 @@ interface CanvasElementsProps {
   codeNodes?: CodeNode[]
   videoNodes?: VideoNode[]
   imageNodes?: ImageNode[]
+  scene3dNodes?: Scene3DNode[]
+  graphNodes?: GraphNode[]
+  shapeNodes?: ShapeNode[]
   selectedId: string | null
   selectedIds?: string[]
   onSelect: (id: string | null) => void
@@ -103,6 +121,12 @@ interface CanvasElementsProps {
   onUpdateCode?: (id: string, patch: Partial<CodeNode>, opts?: { history?: boolean }) => void
   onUpdateVideo?: (id: string, patch: Partial<VideoNode>, opts?: { history?: boolean }) => void
   onUpdateImage?: (id: string, patch: Partial<ImageNode>, opts?: { history?: boolean }) => void
+  onUpdateScene3D?: (id: string, patch: Partial<Scene3DNode>, opts?: { history?: boolean }) => void
+  onUpdateGraph?: (id: string, patch: Partial<GraphNode>, opts?: { history?: boolean }) => void
+  onSpawnGraphFromCode?: (spec: GraphPlotSpec, sourceCardId?: string) => void
+  onSpawnScene3DFromCode?: (spec: Scene3DSpec, sourceCardId?: string) => void
+  onStartConnect?: (sourceId: string, port: PortSide, clientX: number, clientY: number) => void
+  onExecuteCodeNode?: (cardId: string, tabId?: string) => Promise<void>
   onAddCodeNode?: () => void
   onAddVideoNode?: () => void
   onCreateTutorialFromVideo?: (topic: string, transcriptText?: string) => void
@@ -158,6 +182,9 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
   codeNodes,
   videoNodes,
   imageNodes,
+  scene3dNodes,
+  graphNodes,
+  shapeNodes,
   selectedId,
   selectedIds,
   onSelect,
@@ -167,6 +194,12 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
   onUpdateCode,
   onUpdateVideo,
   onUpdateImage,
+  onUpdateScene3D,
+  onUpdateGraph,
+  onSpawnGraphFromCode,
+  onSpawnScene3DFromCode,
+  onStartConnect,
+  onExecuteCodeNode,
   onAddCodeNode,
   onAddVideoNode,
   onCreateTutorialFromVideo,
@@ -203,7 +236,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
   const [eraseMode, setEraseMode] = useState(false)
   const [dragState, setDragState] = useState<{
     id: string
-    kind: 'text' | 'equation' | 'diagram' | 'code' | 'video' | 'image'
+    kind: 'text' | 'equation' | 'diagram' | 'code' | 'video' | 'image' | 'scene3d' | 'graph'
     startX: number
     startY: number
     initX: number
@@ -308,6 +341,10 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
         onUpdateVideo?.(dragState.id, { x: nextX, y: nextY }, { history: false })
       } else if (dragState.kind === 'image') {
         onUpdateImage?.(dragState.id, { x: nextX, y: nextY }, { history: false })
+      } else if (dragState.kind === 'scene3d') {
+        onUpdateScene3D?.(dragState.id, { x: nextX, y: nextY }, { history: false })
+      } else if (dragState.kind === 'graph') {
+        onUpdateGraph?.(dragState.id, { x: nextX, y: nextY }, { history: false })
       } else if (dragState.kind === 'text') {
         onUpdateText(dragState.id, { x: nextX, y: nextY }, { history: false })
       } else if (dragState.kind === 'equation') {
@@ -339,14 +376,16 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
     onUpdateDiagram,
     onUpdateCode,
     onUpdateVideo,
-    onUpdateImage
+    onUpdateImage,
+    onUpdateScene3D,
+    onUpdateGraph
   ])
 
   // Pointer down to begin resizing
   const handleResizeStart = (
     e: React.PointerEvent,
     id: string,
-    kind: 'text' | 'equation' | 'diagram' | 'code' | 'video' | 'image',
+    kind: 'text' | 'equation' | 'diagram' | 'code' | 'video' | 'image' | 'scene3d' | 'graph',
     direction: ResizeDirection
   ): void => {
     e.stopPropagation()
@@ -367,7 +406,11 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
               ? videoNodes?.find((v) => v.id === id)
               : kind === 'image'
                 ? imageNodes?.find((im) => im.id === id)
-                : diagramNodes?.find((d) => d.id === id)
+                : kind === 'scene3d'
+                  ? scene3dNodes?.find((s) => s.id === id)
+                  : kind === 'graph'
+                    ? graphNodes?.find((g) => g.id === id)
+                    : diagramNodes?.find((d) => d.id === id)
 
     const initW = node?.w ?? (rect ? Math.round(rect.width / view.zoom) : 480)
     const initH = node?.h ?? (rect ? Math.round(rect.height / view.zoom) : 340)
@@ -382,7 +425,8 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
       initY: node?.y ?? 0,
       initW,
       initH,
-      hasExplicitH: true
+      hasExplicitH: Boolean(node?.h),
+      isImmersedText: kind === 'text' ? Boolean((node as TextNode | undefined)?.immersed) : false
     })
   }
 
@@ -399,17 +443,25 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
           ? 380
           : resizeState.kind === 'code'
             ? 320
-            : resizeState.kind === 'diagram'
-              ? 200
-              : 160
+            : resizeState.kind === 'scene3d'
+              ? 220
+              : resizeState.kind === 'diagram'
+                ? 200
+                : resizeState.isImmersedText
+                  ? 48
+                  : 160
       const minH =
         resizeState.kind === 'video'
           ? 320
           : resizeState.kind === 'code'
             ? 240
-            : resizeState.kind === 'diagram'
-              ? 140
-              : 60
+            : resizeState.kind === 'scene3d'
+              ? 180
+              : resizeState.kind === 'diagram'
+                ? 140
+                : resizeState.isImmersedText
+                  ? 24
+                  : 60
 
       let newX = resizeState.initX
       let newY = resizeState.initY
@@ -522,6 +574,30 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
           patch.x = newX
         }
         onUpdateImage?.(resizeState.id, patch, { history: false })
+      } else if (resizeState.kind === 'scene3d') {
+        const patch: Partial<Scene3DNode> = {
+          w: Math.max(220, newW),
+          h: Math.max(180, newH)
+        }
+        if (dir === 'n' || dir === 'ne' || dir === 'nw') {
+          patch.y = newY
+        }
+        if (dir === 'w' || dir === 'nw' || dir === 'sw') {
+          patch.x = newX
+        }
+        onUpdateScene3D?.(resizeState.id, patch, { history: false })
+      } else if (resizeState.kind === 'graph') {
+        const patch: Partial<GraphNode> = {
+          w: Math.max(280, newW),
+          h: Math.max(210, newH)
+        }
+        if (dir === 'n' || dir === 'ne' || dir === 'nw') {
+          patch.y = newY
+        }
+        if (dir === 'w' || dir === 'nw' || dir === 'sw') {
+          patch.x = newX
+        }
+        onUpdateGraph?.(resizeState.id, patch, { history: false })
       }
     }
 
@@ -545,11 +621,15 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
     onUpdateDiagram,
     onUpdateCode,
     onUpdateVideo,
-    onUpdateImage
+    onUpdateImage,
+    onUpdateScene3D,
+    onUpdateGraph
   ])
 
   // Selected item toolbar formatting helpers
-  const selectedTextNode = textNodes.find((t) => t.id === selectedId)
+  const selectedTextNode = textNodes.find(
+    (t) => t.id === selectedId || Boolean(selectedIds?.includes(t.id))
+  )
 
   // Insert a markdown snippet at end of the editor text
   const insertSnippet = (snippet: string): void => setEditText((prev) => prev + snippet)
@@ -605,11 +685,12 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
     setLiveStroke(null)
   }
 
-  const handleStyleChange = (style: TextStyle): void => {
-    if (!selectedTextNode) return
+  const handleStyleChange = (style: TextStyle, targetId?: string): void => {
+    const id = targetId ?? selectedTextNode?.id
+    if (!id) return
     const fontSize = style === 'h1' ? 32 : style === 'h2' ? 24 : 16
     const bold = style === 'h1' || style === 'h2'
-    onUpdateText(selectedTextNode.id, { style, fontSize, bold })
+    onUpdateText(id, { style, fontSize, bold })
   }
 
   const isInkPassThroughTool =
@@ -638,7 +719,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
         } else if (!cardsVisible) {
           return null
         }
-        const isSelected = selectedIds ? selectedIds.includes(t.id) : t.id === selectedId
+        const isSelected = t.id === selectedId || Boolean(selectedIds?.includes(t.id))
         const isEditing = t.id === editingId
 
         // 1A. Board-Immersed Frameless Typography (NO textbox / card border / padding)
@@ -666,10 +747,13 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
             <div
               key={t.id}
               id={t.id}
-              className={`canvas-immersed-text ${isSelected ? 'selected' : ''} ${isEditing ? 'editing' : ''}`}
+              className={`canvas-immersed-text ${isSelected ? 'selected' : ''} ${isEditing ? 'editing' : ''} ${t.w ? 'has-custom-w' : ''} ${t.h ? 'has-custom-h' : ''}`}
               style={{
                 left: `${t.x}px`,
                 top: `${t.y}px`,
+                width: t.w ? `${t.w}px` : 'max-content',
+                height: t.h ? `${t.h}px` : undefined,
+                maxWidth: t.w ? 'none' : '760px',
                 fontSize: `${t.fontSize || 20}px`,
                 fontWeight: t.bold ? 700 : 500,
                 fontStyle: t.italic ? 'italic' : 'normal',
@@ -688,6 +772,86 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                 handleStartEdit(t.id, t.text)
               }}
             >
+              {/* Live dimension badge during active resizing */}
+              {resizeState?.id === t.id && (
+                <div className="resize-dimension-badge">
+                  {t.w ?? 'auto'} × {t.h ?? 'auto'} px
+                </div>
+              )}
+
+              {/* 8-direction resize handles for immersed text */}
+              {!isEditing && (
+                <div className="card-resize-handles">
+                  <div
+                    className="resize-edge n"
+                    onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 'n')}
+                    title="Drag to resize top edge"
+                  />
+                  <div
+                    className="resize-edge s"
+                    onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 's')}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation()
+                      onUpdateText(t.id, { h: undefined })
+                    }}
+                    title="Drag to resize height (Double-click to fit content)"
+                  />
+                  <div
+                    className="resize-edge e"
+                    onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 'e')}
+                    title="Drag to resize width"
+                  />
+                  <div
+                    className="resize-edge w"
+                    onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 'w')}
+                    title="Drag to resize width"
+                  />
+
+                  {isSelected && (
+                    <>
+                      <div
+                        className="resize-handle nw"
+                        onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 'nw')}
+                      />
+                      <div
+                        className="resize-handle n"
+                        onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 'n')}
+                      />
+                      <div
+                        className="resize-handle ne"
+                        onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 'ne')}
+                      />
+                      <div
+                        className="resize-handle e"
+                        onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 'e')}
+                      />
+                      <div
+                        className="resize-handle se"
+                        onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 'se')}
+                        title="Drag to resize"
+                      />
+                      <div
+                        className="resize-handle s"
+                        onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 's')}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation()
+                          onUpdateText(t.id, { h: undefined })
+                        }}
+                        title="Double-click to reset height to auto"
+                      />
+                      <div
+                        className="resize-handle sw"
+                        onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 'sw')}
+                      />
+                      <div
+                        className="resize-handle w"
+                        onPointerDown={(e) => handleResizeStart(e, t.id, 'text', 'w')}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
+
               {isEditing ? (
                 <textarea
                   className="immersed-inline-editor"
@@ -713,7 +877,9 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                     fontStyle: t.italic ? 'italic' : 'normal',
                     textAlign: t.align ?? 'left',
                     color: resolvedImmersedColor,
-                    width: `${Math.max(120, Math.min(720, Math.round(longestLine * (t.fontSize || 20) * 0.65 + 24)))}px`
+                    width: t.w
+                      ? `${Math.max(80, t.w)}px`
+                      : `${Math.max(120, Math.min(720, Math.round(longestLine * (t.fontSize || 20) * 0.65 + 24)))}px`
                   }}
                 />
               ) : (
@@ -803,6 +969,19 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                       )
                     })}
                   </div>
+                  {(t.w !== undefined || t.h !== undefined) && (
+                    <>
+                      <div className="bar-separator" />
+                      <button
+                        type="button"
+                        className="bar-btn"
+                        onClick={() => onUpdateText(t.id, { w: undefined, h: undefined })}
+                        title="Reset size to auto-fit"
+                      >
+                        <FoldVertical size={13} />
+                      </button>
+                    </>
+                  )}
                   <div className="bar-separator" />
                   <button
                     type="button"
@@ -865,10 +1044,10 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
             style={{
               left: `${t.x}px`,
               top: `${t.y}px`,
-              width: t.w ? `${t.w}px` : undefined,
+              width: t.w ? `${t.w}px` : 'max-content',
               height: t.h ? `${t.h}px` : undefined,
-              maxWidth: t.w ? 'none' : undefined,
-              fontSize: `${t.fontSize}px`,
+              maxWidth: t.w ? 'none' : '480px',
+              fontSize: `${t.fontSize || 18}px`,
               fontFamily: resolvedNoteFontCss,
               fontWeight: t.bold ? 700 : 500,
               fontStyle: t.italic ? 'italic' : 'normal',
@@ -1024,6 +1203,9 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                   <button className="bar-btn" title="Diagram (Mermaid)" onClick={() => insertSnippet(MERMAID_TEMPLATE)}>
                     <Workflow size={13} />
                   </button>
+                  <button className="bar-btn" title="3D Object / Lab Setup" onClick={() => insertSnippet(SCENE3D_TEMPLATE)}>
+                    <Box size={13} />
+                  </button>
                   <div className="bar-separator" />
                   <div className="immersed-font-group" title="Note / Text Area Font">
                     {FONT_ORDER.map((fid) => (
@@ -1039,6 +1221,28 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                       </button>
                     ))}
                   </div>
+                  <div className="bar-separator" />
+                  <button
+                    type="button"
+                    className="bar-btn"
+                    onClick={() =>
+                      onUpdateText(t.id, { fontSize: Math.max(12, (t.fontSize || 18) - 2) })
+                    }
+                    title="Decrease font size"
+                  >
+                    <Minus size={12} />
+                  </button>
+                  <span className="immersed-size-pill">{Math.round(t.fontSize || 18)}</span>
+                  <button
+                    type="button"
+                    className="bar-btn"
+                    onClick={() =>
+                      onUpdateText(t.id, { fontSize: Math.min(72, (t.fontSize || 18) + 2) })
+                    }
+                    title="Increase font size"
+                  >
+                    <Plus size={12} />
+                  </button>
                   <button className="bar-btn" title="Done (Esc)" onClick={handleFinishEdit}>
                     <Check size={13} />
                   </button>
@@ -1069,7 +1273,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                   autoFocus={!focusTitleInput}
                   value={editText}
                   onChange={(e) => setEditText(e.target.value)}
-                  style={{ fontFamily: resolvedNoteFontCss }}
+                  style={{ fontFamily: resolvedNoteFontCss, fontSize: `${t.fontSize || 18}px` }}
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') handleFinishEdit()
                   }}
@@ -1090,7 +1294,10 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                     {t.title}
                   </div>
                 )}
-                <div className="note-card-body chat-text-content">
+                <div
+                  className="note-card-body chat-text-content"
+                  style={{ fontFamily: resolvedNoteFontCss, fontSize: `${t.fontSize || 18}px` }}
+                >
                   <Markdown text={t.text} />
                 </div>
               </div>
@@ -1126,21 +1333,21 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
               <div className="element-quick-bar" onPointerDown={(e) => e.stopPropagation()}>
                 <button
                   className={`bar-btn ${t.style === 'h1' ? 'active' : ''}`}
-                  onClick={() => handleStyleChange('h1')}
+                  onClick={() => handleStyleChange('h1', t.id)}
                   title="Make Header (H1)"
                 >
                   <Heading1 size={14} />
                 </button>
                 <button
                   className={`bar-btn ${t.style === 'h2' ? 'active' : ''}`}
-                  onClick={() => handleStyleChange('h2')}
+                  onClick={() => handleStyleChange('h2', t.id)}
                   title="Make Subheader (H2)"
                 >
                   <Heading2 size={14} />
                 </button>
                 <button
                   className={`bar-btn ${t.style === 'body' ? 'active' : ''}`}
-                  onClick={() => handleStyleChange('body')}
+                  onClick={() => handleStyleChange('body', t.id)}
                   title="Normal Text"
                 >
                   <Type size={14} />
@@ -1160,6 +1367,28 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
                     </button>
                   ))}
                 </div>
+                <div className="bar-separator" />
+                <button
+                  type="button"
+                  className="bar-btn"
+                  onClick={() =>
+                    onUpdateText(t.id, { fontSize: Math.max(12, (t.fontSize || 18) - 2) })
+                  }
+                  title="Decrease font size"
+                >
+                  <Minus size={12} />
+                </button>
+                <span className="immersed-size-pill">{Math.round(t.fontSize || 18)}</span>
+                <button
+                  type="button"
+                  className="bar-btn"
+                  onClick={() =>
+                    onUpdateText(t.id, { fontSize: Math.min(72, (t.fontSize || 18) + 2) })
+                  }
+                  title="Increase font size"
+                >
+                  <Plus size={12} />
+                </button>
                 <div className="bar-separator" />
                 <button
                   className="bar-btn"
@@ -1281,7 +1510,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
 
       {/* 2. Math Equation Nodes (KaTeX) */}
       {cardsVisible && equationNodes.map((eq) => {
-        const isSelected = selectedIds ? selectedIds.includes(eq.id) : eq.id === selectedId
+        const isSelected = eq.id === selectedId || Boolean(selectedIds?.includes(eq.id))
         const isEditing = eq.id === editingId
 
         let renderedHtml = ''
@@ -1435,7 +1664,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
       {/* 3. React Flow Interactive Diagrams */}
       <Suspense fallback={null}>
       {cardsVisible && (diagramNodes ?? []).map((diag) => {
-        const isSelected = selectedIds ? selectedIds.includes(diag.id) : diag.id === selectedId
+        const isSelected = diag.id === selectedId || Boolean(selectedIds?.includes(diag.id))
         const isPointerDisabled = isInkPassThroughTool
         return (
           <div
@@ -1483,8 +1712,21 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
       {/* 4. Interactive Pinned Code Runner Cards */}
       <Suspense fallback={null}>
       {cardsVisible && (codeNodes ?? []).map((codeNode) => {
-        const isSelected = selectedIds ? selectedIds.includes(codeNode.id) : codeNode.id === selectedId
+        const isSelected = codeNode.id === selectedId || Boolean(selectedIds?.includes(codeNode.id))
         const isPointerDisabled = isInkPassThroughTool
+        const incomingConns = (shapeNodes ?? []).filter(
+          (s) => s.endBinding?.shapeId === codeNode.id && Boolean(s.startBinding?.shapeId)
+        )
+        const outgoingConns = (shapeNodes ?? []).filter(
+          (s) => s.startBinding?.shapeId === codeNode.id && Boolean(s.endBinding?.shapeId)
+        )
+        const connectionSummary =
+          incomingConns.length > 0 || outgoingConns.length > 0
+            ? {
+                incomingCount: incomingConns.length,
+                outgoingCount: outgoingConns.length
+              }
+            : undefined
         return (
           <div
             key={codeNode.id}
@@ -1499,6 +1741,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
           >
             <CanvasCodeCard
               node={codeNode}
+              connectionSummary={connectionSummary}
               isSelected={isSelected}
               isResizing={resizeState?.id === codeNode.id}
               isLightTheme={isLightTheme}
@@ -1508,6 +1751,8 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
               onDelete={() => onDeleteElement(codeNode.id)}
               onDuplicate={() => onDuplicateElement(codeNode.id)}
               onAddContainer={onAddCodeNode}
+              onStartConnect={onStartConnect}
+              onExecuteCodeNode={onExecuteCodeNode}
               onStartMove={(startX, startY) => {
                 const isMulti = Boolean(
                   selectedIds && selectedIds.includes(codeNode.id) && selectedIds.length > 1
@@ -1530,6 +1775,8 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
               }}
               onStartResize={(e, dir) => handleResizeStart(e, codeNode.id, 'code', dir)}
               onSendOutputToNote={onInsertToNotes}
+              onSpawnGraphFromCode={onSpawnGraphFromCode}
+              onSpawnScene3DFromCode={onSpawnScene3DFromCode}
               onAskAI={
                 onAskAICode && isAiConfigured
                   ? (ctx) => onAskAICode(codeNode.id, ctx)
@@ -1545,7 +1792,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
       {/* 5. In-Board Interactive YouTube Video Cards */}
       <Suspense fallback={null}>
       {cardsVisible && (videoNodes ?? []).map((videoNode) => {
-        const isSelected = selectedIds ? selectedIds.includes(videoNode.id) : videoNode.id === selectedId
+        const isSelected = videoNode.id === selectedId || Boolean(selectedIds?.includes(videoNode.id))
         const isPointerDisabled = isInkPassThroughTool
         return (
           <div
@@ -1605,7 +1852,7 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
       {/* 6. Inserted Images & Clipboard Snippets */}
       {cardsVisible &&
         (imageNodes ?? []).map((img) => {
-          const isSelected = selectedIds ? selectedIds.includes(img.id) : img.id === selectedId
+          const isSelected = img.id === selectedId || Boolean(selectedIds?.includes(img.id))
           const isEditingCaption = img.id === editingId
           return (
             <div
@@ -1733,6 +1980,102 @@ export const CanvasElements: React.FC<CanvasElementsProps> = memo(({
             </div>
           )
         })}
+
+      {/* 7. Canvas-Immersed Interactive 3D Objects & Experimental Setups */}
+      <Suspense fallback={null}>
+        {cardsVisible &&
+          (scene3dNodes ?? []).map((s3d) => {
+            const isSelected = s3d.id === selectedId || Boolean(selectedIds?.includes(s3d.id))
+            const isPointerDisabled = isInkPassThroughTool
+            return (
+              <Canvas3DSceneCard
+                key={s3d.id}
+                node={s3d}
+                isSelected={isSelected}
+                isResizing={resizeState?.id === s3d.id}
+                isLightTheme={isLightTheme}
+                activeThemeAccent={activeThemeAccent}
+                disabledPointerEvents={isPointerDisabled}
+                onSelect={() => onSelect(s3d.id)}
+                onUpdate={(patch, opts) => onUpdateScene3D?.(s3d.id, patch, opts)}
+                onDelete={() => onDeleteElement(s3d.id)}
+                onDuplicate={() => onDuplicateElement(s3d.id)}
+                onStartMove={(startX, startY) => {
+                  const isMulti = Boolean(
+                    selectedIds && selectedIds.includes(s3d.id) && selectedIds.length > 1
+                  )
+                  if (isMulti && selectedIds) {
+                    onStartMoveSelection?.(selectedIds, startX, startY)
+                  } else {
+                    onSelect(s3d.id)
+                    onPushHistory?.()
+                  }
+                  setDragState({
+                    id: s3d.id,
+                    kind: 'scene3d',
+                    startX,
+                    startY,
+                    initX: s3d.x,
+                    initY: s3d.y,
+                    isMulti
+                  })
+                }}
+                onStartResize={(e, dir) => handleResizeStart(e, s3d.id, 'scene3d', dir)}
+                onStartConnect={onStartConnect}
+                onInsertToNotes={onInsertToNotes}
+                onContextMenu={(e) => onElementContextMenu?.(e, s3d.id)}
+              />
+            )
+          })}
+      </Suspense>
+
+      {/* 8. Unified Interactive 2D & 3D Plotly / GeoGebra Graph Cards */}
+      <Suspense fallback={null}>
+        {cardsVisible &&
+          (graphNodes ?? []).map((gr) => {
+            const isSelected = gr.id === selectedId || Boolean(selectedIds?.includes(gr.id))
+            const isPointerDisabled = isInkPassThroughTool
+            return (
+              <CanvasGraphCard
+                key={gr.id}
+                node={gr}
+                isSelected={isSelected}
+                isResizing={resizeState?.id === gr.id}
+                isLightTheme={isLightTheme}
+                activeThemeAccent={activeThemeAccent}
+                disabledPointerEvents={isPointerDisabled}
+                onSelect={() => onSelect(gr.id)}
+                onUpdate={(patch, opts) => onUpdateGraph?.(gr.id, patch, opts)}
+                onDelete={() => onDeleteElement(gr.id)}
+                onDuplicate={() => onDuplicateElement(gr.id)}
+                onStartMove={(startX, startY) => {
+                  const isMulti = Boolean(
+                    selectedIds && selectedIds.includes(gr.id) && selectedIds.length > 1
+                  )
+                  if (isMulti && selectedIds) {
+                    onStartMoveSelection?.(selectedIds, startX, startY)
+                  } else {
+                    onSelect(gr.id)
+                    onPushHistory?.()
+                  }
+                  setDragState({
+                    id: gr.id,
+                    kind: 'graph',
+                    startX,
+                    startY,
+                    initX: gr.x,
+                    initY: gr.y,
+                    isMulti
+                  })
+                }}
+                onStartResize={(e, dir) => handleResizeStart(e, gr.id, 'graph', dir)}
+                onStartConnect={onStartConnect}
+                onInsertToNotes={onInsertToNotes}
+                onContextMenu={(e) => onElementContextMenu?.(e, gr.id)}
+              />
+            )
+          })}
+      </Suspense>
     </div>
   )
 })

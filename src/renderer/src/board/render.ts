@@ -13,7 +13,11 @@ import type {
 import { colorFor, resolveFontCss, type ThemeTokens } from '../themes'
 import { isLightColor, type BoardPalette } from './backgroundPresets'
 import { drawLibraryShapeOnCanvas, getLibraryShape } from '../shapes/shapeLibrary'
-import { computeOrthogonalRoute, getShapePortHandles } from './connectorUtils'
+import {
+  computeOrthogonalRoute,
+  getShapePortHandles,
+  type ConnectableBoardElement
+} from './connectorUtils'
 import {
   computePointAlongPolyline,
   computePointAlongQuadraticCurve,
@@ -1400,7 +1404,7 @@ export function drawVectorArt(
  */
 export function drawShapeConnectionPorts(
   ctx: CanvasRenderingContext2D,
-  shape: ShapeNode,
+  shape: ConnectableBoardElement,
   zoom: number,
   opts?: {
     hoveredPort?: PortSide | null

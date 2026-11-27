@@ -90,8 +90,42 @@ export const AgentBoardMutationSchema = z.discriminatedUnion('type', [
     title: z.string().min(1),
     language: z.string().min(1),
     code: z.string().min(1),
+    pipelineMode: z.boolean().optional(),
+    tabs: z
+      .array(
+        z.object({
+          title: z.string().min(1),
+          language: z.string().min(1),
+          code: z.string().min(1),
+          stdin: z.string().optional(),
+          upstreamTabId: z.string().nullable().optional()
+        })
+      )
+      .optional(),
     x: z.number().optional(),
     y: z.number().optional()
+  }),
+  z.object({
+    type: z.literal('add_3d_scene'),
+    title: z.string().optional(),
+    preset: z.string().optional(),
+    scene: z.unknown().optional(),
+    immersed: z.boolean().optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    width: z.number().optional(),
+    height: z.number().optional()
+  }),
+  z.object({
+    type: z.literal('add_connector'),
+    sourceId: z.string().min(1),
+    targetId: z.string().min(1),
+    sourcePort: z.enum(['top', 'right', 'bottom', 'left']).optional(),
+    targetPort: z.enum(['top', 'right', 'bottom', 'left']).optional(),
+    routing: z.enum(['orthogonal', 'curved', 'straight']).optional(),
+    color: z.string().optional(),
+    label: z.string().optional(),
+    animated: z.boolean().optional()
   }),
   z.object({
     type: z.literal('patch_code_card'),
@@ -226,6 +260,20 @@ export const AgentBoardSnapshotSchema = z.object({
         url: z.string(),
         x: z.number(),
         y: z.number()
+      })
+    )
+    .default([]),
+  scenes3d: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        preset: z.string().optional(),
+        elementCount: z.number(),
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number()
       })
     )
     .default([]),
