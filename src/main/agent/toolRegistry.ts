@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SpatialSceneSchema, normalizeSpatialSceneInput } from '../../shared/beautifySchema'
+import { normalizeScene3DInput } from '../../shared/scene3dSchema'
 import { AgentAnnotationItemSchema } from '../../shared/agentSchema'
 import { unescapeLlmCode, unescapeLlmText } from '../../shared/textUnescape'
 import { inferPedagogicalApproach, searchBoardAssets } from '../../shared/boardCatalog'
@@ -519,15 +520,97 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
       }
     }),
     defineAgentTool({
+      name: 'create_3d_scene',
+      description:
+        'Render an interactive 3D object, simulation, mathematical surface, or experimental setup directly immersed onto the Vexelboard canvas (e.g. a 3D car, optics_bench, mechanics_rig, chemistry_setup, electromagnetism, surface_wave, OR custom elements composed of box/sphere/cylinder/cone/torus/wheel/spring/lens/prism/flask/plane/arrow3d/curve3d/surface3d/mesh/label3d). Omit x/y for collision-free placement.',
+      argHint:
+        '{"title":"3D Car Kinematics","preset":"car","immersed":true,"scene":{"elements":[{"id":"vec-v","type":"arrow3d","from":[2.2,0.1,0],"to":[3.8,0.1,0],"color":"#10B981","anim":{"pulseFlow":true}}]}}',
+      inputSchema: z.object({
+        title: z.string().optional(),
+        preset: z.string().optional(),
+        scene: z.unknown().optional(),
+        immersed: z.boolean().optional(),
+        x: z.number().optional(),
+        y: z.number().optional(),
+        width: z.number().optional(),
+        height: z.number().optional()
+      }),
+      execute: async (args, ctx) => {
+        const normalized = normalizeScene3DInput(
+          args.scene ?? { preset: args.preset || 'car', title: args.title, immersed: args.immersed }
+        )
+        ctx.pushMutation({
+          type: 'add_3d_scene',
+          title: args.title || normalized.title,
+          preset: normalized.preset,
+          scene: normalized,
+          immersed: args.immersed ?? true,
+          x: args.x,
+          y: args.y,
+          width: args.width,
+          height: args.height
+        })
+        return {
+          ok: true,
+          summary: `Queued canvas-immersed 3D scene "${args.title || normalized.title || '3D Object'}" (${normalized.elements.length} 3D parts).`
+        }
+      }
+    }),
+    defineAgentTool({
+      name: 'connect_board_elements',
+      description:
+        'Draw a bound flowchart connector arrow between two board elements (Code Cards, 2D Graphs via shape/group ID, 3D Scenes, or Flowchart Shapes). Running an upstream Code Card automatically pipes its stdout into downstream Code Cards and updates connected 2D Graphs or 3D Scenes.',
+      argHint: '{"sourceId":"code-1","targetId":"code-2","sourcePort":"right","targetPort":"left","animated":true}',
+      inputSchema: z.object({
+        sourceId: z.string().min(1),
+        targetId: z.string().min(1),
+        sourcePort: z.enum(['top', 'right', 'bottom', 'left']).optional(),
+        targetPort: z.enum(['top', 'right', 'bottom', 'left']).optional(),
+        routing: z.enum(['orthogonal', 'curved', 'straight']).optional(),
+        color: z.string().optional(),
+        label: z.string().optional(),
+        animated: z.boolean().optional()
+      }),
+      execute: async (args, ctx) => {
+        ctx.pushMutation({
+          type: 'add_connector',
+          sourceId: args.sourceId,
+          targetId: args.targetId,
+          sourcePort: args.sourcePort,
+          targetPort: args.targetPort,
+          routing: args.routing,
+          color: args.color,
+          label: args.label,
+          animated: args.animated
+        })
+        return {
+          ok: true,
+          summary: `Queued flowchart connector ${args.sourceId} → ${args.targetId}.`
+        }
+      }
+    }),
+    defineAgentTool({
       name: 'create_or_patch_code',
       description:
-        'Create a runnable Code Card in an empty area of the board OR patch an existing Code Card when `cardId` is supplied.',
+        'Create a runnable Code Card (or patch an existing one when `cardId` is supplied). To build a multi-stage execution flow, create separate Code Cards and wire them with `connect_board_elements` (or link to a 3D scene / 2D graph so running upstream pipes stdout -> stdin and updates connected visuals).',
       argHint: '{"cardId":"optional-id","title":"stack.py","language":"python","code":"class Stack: ..."}',
       inputSchema: z.object({
         cardId: z.string().optional(),
         title: z.string().optional(),
         language: z.string().min(1),
         code: z.string().min(1),
+        pipelineMode: z.boolean().optional(),
+        tabs: z
+          .array(
+            z.object({
+              title: z.string().min(1),
+              language: z.string().min(1),
+              code: z.string().min(1),
+              stdin: z.string().optional(),
+              upstreamTabId: z.string().nullable().optional()
+            })
+          )
+          .optional(),
         x: z.number().optional(),
         y: z.number().optional()
       }),
@@ -551,6 +634,11 @@ export function createAgentTools(deps: AgentToolDeps = {}): AgentToolDefinition[
           title: args.title || `snippet.${args.language}`,
           language: args.language,
           code: cleanCode,
+          pipelineMode: args.pipelineMode,
+          tabs: args.tabs?.map((t) => ({
+            ...t,
+            code: unescapeLlmCode(t.code)
+          })),
           x: args.x,
           y: args.y
         })

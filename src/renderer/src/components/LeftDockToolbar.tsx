@@ -39,7 +39,7 @@ import {
   Brush,
   LineChart
 } from 'lucide-react'
-import type { CodeTabItem, PenType, ToolType } from '../types/board'
+import type { CodeTabItem, PenType, Scene3DSpec, ToolType } from '../types/board'
 import type { BoardPalette } from '../board/backgroundPresets'
 import type { GraphPlotSpec } from '../board/graphPlotBuilder'
 import { resolvePenColorHex } from '../board/penUtils'
@@ -71,6 +71,8 @@ export interface LeftDockToolbarProps {
   onAddStickyNote: (color: string, title?: string) => void
   onAddTemplate: (templateId: string) => void
   onInsertGraph?: (spec: GraphPlotSpec) => void
+  onInsertScene3D?: (spec: Scene3DSpec) => void
+  onCreateLinkedCode?: (opts: { kind: '2d' | '3d'; graphSpec?: GraphPlotSpec; scene3dSpec?: Scene3DSpec }) => void
   openGraphTrigger?: number
   onBeautify: () => void
   isBeautifying?: boolean
@@ -181,6 +183,8 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
   onAddStickyNote,
   onAddTemplate,
   onInsertGraph,
+  onInsertScene3D,
+  onCreateLinkedCode,
   openGraphTrigger,
   onBeautify,
   isBeautifying,
@@ -1151,10 +1155,12 @@ export const LeftDockToolbar: React.FC<LeftDockToolbarProps> = React.memo(({
         </div>
       )}
 
-      {/* B2. Interactive Graph & Function Plotter Flyout */}
+      {/* B2. Interactive Graph & 3D Lab Setup Builder Flyout */}
       {openFlyout === 'graphs' && onInsertGraph && (
         <GraphBuilderFlyout
           onInsertGraph={onInsertGraph}
+          onInsertScene3D={onInsertScene3D}
+          onCreateLinkedCode={onCreateLinkedCode}
           onClose={() => setOpenFlyout(null)}
         />
       )}

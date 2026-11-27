@@ -110,6 +110,18 @@ export function collectOccupiedBoardRects(
     rects.push({ x: img.x, y: img.y, w: iw, h: ih })
   }
 
+  for (const s3d of board.scene3dNodes ?? []) {
+    const sw = s3d.w ?? 460
+    const sh = s3d.h ?? 360
+    rects.push({ x: s3d.x, y: s3d.y, w: sw, h: sh })
+  }
+
+  for (const gr of board.graphNodes ?? []) {
+    const gw = gr.w ?? 500
+    const gh = gr.h ?? 360
+    rects.push({ x: gr.x, y: gr.y, w: gw, h: gh })
+  }
+
   for (const va of board.vectorArtNodes ?? []) {
     const vw = Math.max(24, Math.abs(va.width))
     const vh = Math.max(24, Math.abs(va.height))

@@ -10,9 +10,12 @@ import type {
   EquationNode,
   EraserMode,
   FontId,
+  GraphNode,
   ImageNode,
   InkPoint,
   PortSide,
+  Scene3DNode,
+  Scene3DSpec,
   ShapeNode,
   Stroke,
   TextNode,
@@ -62,7 +65,8 @@ import {
   pickNearestPort,
   portNormal,
   remapDuplicatedConnectors,
-  syncBoundConnectors
+  syncBoundConnectors,
+  type ConnectableBoardElement
 } from './board/connectorUtils'
 import {
   addInkLayer,
@@ -86,7 +90,14 @@ import {
   type CleanReactFlowResult
 } from './board/beautifyUtils'
 import { compileFlowDiagramToBoardElements } from './board/nativeDiagramCompiler'
-import { compileGraphToBoardElements, type GraphPlotSpec } from './board/graphPlotBuilder'
+import { type GraphPlotSpec } from './board/graphPlotBuilder'
+import {
+  CODE_PIPELINE_PRESETS,
+  mergeCodeVisualIntoGraphSpec,
+  parseCodeOutputToVisuals,
+  wrapCodeForAutoOutput
+} from './board/codeVisualParser'
+import { buildPresetScene3D } from '@shared/scene3dSchema'
 import {
   applyGroupScale,
   applyRotationDelta,
@@ -128,6 +139,8 @@ import {
   isCodeInRect,
   isVideoInRect,
   isImageInRect,
+  isScene3DInRect,
+  isGraphInRect,
   isVectorArtInRect
 } from './board/eraserUtils'
 import { useBoard, useSettings } from './board/useBoard'
@@ -150,10 +163,11 @@ import {
 } from './board/workspaceStore'
 import { getToolCursorCss, resolvePenColorHex } from './board/penUtils'
 import { analyzeSelectionLocally, detectLocalBasicShape } from './vision/localShapeDetector'
-import { rasterizeStrokesForLocalOcr } from './vision/localOcrUtils'
+import { rasterizeStrokesBlockForApiOcr, rasterizeStrokesForLocalOcr } from './vision/localOcrUtils'
 import {
   DEFAULT_PROVIDER_MODELS,
   DEFAULT_WEB_SEARCH_SETTINGS,
+  PROVIDER_LABELS,
   type ChatAttachment,
   type CompanionSelectionCapturePayload,
   type ProjectChatStore,
@@ -191,6 +205,8 @@ export interface DragSnapshot {
   codes: Array<{ id: string; initX: number; initY: number }>
   videos?: Array<{ id: string; initX: number; initY: number }>
   images?: Array<{ id: string; initX: number; initY: number }>
+  scene3ds?: Array<{ id: string; initX: number; initY: number }>
+  graphs?: Array<{ id: string; initX: number; initY: number }>
   strokes: Array<{ id: string; initPoints: InkPoint[] }>
 }
 
@@ -359,6 +375,30 @@ function getSelectionBounds(board: BoardState, ids: string[]): BoundsRect | null
     }
   }
 
+  for (const s3d of board.scene3dNodes ?? []) {
+    if (idSet.has(s3d.id)) {
+      found = true
+      const sw = s3d.w ?? 480
+      const sh = s3d.h ?? 380
+      if (s3d.x < minX) minX = s3d.x
+      if (s3d.y < minY) minY = s3d.y
+      if (s3d.x + sw > maxX) maxX = s3d.x + sw
+      if (s3d.y + sh > maxY) maxY = s3d.y + sh
+    }
+  }
+
+  for (const gr of board.graphNodes ?? []) {
+    if (idSet.has(gr.id)) {
+      found = true
+      const gw = gr.w ?? 520
+      const gh = gr.h ?? 370
+      if (gr.x < minX) minX = gr.x
+      if (gr.y < minY) minY = gr.y
+      if (gr.x + gw > maxX) maxX = gr.x + gw
+      if (gr.y + gh > maxY) maxY = gr.y + gh
+    }
+  }
+
   for (const st of board.strokes) {
     if (idSet.has(st.id)) {
       for (const [px, py] of st.points) {
@@ -488,7 +528,7 @@ export default function App(): React.JSX.Element {
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const rafIdRef = useRef<number | null>(null)
-  const scheduleRenderRef = useRef<() => void>(() => {})
+  const scheduleRenderRef = useRef<() => void>(() => { })
   const [isLayersOpen, setIsLayersOpen] = useState(false)
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -996,11 +1036,11 @@ export default function App(): React.JSX.Element {
         selectedIds: curSelected,
         selectionBounds: selBounds
           ? {
-              x: Math.round(selBounds.x),
-              y: Math.round(selBounds.y),
-              width: Math.round(selBounds.w),
-              height: Math.round(selBounds.h)
-            }
+            x: Math.round(selBounds.x),
+            y: Math.round(selBounds.y),
+            width: Math.round(selBounds.w),
+            height: Math.round(selBounds.h)
+          }
           : undefined,
         viewportCenter,
         suggestedEmptyArea: { x: emptyRect.x, y: emptyRect.y, width: 760, height: 480 }
@@ -1030,11 +1070,11 @@ export default function App(): React.JSX.Element {
     const selBounds = getSelectionBounds(curBoard, curSelected)
     const selectionBounds = selBounds
       ? {
-          x: Math.round(selBounds.x),
-          y: Math.round(selBounds.y),
-          width: Math.max(40, Math.round(selBounds.w)),
-          height: Math.max(40, Math.round(selBounds.h))
-        }
+        x: Math.round(selBounds.x),
+        y: Math.round(selBounds.y),
+        width: Math.max(40, Math.round(selBounds.w)),
+        height: Math.max(40, Math.round(selBounds.h))
+      }
       : undefined
 
     const curSettings = settingsRef.current
@@ -1309,11 +1349,11 @@ export default function App(): React.JSX.Element {
       const selBounds = getSelectionBounds(curBoard, curSelected)
       const selectionBounds = selBounds
         ? {
-            x: Math.round(selBounds.x),
-            y: Math.round(selBounds.y),
-            width: Math.round(selBounds.w),
-            height: Math.round(selBounds.h)
-          }
+          x: Math.round(selBounds.x),
+          y: Math.round(selBounds.y),
+          width: Math.round(selBounds.w),
+          height: Math.round(selBounds.h)
+        }
         : undefined
 
       const curView = viewRef.current
@@ -1398,7 +1438,7 @@ export default function App(): React.JSX.Element {
             providerMode:
               currentSettings.ai.webSearch?.providerMode ??
               (currentSettings.ai.webSearch?.searxngUrl &&
-              currentSettings.ai.webSearch.searxngUrl !== 'http://localhost:8888'
+                currentSettings.ai.webSearch.searxngUrl !== 'http://localhost:8888'
                 ? 'searxng'
                 : 'builtin')
           },
@@ -1448,7 +1488,7 @@ export default function App(): React.JSX.Element {
           ? 'Stopped active agent run.'
           : result.ok
             ? result.answer ||
-              (appliedCount > 0 ? `Applied ${appliedCount} update(s) to the board.` : 'Done.')
+            (appliedCount > 0 ? `Applied ${appliedCount} update(s) to the board.` : 'Done.')
             : `Agent error: ${result.error || 'Unknown error'}`
 
         const aiMsg: ChatMessage = {
@@ -1711,11 +1751,11 @@ export default function App(): React.JSX.Element {
             const diagramSource =
               Array.isArray(st.diagramNodes) && st.diagramNodes.length > 0
                 ? JSON.stringify({
-                    title: numberedTitle,
-                    diagramType: 'flowchart',
-                    nodes: st.diagramNodes,
-                    edges: st.diagramEdges || []
-                  })
+                  title: numberedTitle,
+                  diagramType: 'flowchart',
+                  nodes: st.diagramNodes,
+                  edges: st.diagramEdges || []
+                })
                 : unescapeLlmText(st.diagramMermaid!)
 
             const parsedFlow = parseAndCleanReactFlow(diagramSource)
@@ -2332,33 +2372,33 @@ export default function App(): React.JSX.Element {
   )
 
   const handleInsertGraph = useCallback(
-    (spec: GraphPlotSpec) => {
+    (spec: GraphPlotSpec, opts?: { x?: number; y?: number; w?: number; h?: number; linkedCodeNodeId?: string }) => {
       const curBoard = boardRef.current
-      const cardW = 480
-      const cardH = 320
-      const placement = findFreeBoardPlacement(curBoard, cardW, cardH, viewRef.current, {
-        gap: 32,
-        topMargin: 44
-      })
-      const targetLayerId = resolveTargetInkLayerId(curBoard) ?? 'layer-base-ink'
-      const compiled = compileGraphToBoardElements(
+      const cardW = opts?.w ?? 520
+      const cardH = opts?.h ?? 370
+      const placement =
+        typeof opts?.x === 'number' && typeof opts?.y === 'number'
+          ? { x: Math.round(opts.x), y: Math.round(opts.y), nextPan: undefined }
+          : findFreeBoardPlacement(curBoard, cardW, cardH, viewRef.current, {
+            gap: 32,
+            topMargin: 44
+          })
+      const id = `graph-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+      const node: GraphNode = {
+        id,
+        x: placement.x,
+        y: placement.y,
+        w: cardW,
+        h: cardH,
+        title: spec.title.trim() || 'Graph',
         spec,
-        { x: placement.x, y: placement.y, width: cardW, height: cardH },
-        {
-          fontFamily: settingsRef.current.font,
-          layerId: targetLayerId,
-          inkColor: themeTokens.ink
-        }
-      )
+        linkedCodeNodeId: opts?.linkedCodeNodeId,
+        createdAt: Date.now()
+      }
       pushHistory()
       update((b) => ({
         ...b,
-        shapeNodes: [...b.shapeNodes, ...compiled.shapes],
-        textNodes: [...b.textNodes, ...compiled.texts],
-        vectorDiagramMeta: {
-          ...(b.vectorDiagramMeta ?? {}),
-          [compiled.groupId]: compiled.meta
-        }
+        graphNodes: [...(b.graphNodes ?? []), node]
       }))
       if (placement.nextPan) {
         setView((v) => ({
@@ -2367,17 +2407,707 @@ export default function App(): React.JSX.Element {
           panY: placement.nextPan!.panY
         }))
       }
-      const createdIds = [
-        ...compiled.shapes.map((s) => s.id),
-        ...compiled.texts.map((t) => t.id)
-      ]
-      setSelectedId(createdIds[0] ?? null)
-      setSelectedIds(createdIds)
+      setSelectedId(id)
+      setSelectedIds([id])
       setActiveTool('select')
-      scheduleRenderRef.current()
-      addToast('success', `Added "${spec.title.trim() || 'Graph'}" onto board`)
+      addToast('success', `Added "${node.title}" onto board`)
+      return id
     },
-    [update, setSelectedId, setSelectedIds, pushHistory, addToast, themeTokens.ink]
+    [update, setSelectedId, setSelectedIds, pushHistory, addToast]
+  )
+
+  const handleInsertScene3D = useCallback(
+    (spec: Scene3DSpec, opts?: { x?: number; y?: number; w?: number; h?: number; linkedCodeNodeId?: string }) => {
+      const curBoard = boardRef.current
+      const cardW = opts?.w ?? 480
+      const cardH = opts?.h ?? 380
+      const placement =
+        typeof opts?.x === 'number' && typeof opts?.y === 'number'
+          ? { x: Math.round(opts.x), y: Math.round(opts.y), nextPan: undefined }
+          : findFreeBoardPlacement(curBoard, cardW, cardH, viewRef.current, {
+            gap: 32,
+            topMargin: 32
+          })
+
+      const id = `s3d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+      const node: Scene3DNode = {
+        id,
+        x: placement.x,
+        y: placement.y,
+        w: cardW,
+        h: cardH,
+        title: spec.title || '3D Object',
+        spec: { ...spec, immersed: spec.immersed ?? true },
+        immersed: spec.immersed ?? true,
+        linkedCodeNodeId: opts?.linkedCodeNodeId,
+        createdAt: Date.now()
+      }
+      pushHistory()
+      update((b) => ({
+        ...b,
+        scene3dNodes: [...(b.scene3dNodes ?? []), node]
+      }))
+      if (placement.nextPan) {
+        setView((v) => ({
+          ...v,
+          panX: placement.nextPan!.panX,
+          panY: placement.nextPan!.panY
+        }))
+      }
+      setSelectedId(id)
+      setSelectedIds([id])
+      setActiveTool('select')
+      addToast('success', `Immersed 3D scene "${node.title}" onto canvas`)
+      return id
+    },
+    [update, setSelectedId, setSelectedIds, pushHistory, addToast]
+  )
+
+  const resolveConnectorLayerId = useCallback((b: BoardState, fallbackLayerId?: string): string => {
+    if (b.layers?.some((l) => l.id === 'layer-overlay-ink')) return 'layer-overlay-ink'
+    return fallbackLayerId ?? resolveTargetInkLayerId(b) ?? 'layer-base-ink'
+  }, [])
+
+  const handleSpawnScene3DFromCode = useCallback(
+    (spec: Scene3DSpec, sourceCardId?: string) => {
+      const curBoard = boardRef.current
+      const sourceCard = sourceCardId
+        ? (curBoard.codeNodes ?? []).find((c) => c.id === sourceCardId)
+        : undefined
+      const connectedSceneId = sourceCardId
+        ? curBoard.shapeNodes
+          .flatMap((s) => {
+            if (s.startBinding?.shapeId === sourceCardId && s.endBinding?.shapeId) {
+              return [s.endBinding.shapeId]
+            }
+            if (s.endBinding?.shapeId === sourceCardId && s.startBinding?.shapeId) {
+              return [s.startBinding.shapeId]
+            }
+            return []
+          })
+          .find((tid) => (curBoard.scene3dNodes ?? []).some((s3) => s3.id === tid))
+        : undefined
+      const existingLinkedId = connectedSceneId ?? sourceCard?.linkedScene3DId
+      const existingScene = existingLinkedId
+        ? (curBoard.scene3dNodes ?? []).find((s) => s.id === existingLinkedId)
+        : undefined
+
+      if (existingScene) {
+        update(
+          (b) => ({
+            ...b,
+            scene3dNodes: (b.scene3dNodes ?? []).map((s) =>
+              s.id === existingScene.id
+                ? {
+                  ...s,
+                  title: spec.title || s.title,
+                  spec: { ...spec, camera: s.spec.camera ?? spec.camera, immersed: s.immersed ?? true }
+                }
+                : s
+            )
+          }),
+          { history: false }
+        )
+        addToast('success', `Synced 3D simulation "${spec.title || existingScene.title}"`)
+        return
+      }
+
+      const newId = handleInsertScene3D(spec, {
+        x: sourceCard ? sourceCard.x + sourceCard.w + 72 : undefined,
+        y: sourceCard ? sourceCard.y : undefined,
+        linkedCodeNodeId: sourceCardId
+      })
+      if (sourceCardId && sourceCard && newId) {
+        update(
+          (b) => {
+            const targetScene = (b.scene3dNodes ?? []).find((s) => s.id === newId)
+            const conn = targetScene
+              ? buildFlowConnectorNode({
+                source: sourceCard,
+                sourcePort: 'right',
+                target: targetScene,
+                targetPort: 'left',
+                color: '#06b6d4',
+                animated: true,
+                fontFamily: settingsRef.current.font,
+                layerId: resolveConnectorLayerId(b)
+              })
+              : null
+            return {
+              ...b,
+              shapeNodes: conn ? [...b.shapeNodes, conn] : b.shapeNodes,
+              codeNodes: (b.codeNodes ?? []).map((c) =>
+                c.id === sourceCardId ? { ...c, linkedScene3DId: newId } : c
+              )
+            }
+          },
+          { history: false }
+        )
+        scheduleRenderRef.current()
+      }
+    },
+    [update, handleInsertScene3D, resolveConnectorLayerId, addToast]
+  )
+
+  const handleSpawnGraphFromCode = useCallback(
+    (spec: GraphPlotSpec, sourceCardId?: string) => {
+      const curBoard = boardRef.current
+      const sourceCard = sourceCardId
+        ? (curBoard.codeNodes ?? []).find((c) => c.id === sourceCardId)
+        : undefined
+      const connectedGraphId = sourceCardId
+        ? curBoard.shapeNodes
+          .flatMap((s) => {
+            if (s.startBinding?.shapeId === sourceCardId && s.endBinding?.shapeId) {
+              return [s.endBinding.shapeId]
+            }
+            if (s.endBinding?.shapeId === sourceCardId && s.startBinding?.shapeId) {
+              return [s.startBinding.shapeId]
+            }
+            return []
+          })
+          .find((tid) => (curBoard.graphNodes ?? []).some((g) => g.id === tid))
+        : undefined
+      const existingGraphId =
+        connectedGraphId ?? sourceCard?.linkedGraphId ?? sourceCard?.linkedGraphGroupId
+      const existingGraph = existingGraphId
+        ? (curBoard.graphNodes ?? []).find((g) => g.id === existingGraphId)
+        : undefined
+
+      if (existingGraph) {
+        pushHistory()
+        update((b) => ({
+          ...b,
+          graphNodes: (b.graphNodes ?? []).map((g) =>
+            g.id === existingGraph.id
+              ? {
+                ...g,
+                title: spec.title || g.title,
+                spec: mergeCodeVisualIntoGraphSpec(g.spec, spec, false)
+              }
+              : g
+          )
+        }))
+        addToast('success', `Synced "${spec.title || existingGraph.title || 'Graph'}" from code`)
+        return
+      }
+
+      const newGraphId = handleInsertGraph(spec, {
+        x: sourceCard ? sourceCard.x + sourceCard.w + 72 : undefined,
+        y: sourceCard ? sourceCard.y : undefined,
+        linkedCodeNodeId: sourceCardId
+      })
+      if (sourceCardId && sourceCard && newGraphId) {
+        update(
+          (b) => {
+            const targetGraph = (b.graphNodes ?? []).find((g) => g.id === newGraphId)
+            const flowConn = targetGraph
+              ? buildFlowConnectorNode({
+                source: sourceCard,
+                sourcePort: 'right',
+                target: targetGraph,
+                targetPort: 'left',
+                color: '#06b6d4',
+                animated: true,
+                fontFamily: settingsRef.current.font,
+                layerId: resolveConnectorLayerId(b)
+              })
+              : null
+            return {
+              ...b,
+              shapeNodes: flowConn ? [...b.shapeNodes, flowConn] : b.shapeNodes,
+              codeNodes: (b.codeNodes ?? []).map((c) =>
+                c.id === sourceCardId ? { ...c, linkedGraphId: newGraphId } : c
+              )
+            }
+          },
+          { history: false }
+        )
+        scheduleRenderRef.current()
+      }
+    },
+    [update, pushHistory, addToast, handleInsertGraph, resolveConnectorLayerId]
+  )
+
+  const handleExecuteConnectedCodeFlow = useCallback(
+    async (entryCardId: string, entryTabId?: string) => {
+      const api = window.glassAPI
+      if (!api?.runCode) {
+        addToast('error', 'Local code execution bridge is only available inside the Electron app.')
+        return
+      }
+
+      const initialBoard = boardRef.current
+      const codeById = new Map((initialBoard.codeNodes ?? []).map((c) => [c.id, c]))
+      const entryCard = codeById.get(entryCardId)
+      if (!entryCard) return
+
+      // Collect directional CodeNode -> CodeNode edges from bound board flowchart connectors
+      const codeIncoming = new Map<string, string[]>()
+      const codeOutgoing = new Map<string, string[]>()
+      for (const s of initialBoard.shapeNodes) {
+        const srcId = s.startBinding?.shapeId
+        const dstId = s.endBinding?.shapeId
+        if (!srcId || !dstId || srcId === dstId) continue
+        if (codeById.has(srcId) && codeById.has(dstId)) {
+          const inList = codeIncoming.get(dstId) ?? []
+          if (!inList.includes(srcId)) inList.push(srcId)
+          codeIncoming.set(dstId, inList)
+          const outList = codeOutgoing.get(srcId) ?? []
+          if (!outList.includes(dstId)) outList.push(dstId)
+          codeOutgoing.set(srcId, outList)
+        }
+      }
+
+      // Include any un-run upstream ancestors so entryCard receives fresh stdin
+      const orderedIds: string[] = []
+      const scheduled = new Set<string>()
+      const ancestorVisiting = new Set<string>()
+
+      const visitAncestor = (id: string, isEntry: boolean): void => {
+        if (scheduled.has(id) || ancestorVisiting.has(id)) return
+        ancestorVisiting.add(id)
+        for (const upId of codeIncoming.get(id) ?? []) {
+          const upCard = codeById.get(upId)
+          const upTab = upCard?.tabs.find((t) => t.id === upCard.activeTabId) ?? upCard?.tabs[0]
+          if (upCard && !upTab?.output?.stdout) {
+            visitAncestor(upId, false)
+          }
+        }
+        ancestorVisiting.delete(id)
+        if (isEntry || !scheduled.has(id)) {
+          scheduled.add(id)
+          orderedIds.push(id)
+        }
+      }
+      visitAncestor(entryCardId, true)
+
+      // Traverse reachable downstream CodeNodes in BFS topological order
+      const queue = [entryCardId]
+      while (queue.length > 0) {
+        const cur = queue.shift()!
+        for (const nxt of codeOutgoing.get(cur) ?? []) {
+          if (!scheduled.has(nxt)) {
+            scheduled.add(nxt)
+            orderedIds.push(nxt)
+            queue.push(nxt)
+          }
+        }
+      }
+
+      const stdoutByCardId = new Map<string, string>()
+
+      for (const curId of orderedIds) {
+        const curBoard = boardRef.current
+        const card = (curBoard.codeNodes ?? []).find((c) => c.id === curId)
+        if (!card) continue
+
+        const targetTabId =
+          curId === entryCardId && entryTabId ? entryTabId : card.activeTabId || card.tabs[0]?.id
+        const tab = card.tabs.find((t) => t.id === targetTabId) ?? card.tabs[0]
+        if (!tab) continue
+
+        const incomingIds = codeIncoming.get(curId) ?? []
+        const incomingPayloads: string[] = []
+        for (const upId of incomingIds) {
+          const fresh = stdoutByCardId.get(upId)
+          if (fresh !== undefined) {
+            incomingPayloads.push(fresh)
+          } else {
+            const upCard = (curBoard.codeNodes ?? []).find((c) => c.id === upId)
+            const upTab = upCard?.tabs.find((t) => t.id === upCard.activeTabId) ?? upCard?.tabs[0]
+            if (upTab?.output?.stdout) incomingPayloads.push(upTab.output.stdout)
+          }
+        }
+        const effectiveStdin =
+          incomingPayloads.length > 0 ? incomingPayloads.join('\n') : (tab.stdin ?? '')
+
+        const res = await api.runCode({
+          language: tab.language,
+          code: wrapCodeForAutoOutput(tab.language, tab.code),
+          stdin: effectiveStdin,
+          timeoutMs: 12000,
+          filename: tab.title
+        })
+
+        const parsed = res.stdout ? parseCodeOutputToVisuals(res.stdout, tab.title) : null
+        const nextVisualMode =
+          tab.visualMode ??
+          (parsed?.detectedKind === 'scene3d'
+            ? 'scene3d'
+            : parsed?.detectedKind === 'plot2d'
+              ? 'plot2d'
+              : 'terminal')
+
+        update(
+          (b) => ({
+            ...b,
+            codeNodes: (b.codeNodes ?? []).map((c) =>
+              c.id === curId
+                ? {
+                  ...c,
+                  tabs: c.tabs.map((t) =>
+                    t.id === tab.id
+                      ? { ...t, output: { ...res, timestamp: Date.now() }, visualMode: nextVisualMode }
+                      : t
+                  )
+                }
+                : c
+            )
+          }),
+          { history: false }
+        )
+
+        if (!res.ok) {
+          addToast(
+            'error',
+            `Flow halted at "${card.title || tab.title}" (${res.error || `exit ${res.exitCode}`})`
+          )
+          break
+        }
+
+        stdoutByCardId.set(curId, res.stdout)
+
+        if (res.stdout && parsed) {
+          const latestBoard = boardRef.current
+          // Bidirectional connector lookup for visual targets attached to curId
+          const peerIds = new Set<string>()
+          for (const s of latestBoard.shapeNodes) {
+            if (s.startBinding?.shapeId === curId && s.endBinding?.shapeId) {
+              peerIds.add(s.endBinding.shapeId)
+            } else if (s.endBinding?.shapeId === curId && s.startBinding?.shapeId) {
+              peerIds.add(s.startBinding.shapeId)
+            }
+          }
+
+          // 1. Update connected Scene3DNode(s)
+          const target3dIds = new Set<string>()
+          if (card.linkedScene3DId) target3dIds.add(card.linkedScene3DId)
+          for (const s3 of latestBoard.scene3dNodes ?? []) {
+            if (peerIds.has(s3.id)) target3dIds.add(s3.id)
+          }
+          if (parsed.scene3d && target3dIds.size > 0) {
+            const nextSpec = parsed.scene3d
+            update(
+              (b) => ({
+                ...b,
+                scene3dNodes: (b.scene3dNodes ?? []).map((s3) =>
+                  target3dIds.has(s3.id)
+                    ? {
+                      ...s3,
+                      title: nextSpec.title || s3.title,
+                      spec: {
+                        ...nextSpec,
+                        camera: s3.spec.camera ?? nextSpec.camera,
+                        immersed: s3.immersed ?? true
+                      }
+                    }
+                    : s3
+                )
+              }),
+              { history: false }
+            )
+          }
+
+          // 2. Update connected unified GraphNode(s)
+          const targetGraphIds = new Set<string>()
+          if (card.linkedGraphId) targetGraphIds.add(card.linkedGraphId)
+          if (card.linkedGraphGroupId) targetGraphIds.add(card.linkedGraphGroupId)
+          for (const gr of latestBoard.graphNodes ?? []) {
+            if (peerIds.has(gr.id) || gr.linkedCodeNodeId === curId) {
+              targetGraphIds.add(gr.id)
+            }
+          }
+          if (parsed.plot2d && targetGraphIds.size > 0) {
+            const plotSpec = parsed.plot2d
+            const hasExplicit = Boolean(parsed.hasExplicitChartType)
+            update(
+              (b) => ({
+                ...b,
+                graphNodes: (b.graphNodes ?? []).map((gr) =>
+                  targetGraphIds.has(gr.id)
+                    ? {
+                      ...gr,
+                      title: plotSpec.title || gr.title,
+                      spec: mergeCodeVisualIntoGraphSpec(gr.spec, plotSpec, hasExplicit)
+                    }
+                    : gr
+                )
+              }),
+              { history: false }
+            )
+          }
+        }
+      }
+    },
+    [update, addToast]
+  )
+
+  const handleCreateLinkedCode = useCallback(
+    (opts: { kind: '2d' | '3d'; graphSpec?: GraphPlotSpec; scene3dSpec?: Scene3DSpec }) => {
+      const now = Date.now()
+      const cardW = 540
+      const cardH = 400
+      const curBoard = boardRef.current
+      const placement = findFreeBoardPlacement(curBoard, cardW + 580, cardH, viewRef.current, { gap: 36 })
+
+      if (opts.kind === '3d') {
+        const presetId =
+          opts.scene3dSpec?.preset === 'car' ? 'car_3d_kinematics' : 'projectile_3d_pipeline'
+        const preset = CODE_PIPELINE_PRESETS.find((p) => p.id === presetId) ?? CODE_PIPELINE_PRESETS[0]
+        const sceneSpec = opts.scene3dSpec ?? buildPresetScene3D('car')
+        const sceneId = handleInsertScene3D(sceneSpec, {
+          x: placement.x + cardW + 72,
+          y: placement.y
+        })
+        const firstTab = preset.tabs[0]
+        const lastTab = preset.tabs[preset.tabs.length - 1]
+        const tabs: CodeTabItem[] = [
+          {
+            id: `tab-${now}-1`,
+            title: firstTab.title,
+            language: firstTab.language,
+            code: firstTab.code,
+            color: firstTab.color,
+            stdin: firstTab.stdin ?? '',
+            output: null
+          }
+        ]
+        const hasSecondStage = preset.tabs.length > 1 && lastTab !== firstTab
+        const newCode1: CodeNode = {
+          id: `code-${now.toString(36)}-a`,
+          x: placement.x,
+          y: placement.y,
+          w: cardW,
+          h: cardH,
+          title: hasSecondStage ? `${firstTab.title} (Stage 1)` : `${sceneSpec.title || '3D'} Code`,
+          linkedScene3DId: hasSecondStage ? undefined : sceneId,
+          tabs,
+          activeTabId: tabs[0].id,
+          createdAt: now
+        }
+        const createdNodes: CodeNode[] = [newCode1]
+        if (hasSecondStage) {
+          const tab2: CodeTabItem = {
+            id: `tab-${now}-2`,
+            title: lastTab.title,
+            language: lastTab.language,
+            code: lastTab.code,
+            color: lastTab.color,
+            visualMode: 'scene3d',
+            output: null
+          }
+          createdNodes.push({
+            id: `code-${now.toString(36)}-b`,
+            x: placement.x,
+            y: placement.y + cardH + 64,
+            w: cardW,
+            h: 360,
+            title: `${sceneSpec.title || '3D'} Render (Stage 2)`,
+            linkedScene3DId: sceneId,
+            tabs: [tab2],
+            activeTabId: tab2.id,
+            createdAt: now + 1
+          })
+        }
+
+        update((b) => {
+          const targetScene = (b.scene3dNodes ?? []).find((s) => s.id === sceneId)
+          const extraConns: ShapeNode[] = []
+          const layerId = resolveConnectorLayerId(b)
+          if (hasSecondStage && createdNodes.length === 2) {
+            extraConns.push(
+              buildFlowConnectorNode({
+                source: createdNodes[0],
+                sourcePort: 'bottom',
+                target: createdNodes[1],
+                targetPort: 'top',
+                color: '#06b6d4',
+                animated: true,
+                fontFamily: settingsRef.current.font,
+                layerId
+              })
+            )
+            if (targetScene) {
+              extraConns.push(
+                buildFlowConnectorNode({
+                  source: createdNodes[1],
+                  sourcePort: 'right',
+                  target: targetScene,
+                  targetPort: 'left',
+                  color: '#06b6d4',
+                  animated: true,
+                  fontFamily: settingsRef.current.font,
+                  layerId
+                })
+              )
+            }
+          } else if (targetScene) {
+            extraConns.push(
+              buildFlowConnectorNode({
+                source: createdNodes[0],
+                sourcePort: 'right',
+                target: targetScene,
+                targetPort: 'left',
+                color: '#06b6d4',
+                animated: true,
+                fontFamily: settingsRef.current.font,
+                layerId
+              })
+            )
+          }
+          return {
+            ...b,
+            codeNodes: [...(b.codeNodes ?? []), ...createdNodes],
+            shapeNodes: [...b.shapeNodes, ...extraConns]
+          }
+        })
+        setSelectedId(newCode1.id)
+        setSelectedIds([newCode1.id])
+        scheduleRenderRef.current()
+        addToast('success', 'Created Flowchart-Connected Code Cards → 3D Scene! Running...')
+        setTimeout(() => void handleExecuteConnectedCodeFlow(newCode1.id, tabs[0].id), 60)
+      } else {
+        const gSpec: GraphPlotSpec = opts.graphSpec ?? {
+          title: 'Code Plot',
+          mode: 'data',
+          chartType: 'line',
+          xMin: -5,
+          xMax: 5,
+          yMin: -2,
+          yMax: 25,
+          xLabel: 'x',
+          yLabel: 'y',
+          axisStyle: 'frame',
+          showGrid: true,
+          showLegend: true,
+          functions: [],
+          dataKind: 'line',
+          categoriesText: '',
+          dataSeries: []
+        }
+
+        const ct = gSpec.chartType || (gSpec.mode === 'function' ? 'function' : gSpec.dataKind || 'line')
+        let starterCode = CODE_PIPELINE_PRESETS[2].tabs[0].code
+        if (ct === 'candlestick') {
+          starterCode = `def stock_ohlc():
+    return {
+        "type": "candlestick",
+        "title": "AAPL Weekly Price Action",
+        "x": ["Mon", "Tue", "Wed", "Thu", "Fri"],
+        "open": [212.4, 216.0, 214.2, 219.5, 224.0],
+        "high": [217.8, 218.5, 220.4, 225.2, 228.6],
+        "low": [211.0, 213.1, 213.8, 218.0, 222.5],
+        "close": [216.0, 214.2, 219.5, 224.0, 227.9]
+    }
+`
+        } else if (ct === 'histogram' || ct === 'bar' || ct === 'pie' || ct === 'violin' || ct === 'box') {
+          starterCode = `def compute_distribution():
+    # Return {"x": [...]} or {"x": labels, "y": values} to drive the connected Graph!
+    x = [14, 18, 22, 25, 28, 31, 34, 36, 39, 43, 47, 52, 58, 64]
+    return {
+        "type": "${ct}",
+        "title": "${gSpec.title || 'Code Distribution'}",
+        "x": x
+    }
+`
+        } else if (ct === 'surface3d' || ct === 'scatter3d' || ct === 'line3d' || ct === 'bar3d') {
+          starterCode = CODE_PIPELINE_PRESETS[1].tabs[0].code
+        } else if (ct === 'function') {
+          starterCode = `import math
+
+def compute_curve():
+    # Return any equation {"expr": "x^2 - 3*x"} OR numeric {"x": ..., "y": ...} hashmap!
+    x = [round(i * 0.25, 2) for i in range(-16, 17)]
+    y = [round((v ** 2) * 0.35 - v, 3) for v in x]
+    return {
+        "title": "Custom Python Curve: 0.35x^2 - x",
+        "x": x,
+        "y": y,
+        "xLabel": "x",
+        "yLabel": "y"
+    }
+`
+        }
+
+        const initialGraphSpec: GraphPlotSpec =
+          ct === 'function'
+            ? {
+              ...gSpec,
+              title: 'Custom Python Curve: 0.35x^2 - x',
+              mode: 'function',
+              chartType: 'function',
+              xMin: -4,
+              xMax: 4,
+              yMin: -2,
+              yMax: 10,
+              xLabel: 'x',
+              yLabel: 'y',
+              functions: [{ id: 'fn-1', label: '0.35*x^2 - x', expr: '0.35*x^2 - x', color: '#2563EB' }],
+              dataSeries: []
+            }
+            : gSpec
+
+        const graphId = `graph-${now.toString(36)}-lnk`
+        const newGraph: GraphNode = {
+          id: graphId,
+          x: placement.x + cardW + 72,
+          y: placement.y,
+          w: 520,
+          h: 370,
+          title: initialGraphSpec.title || 'Graph',
+          spec: initialGraphSpec,
+          linkedCodeNodeId: `code-${now.toString(36)}`,
+          createdAt: now
+        }
+        const tab: CodeTabItem = {
+          id: `tab-${now}-1`,
+          title: 'plot_data.py',
+          language: 'python',
+          code: starterCode,
+          visualMode: ct === 'surface3d' || ct === 'scatter3d' || ct === 'line3d' || ct === 'bar3d' ? 'scene3d' : 'plot2d',
+          output: null
+        }
+        const newCode: CodeNode = {
+          id: `code-${now.toString(36)}`,
+          x: placement.x,
+          y: placement.y,
+          w: cardW,
+          h: cardH,
+          title: `${initialGraphSpec.title || 'Graph'} Code`,
+          linkedGraphId: graphId,
+          tabs: [tab],
+          activeTabId: tab.id,
+          createdAt: now
+        }
+
+        pushHistory()
+        update((b) => {
+          const conn = buildFlowConnectorNode({
+            source: newCode,
+            sourcePort: 'right',
+            target: newGraph,
+            targetPort: 'left',
+            color: '#06b6d4',
+            animated: true,
+            fontFamily: settingsRef.current.font,
+            layerId: resolveConnectorLayerId(b)
+          })
+          return {
+            ...b,
+            graphNodes: [...(b.graphNodes ?? []), newGraph],
+            codeNodes: [...(b.codeNodes ?? []), newCode],
+            shapeNodes: [...b.shapeNodes, conn]
+          }
+        })
+        setSelectedId(newCode.id)
+        setSelectedIds([newCode.id])
+        scheduleRenderRef.current()
+        addToast('success', 'Created Connected Code Card → Graph! Running...')
+        setTimeout(() => void handleExecuteConnectedCodeFlow(newCode.id, tab.id), 60)
+      }
+    },
+    [update, pushHistory, handleInsertScene3D, resolveConnectorLayerId, addToast, handleExecuteConnectedCodeFlow]
   )
 
   const handleRotateSelected = useCallback(
@@ -2809,62 +3539,154 @@ export default function App(): React.JSX.Element {
 
       try {
         // =========================================================================
-        // TIER 1: 100% LOCAL ROUTING (Zero LLM API!)
-        // Handles pure handwriting (local CPU TrOCR) AND basic shapes + labels locally!
+        // TIER 1: LOCAL SHAPES + CONFIGURABLE HANDWRITING OCR (API Default, Local TrOCR Fallback)
         // =========================================================================
         if (mode === 'auto' && originalStrokes.length > 0) {
           const localAnalysis = analyzeSelectionLocally(originalStrokes, originalShapes)
 
-          // 1A. Pure Handwriting -> Local CPU TrOCR (`Xenova/trocr-small-handwritten`, zero LLM API)
-          if (
-            (localAnalysis.isPureHandwriting || looksLikePureHandwriting(curBoard, targetIds)) &&
-            api?.runLocalOcr
-          ) {
-            const ocrPayload = rasterizeStrokesForLocalOcr(originalStrokes)
-            if (ocrPayload) {
-              addToast('info', 'Recognizing handwriting locally on CPU (TrOCR)...')
-              const localOcrRes = await api.runLocalOcr({ imagesBase64: ocrPayload.imagesBase64 })
-              if (localOcrRes?.ok && localOcrRes.text.trim()) {
-                const b = ocrPayload.overallBounds
-                const padBounds = {
-                  minX: b.minX - 36,
-                  minY: b.minY - 36,
-                  maxX: b.maxX + 36,
-                  maxY: b.maxY + 36,
-                  x: b.minX - 36,
-                  y: b.minY - 36,
-                  w: Math.max(80, b.maxX - b.minX + 72),
-                  h: Math.max(60, b.maxY - b.minY + 72)
+          const transcribeHandwritingStrokes = async (
+            strokesToRead: Stroke[],
+            isLabel: boolean
+          ): Promise<{
+            text: string
+            bounds: { minX: number; minY: number; maxX: number; maxY: number }
+            engineLabel: string
+            error?: string
+          } | null> => {
+            const curSettings = settingsRef.current
+            const ocrMode = curSettings.ai.handwritingOcrMode ?? 'api'
+            const activeProvider = curSettings.ai.provider
+            const activeModel =
+              activeProvider === 'ollama'
+                ? curSettings.ai.ollamaModel
+                : curSettings.ai.byokModels[activeProvider] || DEFAULT_PROVIDER_MODELS[activeProvider]
+
+            let apiError: string | undefined
+
+            // Path A: Configured AI Vision API (Default)
+            if (ocrMode === 'api' && isAiConfiguredRef.current && api?.runAI) {
+              const block = rasterizeStrokesBlockForApiOcr(strokesToRead)
+              if (block) {
+                if (!isLabel) {
+                  setAiBusy(true)
+                  addToast(
+                    'info',
+                    `Recognizing handwriting via ${PROVIDER_LABELS[activeProvider]} (${activeModel})...`
+                  )
                 }
-                const dominantColor = originalStrokes[0]?.color || 'ink'
-                const textRes = buildImmersedTextFromOcr(
-                  localOcrRes.text.trim(),
-                  padBounds,
-                  activeFont,
-                  dominantColor
-                )
-                update((bd) => ({
-                  ...bd,
-                  strokes: bd.strokes.filter((s) => !idSet.has(s.id)),
-                  shapeNodes: bd.shapeNodes.filter((s) => !idSet.has(s.id)),
-                  textNodes: [...bd.textNodes.filter((t) => !idSet.has(t.id)), ...textRes.texts],
-                  equationNodes: bd.equationNodes.filter((eq) => !idSet.has(eq.id))
-                }))
-                const newIds = textRes.texts.map((t) => t.id)
-                setSelectedIds(newIds)
-                setSelectedId(newIds[0] ?? null)
-                setActiveTool('select')
-                pushHistory()
-                addToast(
-                  'success',
-                  `Converted handwriting locally on CPU (${localOcrRes.durationMs}ms · Zero LLM API)!`
-                )
-                return
+                try {
+                  const aiRes = await api.runAI({
+                    provider: activeProvider,
+                    model: activeModel,
+                    ollamaHost: curSettings.ai.ollamaHost,
+                    temperature: 0.1,
+                    imageBase64: block.base64,
+                    isHandwritingOCR: true
+                  })
+                  if (aiRes?.ok && aiRes.recognizedText?.trim()) {
+                    return {
+                      text: aiRes.recognizedText.trim(),
+                      bounds: block.bounds,
+                      engineLabel: `${PROVIDER_LABELS[activeProvider]} · ${activeModel}`
+                    }
+                  }
+                  apiError = aiRes?.error || 'Vision API returned empty handwriting text.'
+                } catch (err) {
+                  apiError = err instanceof Error ? err.message : String(err)
+                } finally {
+                  if (!isLabel) setAiBusy(false)
+                }
+                console.warn('[OCR] Vision API handwriting OCR fallback to Local TrOCR:', apiError)
               }
+            }
+
+            // Path B: Local CPU TrOCR (`Xenova/trocr-base-handwritten`)
+            if (api?.runLocalOcr) {
+              const ocrPayload = rasterizeStrokesForLocalOcr(strokesToRead)
+              if (!ocrPayload) return null
+              if (!isLabel) {
+                addToast(
+                  'info',
+                  apiError
+                    ? 'Vision API OCR unavailable; recognizing locally on CPU (TrOCR Base)...'
+                    : 'Recognizing handwriting locally on CPU (TrOCR Base)...'
+                )
+              }
+              const localOcrRes = await api.runLocalOcr({
+                imagesBase64: ocrPayload.imagesBase64,
+                lineIndices: ocrPayload.lineIndices
+              })
+              if (localOcrRes?.ok && localOcrRes.text.trim()) {
+                return {
+                  text: localOcrRes.text.trim(),
+                  bounds: ocrPayload.overallBounds,
+                  engineLabel: `Local CPU TrOCR (${localOcrRes.durationMs}ms)`
+                }
+              }
+              return {
+                text: '',
+                bounds: ocrPayload.overallBounds,
+                engineLabel: 'Local CPU TrOCR',
+                error: localOcrRes?.error || apiError
+              }
+            }
+
+            return apiError
+              ? {
+                text: '',
+                bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+                engineLabel: PROVIDER_LABELS[activeProvider],
+                error: apiError
+              }
+              : null
+          }
+
+          // 1A. Pure Handwriting -> Configured AI API (Default) with Local TrOCR Fallback
+          if (
+            localAnalysis.isPureHandwriting ||
+            (localAnalysis.shapes.length === 0 && looksLikePureHandwriting(curBoard, targetIds))
+          ) {
+            const ocrRes = await transcribeHandwritingStrokes(originalStrokes, false)
+            if (ocrRes && ocrRes.text.trim()) {
+              const b = ocrRes.bounds
+              const padBounds = {
+                minX: b.minX - 36,
+                minY: b.minY - 36,
+                maxX: b.maxX + 36,
+                maxY: b.maxY + 36,
+                x: b.minX - 36,
+                y: b.minY - 36,
+                w: Math.max(80, b.maxX - b.minX + 72),
+                h: Math.max(60, b.maxY - b.minY + 72)
+              }
+              const dominantColor = originalStrokes[0]?.color || 'ink'
+              const textRes = buildImmersedTextFromOcr(
+                ocrRes.text.trim(),
+                padBounds,
+                activeFont,
+                dominantColor
+              )
+              update((bd) => ({
+                ...bd,
+                strokes: bd.strokes.filter((s) => !idSet.has(s.id)),
+                shapeNodes: bd.shapeNodes.filter((s) => !idSet.has(s.id)),
+                textNodes: [...bd.textNodes.filter((t) => !idSet.has(t.id)), ...textRes.texts],
+                equationNodes: bd.equationNodes.filter((eq) => !idSet.has(eq.id))
+              }))
+              const newIds = textRes.texts.map((t) => t.id)
+              setSelectedIds(newIds)
+              setSelectedId(newIds[0] ?? null)
+              setActiveTool('select')
+              pushHistory()
+              addToast('success', `Converted handwriting (${ocrRes.engineLabel})!`)
+              return
+            } else if (ocrRes?.error) {
+              console.warn('[OCR] Pure handwriting fallback:', ocrRes.error)
+              addToast('info', `Could not read handwriting (${ocrRes.error}); trying diagram fallback...`)
             }
           }
 
-          // 1B. Pure Basic Shapes & Connectors (+ Optional Handwritten Labels Inside/Near Shapes) -> 100% Local!
+          // 1B. Pure Basic Shapes & Connectors (+ Optional Handwritten Labels Inside/Near Shapes)
           if (localAnalysis.isPureBasicShapesAndLabels && localAnalysis.shapes.length > 0) {
             const targetInkLayerId = resolveTargetInkLayerId(curBoard) ?? 'layer-base-ink'
             const groupId = `vloc-${Date.now().toString(36)}`
@@ -2875,15 +3697,15 @@ export default function App(): React.JSX.Element {
               vectorGroupId: groupId
             }))
             const extraTexts: TextNode[] = [...originalTexts]
+            let labelEngineNote: string | null = null
 
-            // Transcribe any handwritten labels inside/near shapes locally on CPU!
-            if (localAnalysis.labelClusters.length > 0 && api?.runLocalOcr) {
+            // Transcribe any handwritten labels inside/near shapes (API default or Local TrOCR)
+            if (localAnalysis.labelClusters.length > 0) {
               for (let cIdx = 0; cIdx < localAnalysis.labelClusters.length; cIdx++) {
                 const cluster = localAnalysis.labelClusters[cIdx]
-                const payload = rasterizeStrokesForLocalOcr(cluster.strokes)
-                if (!payload) continue
-                const res = await api.runLocalOcr({ imagesBase64: payload.imagesBase64 })
-                if (res?.ok && res.text.trim()) {
+                const res = await transcribeHandwritingStrokes(cluster.strokes, true)
+                if (res && res.text.trim()) {
+                  labelEngineNote = res.engineLabel
                   if (
                     cluster.hostShapeIndex !== undefined &&
                     nextShapes[cluster.hostShapeIndex] &&
@@ -2911,6 +3733,8 @@ export default function App(): React.JSX.Element {
                       createdAt: Date.now() + cIdx
                     })
                   }
+                } else if (res?.error) {
+                  console.warn('[OCR] Label OCR failed:', res.error)
                 }
               }
             }
@@ -2948,7 +3772,9 @@ export default function App(): React.JSX.Element {
             scheduleRenderRef.current()
             addToast(
               'success',
-              `Vectorized ${nextShapes.length} shape${nextShapes.length > 1 ? 's' : ''} locally (Zero LLM API)!`
+              labelEngineNote
+                ? `Vectorized ${nextShapes.length} shape${nextShapes.length > 1 ? 's' : ''} locally + labels (${labelEngineNote})!`
+                : `Vectorized ${nextShapes.length} shape${nextShapes.length > 1 ? 's' : ''} locally (Zero LLM API)!`
             )
             return
           }
@@ -3183,8 +4009,8 @@ export default function App(): React.JSX.Element {
                     effectiveMode === 'trace_only'
                       ? 'trace_only'
                       : effectiveMode === 'flat_vector' ||
-                          effectiveMode === 'clean_line_art' ||
-                          effectiveMode === 'editorial_poster'
+                        effectiveMode === 'clean_line_art' ||
+                        effectiveMode === 'editorial_poster'
                         ? effectiveMode
                         : (smartRes.brief?.style ?? 'flat_vector'),
                   refinementUsed: smartRes.vectorArt.refinementUsed,
@@ -3199,11 +4025,11 @@ export default function App(): React.JSX.Element {
               const hybrid =
                 smartRes.category === 'hybrid' && smartRes.callouts && smartRes.callouts.length > 0
                   ? buildHybridCalloutNodes(
-                      smartRes.callouts,
-                      { x: artNode.x, y: artNode.y, width: artNode.width, height: artNode.height },
-                      activeFont,
-                      artId
-                    )
+                    smartRes.callouts,
+                    { x: artNode.x, y: artNode.y, width: artNode.width, height: artNode.height },
+                    activeFont,
+                    artId
+                  )
                   : { shapes: [], texts: [] }
 
               update((b) => ({
@@ -3589,6 +4415,14 @@ export default function App(): React.JSX.Element {
       allX.push(img.x, img.x + (img.w ?? 360))
       allY.push(img.y, img.y + (img.h ?? 260))
     }
+    for (const s3d of curBoard.scene3dNodes ?? []) {
+      allX.push(s3d.x, s3d.x + (s3d.w ?? 480))
+      allY.push(s3d.y, s3d.y + (s3d.h ?? 380))
+    }
+    for (const gr of curBoard.graphNodes ?? []) {
+      allX.push(gr.x, gr.x + (gr.w ?? 520))
+      allY.push(gr.y, gr.y + (gr.h ?? 390))
+    }
 
     if (allX.length === 0) {
       setView({ zoom: 1.0, panX: 0, panY: 0 })
@@ -3659,6 +4493,12 @@ export default function App(): React.JSX.Element {
       images: (curBoard.imageNodes ?? [])
         .filter((im) => idSet.has(im.id))
         .map((im) => ({ id: im.id, initX: im.x, initY: im.y })),
+      scene3ds: (curBoard.scene3dNodes ?? [])
+        .filter((s3d) => idSet.has(s3d.id))
+        .map((s3d) => ({ id: s3d.id, initX: s3d.x, initY: s3d.y })),
+      graphs: (curBoard.graphNodes ?? [])
+        .filter((gr) => idSet.has(gr.id))
+        .map((gr) => ({ id: gr.id, initX: gr.x, initY: gr.y })),
       strokes: curBoard.strokes
         .filter((st) => idSet.has(st.id))
         .map((st) => ({
@@ -3679,7 +4519,7 @@ export default function App(): React.JSX.Element {
     (dx: number, dy: number) => {
       const drag = shapeDragRef.current
       if (!drag || drag.kind !== 'move' || !drag.snapshots) return
-      const { shapes, vectorArts, texts, equations, diagrams, codes, videos, images, strokes } = drag.snapshots
+      const { shapes, vectorArts, texts, equations, diagrams, codes, videos, images, scene3ds, graphs, strokes } = drag.snapshots
 
       const vectorArtMap = new Map(
         (vectorArts ?? []).map((v) => [
@@ -3718,6 +4558,8 @@ export default function App(): React.JSX.Element {
       const codeMap = new Map((codes ?? []).map((c) => [c.id, { x: Math.round(c.initX + dx), y: Math.round(c.initY + dy) }]))
       const videoMap = new Map((videos ?? []).map((v) => [v.id, { x: Math.round(v.initX + dx), y: Math.round(v.initY + dy) }]))
       const imageMap = new Map((images ?? []).map((im) => [im.id, { x: Math.round(im.initX + dx), y: Math.round(im.initY + dy) }]))
+      const scene3dMap = new Map((scene3ds ?? []).map((s3d) => [s3d.id, { x: Math.round(s3d.initX + dx), y: Math.round(s3d.initY + dy) }]))
+      const graphMap = new Map((graphs ?? []).map((gr) => [gr.id, { x: Math.round(gr.initX + dx), y: Math.round(gr.initY + dy) }]))
       const strokeMap = new Map(
         strokes.map((st) => [
           st.id,
@@ -3730,28 +4572,502 @@ export default function App(): React.JSX.Element {
           const movedShapes = b.shapeNodes.map((s) =>
             shapeMap.has(s.id) ? { ...s, ...shapeMap.get(s.id)! } : s
           )
+          const movedCodes = (b.codeNodes ?? []).map((c) =>
+            codeMap.has(c.id) ? { ...c, ...codeMap.get(c.id)! } : c
+          )
+          const movedScene3ds = (b.scene3dNodes ?? []).map((s3d) =>
+            scene3dMap.has(s3d.id) ? { ...s3d, ...scene3dMap.get(s3d.id)! } : s3d
+          )
+          const movedGraphs = (b.graphNodes ?? []).map((gr) =>
+            graphMap.has(gr.id) ? { ...gr, ...graphMap.get(gr.id)! } : gr
+          )
           const hasRotatedGroup = b.shapeNodes.some(
             (s) => shapeMap.has(s.id) && Boolean(s.rotation && Math.abs(s.rotation) > 0.5)
           )
           return {
             ...b,
-            shapeNodes: hasRotatedGroup ? movedShapes : syncBoundConnectors(movedShapes),
-          vectorArtNodes: (b.vectorArtNodes ?? []).map((v) =>
-            vectorArtMap.has(v.id) ? { ...v, ...vectorArtMap.get(v.id)! } : v
-          ),
-          textNodes: b.textNodes.map((t) => (textMap.has(t.id) ? { ...t, ...textMap.get(t.id)! } : t)),
-          equationNodes: b.equationNodes.map((e) => (eqMap.has(e.id) ? { ...e, ...eqMap.get(e.id)! } : e)),
-          diagramNodes: (b.diagramNodes ?? []).map((d) => (diagMap.has(d.id) ? { ...d, ...diagMap.get(d.id)! } : d)),
-          codeNodes: (b.codeNodes ?? []).map((c) => (codeMap.has(c.id) ? { ...c, ...codeMap.get(c.id)! } : c)),
-          videoNodes: (b.videoNodes ?? []).map((v) => (videoMap.has(v.id) ? { ...v, ...videoMap.get(v.id)! } : v)),
-          imageNodes: (b.imageNodes ?? []).map((im) => (imageMap.has(im.id) ? { ...im, ...imageMap.get(im.id)! } : im)),
-          strokes: b.strokes.map((st) => (strokeMap.has(st.id) ? { ...st, points: strokeMap.get(st.id)! } : st))
-        }
-      },
+            shapeNodes: hasRotatedGroup
+              ? movedShapes
+              : syncBoundConnectors(movedShapes, [...movedCodes, ...movedScene3ds, ...movedGraphs]),
+            vectorArtNodes: (b.vectorArtNodes ?? []).map((v) =>
+              vectorArtMap.has(v.id) ? { ...v, ...vectorArtMap.get(v.id)! } : v
+            ),
+            textNodes: b.textNodes.map((t) => (textMap.has(t.id) ? { ...t, ...textMap.get(t.id)! } : t)),
+            equationNodes: b.equationNodes.map((e) => (eqMap.has(e.id) ? { ...e, ...eqMap.get(e.id)! } : e)),
+            diagramNodes: (b.diagramNodes ?? []).map((d) => (diagMap.has(d.id) ? { ...d, ...diagMap.get(d.id)! } : d)),
+            codeNodes: movedCodes,
+            videoNodes: (b.videoNodes ?? []).map((v) => (videoMap.has(v.id) ? { ...v, ...videoMap.get(v.id)! } : v)),
+            imageNodes: (b.imageNodes ?? []).map((im) => (imageMap.has(im.id) ? { ...im, ...imageMap.get(im.id)! } : im)),
+            scene3dNodes: movedScene3ds,
+            graphNodes: movedGraphs,
+            strokes: b.strokes.map((st) => (strokeMap.has(st.id) ? { ...st, points: strokeMap.get(st.id)! } : st))
+          }
+        },
         { history: false }
       )
     },
     [update]
+  )
+
+  const findConnectableOnBoard = useCallback(
+    (
+      b: BoardState,
+      id: string
+    ): { el: ConnectableBoardElement; kind: 'shape' | 'code' | 'scene3d' | 'graph'; label: string } | null => {
+      const sh = b.shapeNodes.find((s) => s.id === id)
+      if (sh) {
+        return {
+          el: sh,
+          kind: 'shape',
+          label: sh.label || (sh.vectorGroupId ? '2D Graph' : sh.shape)
+        }
+      }
+      const cd = (b.codeNodes ?? []).find((c) => c.id === id)
+      if (cd) {
+        return { el: cd, kind: 'code', label: cd.title || 'Code Card' }
+      }
+      const s3 = (b.scene3dNodes ?? []).find((s) => s.id === id)
+      if (s3) {
+        return { el: s3, kind: 'scene3d', label: s3.title || '3D Scene' }
+      }
+      const gr = (b.graphNodes ?? []).find((g) => g.id === id)
+      if (gr) {
+        return { el: gr, kind: 'graph', label: gr.title || gr.spec?.title || 'Graph' }
+      }
+      return null
+    },
+    []
+  )
+
+  const getConnectableTargets = useCallback(
+    (
+      curBoard: BoardState,
+      curLayers: typeof boardLayersRef.current,
+      excludeId: string
+    ): ConnectableBoardElement[] => {
+      const targets: ConnectableBoardElement[] = []
+      const cardsEditable =
+        partitionedLayersRef.current.cardsLayer.visible &&
+        !partitionedLayersRef.current.cardsLayer.locked
+      if (cardsEditable) {
+        for (const gr of [...(curBoard.graphNodes ?? [])].reverse()) {
+          if (gr.id !== excludeId) targets.push(gr)
+        }
+        for (const s3 of [...(curBoard.scene3dNodes ?? [])].reverse()) {
+          if (s3.id !== excludeId) targets.push(s3)
+        }
+        for (const cd of [...(curBoard.codeNodes ?? [])].reverse()) {
+          if (cd.id !== excludeId) targets.push(cd)
+        }
+      }
+      for (const sh of [...curBoard.shapeNodes].reverse()) {
+        if (
+          sh.id === excludeId ||
+          isConnectorShape(sh) ||
+          !isItemEditable(sh.layerId, curLayers)
+        ) {
+          continue
+        }
+        targets.push(sh)
+      }
+      return targets
+    },
+    []
+  )
+
+  const updateConnectDrag = useCallback(
+    (canvasPt: { x: number; y: number }) => {
+      const drag = shapeDragRef.current
+      if (!drag || drag.kind !== 'connect' || !drag.sourceShapeId) return
+      drag.currentX = canvasPt.x
+      drag.currentY = canvasPt.y
+      const curBoard = boardRef.current
+      const curLayers = boardLayersRef.current
+      const zoom = viewRef.current.zoom
+      const portSnapTol = 28 / zoom
+      let nextSnap: { shapeId: string; port: PortSide } | null = null
+      let bestDist = Infinity
+
+      for (const target of getConnectableTargets(curBoard, curLayers, drag.sourceShapeId)) {
+        const handles = getShapePortHandles(target, zoom)
+        for (const h of handles) {
+          const dDot = Math.hypot(canvasPt.x - h.dotX, canvasPt.y - h.dotY)
+          const dAnc = Math.hypot(canvasPt.x - h.anchorX, canvasPt.y - h.anchorY)
+          const d = Math.min(dDot, dAnc)
+          if (d <= portSnapTol && d < bestDist) {
+            bestDist = d
+            nextSnap = { shapeId: target.id, port: h.port }
+          }
+        }
+        const b =
+          'shape' in target
+            ? getShapeBoundingRect(target as ShapeNode)
+            : { x: target.x, y: target.y, w: target.w, h: target.h }
+        if (
+          canvasPt.x >= b.x &&
+          canvasPt.x <= b.x + Math.max(20, b.w) &&
+          canvasPt.y >= b.y &&
+          canvasPt.y <= b.y + Math.max(20, b.h)
+        ) {
+          const nearPort = pickNearestPort(target, canvasPt)
+          if (!nextSnap) {
+            nextSnap = { shapeId: target.id, port: nearPort }
+          }
+          break
+        }
+      }
+
+      drag.snapTarget = nextSnap
+      scheduleRenderRef.current()
+    },
+    [getConnectableTargets]
+  )
+
+  const finishConnectDrag = useCallback(
+    (finishedDrag: ShapeDragState) => {
+      if (!finishedDrag.sourceShapeId || !finishedDrag.sourcePort) return
+      const curBoard = boardRef.current
+      const sourceInfo = findConnectableOnBoard(curBoard, finishedDrag.sourceShapeId)
+      if (!sourceInfo) {
+        scheduleRenderRef.current()
+        return
+      }
+      const sourceEl = sourceInfo.el
+      const endX = finishedDrag.currentX ?? finishedDrag.startPinchX
+      const endY = finishedDrag.currentY ?? finishedDrag.startPinchY
+      const dragDist = Math.hypot(
+        endX - finishedDrag.startPinchX,
+        endY - finishedDrag.startPinchY
+      )
+
+      if (finishedDrag.snapTarget) {
+        const targetInfo = findConnectableOnBoard(curBoard, finishedDrag.snapTarget.shapeId)
+        if (targetInfo) {
+          const involvesCard = sourceInfo.kind !== 'shape' || targetInfo.kind !== 'shape'
+          const conn = buildFlowConnectorNode({
+            source: sourceEl,
+            sourcePort: finishedDrag.sourcePort,
+            target: targetInfo.el,
+            targetPort: finishedDrag.snapTarget.port,
+            color: involvesCard ? '#06b6d4' : 'ink',
+            animated: involvesCard,
+            fontFamily: settingsRef.current.font,
+            layerId: involvesCard ? resolveConnectorLayerId(curBoard, sourceEl.layerId) : sourceEl.layerId
+          })
+          let autoRunCodeId: string | null = null
+          if (sourceInfo.kind === 'code' && (targetInfo.kind === 'graph' || targetInfo.kind === 'scene3d')) {
+            autoRunCodeId = sourceEl.id
+          } else if (targetInfo.kind === 'code' && (sourceInfo.kind === 'graph' || sourceInfo.kind === 'scene3d')) {
+            autoRunCodeId = targetInfo.el.id
+          }
+          update((b) => {
+            let nextCodeNodes = b.codeNodes ?? []
+            let nextGraphNodes = b.graphNodes ?? []
+            if (sourceInfo.kind === 'code' && targetInfo.kind === 'graph') {
+              nextCodeNodes = nextCodeNodes.map((c) =>
+                c.id === sourceEl.id ? { ...c, linkedGraphId: targetInfo.el.id } : c
+              )
+              nextGraphNodes = nextGraphNodes.map((g) =>
+                g.id === targetInfo.el.id ? { ...g, linkedCodeNodeId: sourceEl.id } : g
+              )
+            } else if (sourceInfo.kind === 'graph' && targetInfo.kind === 'code') {
+              nextCodeNodes = nextCodeNodes.map((c) =>
+                c.id === targetInfo.el.id ? { ...c, linkedGraphId: sourceEl.id } : c
+              )
+              nextGraphNodes = nextGraphNodes.map((g) =>
+                g.id === sourceEl.id ? { ...g, linkedCodeNodeId: targetInfo.el.id } : g
+              )
+            } else if (sourceInfo.kind === 'code' && targetInfo.kind === 'scene3d') {
+              nextCodeNodes = nextCodeNodes.map((c) =>
+                c.id === sourceEl.id ? { ...c, linkedScene3DId: targetInfo.el.id } : c
+              )
+            } else if (sourceInfo.kind === 'scene3d' && targetInfo.kind === 'code') {
+              nextCodeNodes = nextCodeNodes.map((c) =>
+                c.id === targetInfo.el.id ? { ...c, linkedScene3DId: sourceEl.id } : c
+              )
+            }
+            return {
+              ...b,
+              codeNodes: nextCodeNodes,
+              graphNodes: nextGraphNodes,
+              shapeNodes: [...b.shapeNodes, conn]
+            }
+          })
+          setSelectedIds([conn.id])
+          scheduleRenderRef.current()
+          addToast('success', `Connected "${sourceInfo.label}" → "${targetInfo.label}"`)
+          if (autoRunCodeId) {
+            const runId = autoRunCodeId
+            setTimeout(() => void handleExecuteConnectedCodeFlow(runId), 60)
+          }
+          return
+        }
+      }
+
+      if (dragDist >= 24) {
+        const isCard = sourceInfo.kind !== 'shape'
+        const conn = buildFlowConnectorNode({
+          source: sourceEl,
+          sourcePort: finishedDrag.sourcePort,
+          freeEnd: { x: Math.round(endX), y: Math.round(endY) },
+          color: isCard ? '#06b6d4' : 'ink',
+          animated: isCard,
+          fontFamily: settingsRef.current.font,
+          layerId: isCard ? resolveConnectorLayerId(curBoard, sourceEl.layerId) : sourceEl.layerId
+        })
+        update((b) => ({ ...b, shapeNodes: [...b.shapeNodes, conn] }))
+        setSelectedIds([conn.id])
+        scheduleRenderRef.current()
+        addToast('success', 'Added flow connector')
+        return
+      }
+
+      const [nx, ny] = portNormal(finishedDrag.sourcePort)
+      const targetPort = getOppositePort(finishedDrag.sourcePort)
+
+      if (sourceInfo.kind === 'code') {
+        const nextW = Math.max(420, Math.round(sourceEl.w))
+        const nextH = Math.max(340, Math.round(sourceEl.h))
+        const stageGap = 90
+        let nextX = sourceEl.x
+        let nextY = sourceEl.y
+        if (nx > 0) nextX = sourceEl.x + sourceEl.w + stageGap
+        else if (nx < 0) nextX = sourceEl.x - stageGap - nextW
+        if (ny > 0) nextY = sourceEl.y + sourceEl.h + stageGap
+        else if (ny < 0) nextY = sourceEl.y - stageGap - nextH
+
+        // Detect downstream Graph / 3D Scene already attached on this side so we insert cleanly before it
+        const downstreamConn = curBoard.shapeNodes.find(
+          (s) =>
+            isConnectorShape(s) &&
+            s.startBinding?.shapeId === sourceEl.id &&
+            Boolean(s.endBinding?.shapeId) &&
+            ((curBoard.graphNodes ?? []).some((g) => g.id === s.endBinding?.shapeId) ||
+              (curBoard.scene3dNodes ?? []).some((s3) => s3.id === s.endBinding?.shapeId))
+        )
+        const downstreamTargetId =
+          downstreamConn?.endBinding?.shapeId ??
+          (sourceEl as CodeNode).linkedGraphId ??
+          (sourceEl as CodeNode).linkedScene3DId
+        const downstreamGraph = (curBoard.graphNodes ?? []).find((g) => g.id === downstreamTargetId)
+        const downstreamScene = (curBoard.scene3dNodes ?? []).find((s3) => s3.id === downstreamTargetId)
+        const downstreamVisual = downstreamGraph ?? downstreamScene
+        const insertingBeforeVisual = Boolean(downstreamVisual && nx >= 0)
+
+        if (!insertingBeforeVisual) {
+          const occ = collectOccupiedBoardRects(curBoard)
+          const candOverlap = occ.some(
+            (r) =>
+              nextX < r.x + r.w + 24 &&
+              nextX + nextW + 24 > r.x &&
+              nextY < r.y + r.h + 24 &&
+              nextY + nextH + 24 > r.y
+          )
+          if (candOverlap) {
+            const freeSlot = findEmptyBoardRect(
+              occ,
+              nextW,
+              nextH,
+              viewRef.current,
+              getSafeViewportScreenRect(),
+              { gap: 28 }
+            )
+            nextX = freeSlot.x
+            nextY = freeSlot.y
+          }
+        }
+
+        const now = Date.now()
+        const newTab: CodeTabItem = {
+          id: `tab-${now.toString(36)}-nxt`,
+          title: 'transform.py',
+          language: 'python',
+          code: `# 'data' automatically receives the dict returned by "${sourceInfo.label}"!\ndef transform(data):\n    x = data.get("x", [1, 2, 3, 4, 5])\n    y = data.get("y") or data.get("raw_y") or [10, 20, 15, 30, 25]\n\n    # Process your data cleanly (no sys.stdin/json boilerplate needed)\n    processed_y = [round(v * 1.5, 2) for v in y]\n\n    return {\n        "title": "Processed Output",\n        "x": x,\n        "y": processed_y\n    }\n`,
+          stdin: '',
+          output: null
+        }
+        const spawnedCode: CodeNode = {
+          id: `code-${now.toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
+          x: Math.round(nextX),
+          y: Math.round(nextY),
+          w: nextW,
+          h: nextH,
+          title: `Next: ${sourceInfo.label}`,
+          ...(downstreamGraph ? { linkedGraphId: downstreamGraph.id } : {}),
+          ...(downstreamScene ? { linkedScene3DId: downstreamScene.id } : {}),
+          tabs: [newTab],
+          activeTabId: newTab.id,
+          createdAt: now
+        }
+        const layerId = resolveConnectorLayerId(curBoard, sourceEl.layerId)
+        const conn1 = buildFlowConnectorNode({
+          source: sourceEl,
+          sourcePort: finishedDrag.sourcePort,
+          target: spawnedCode,
+          targetPort,
+          color: '#06b6d4',
+          animated: true,
+          fontFamily: settingsRef.current.font,
+          layerId
+        })
+
+        update((b) => {
+          const shiftRight = nextW + stageGap
+          const nextGraphs = (b.graphNodes ?? []).map((g) => {
+            if (downstreamGraph && g.id === downstreamGraph.id && insertingBeforeVisual) {
+              return {
+                ...g,
+                x: Math.max(g.x, spawnedCode.x + shiftRight),
+                linkedCodeNodeId: spawnedCode.id
+              }
+            }
+            return g
+          })
+          const nextScenes = (b.scene3dNodes ?? []).map((s3) => {
+            if (downstreamScene && s3.id === downstreamScene.id && insertingBeforeVisual) {
+              return {
+                ...s3,
+                x: Math.max(s3.x, spawnedCode.x + shiftRight)
+              }
+            }
+            return s3
+          })
+          const nextCodes = (b.codeNodes ?? []).map((c) =>
+            c.id === sourceEl.id && insertingBeforeVisual
+              ? { ...c, linkedGraphId: undefined, linkedScene3DId: undefined }
+              : c
+          )
+          const shiftedVisualTarget = insertingBeforeVisual
+            ? (nextGraphs.find((g) => g.id === downstreamGraph?.id) ??
+               nextScenes.find((s3) => s3.id === downstreamScene?.id))
+            : undefined
+          const extraConn = shiftedVisualTarget
+            ? buildFlowConnectorNode({
+                source: spawnedCode,
+                sourcePort: 'right',
+                target: shiftedVisualTarget,
+                targetPort: 'left',
+                color: '#06b6d4',
+                animated: true,
+                fontFamily: settingsRef.current.font,
+                layerId
+              })
+            : null
+          const filteredShapes =
+            insertingBeforeVisual && downstreamConn
+              ? b.shapeNodes.filter((s) => s.id !== downstreamConn.id)
+              : b.shapeNodes
+          const finalShapes = syncBoundConnectors(
+            [...filteredShapes, conn1, ...(extraConn ? [extraConn] : [])],
+            [...nextCodes, spawnedCode, ...nextScenes, ...nextGraphs]
+          )
+          return {
+            ...b,
+            codeNodes: [...nextCodes, spawnedCode],
+            graphNodes: nextGraphs,
+            scene3dNodes: nextScenes,
+            shapeNodes: finalShapes
+          }
+        })
+        setSelectedId(spawnedCode.id)
+        setSelectedIds([spawnedCode.id])
+        scheduleRenderRef.current()
+        addToast(
+          'success',
+          insertingBeforeVisual
+            ? 'Inserted pipeline stage before Graph! Running flow...'
+            : 'Spawned connected Coding Tab'
+        )
+        if (insertingBeforeVisual) {
+          setTimeout(() => void handleExecuteConnectedCodeFlow(sourceEl.id), 60)
+        }
+        return
+      }
+
+      if (sourceInfo.kind === 'shape') {
+        const sourceShape = sourceEl as ShapeNode
+        const srcBounds = getShapeBoundingRect(sourceShape)
+        const nextW = Math.max(64, Math.round(srcBounds.w))
+        const nextH = Math.max(40, Math.round(srcBounds.h))
+        let nextX = srcBounds.x
+        let nextY = srcBounds.y
+        if (nx > 0) nextX = srcBounds.x + srcBounds.w + 140
+        else if (nx < 0) nextX = srcBounds.x - 140 - nextW
+        if (ny > 0) nextY = srcBounds.y + srcBounds.h + 140
+        else if (ny < 0) nextY = srcBounds.y - 140 - nextH
+
+        const spawnedShape: ShapeNode = {
+          ...sourceShape,
+          id: `shape-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
+          x: Math.round(nextX),
+          y: Math.round(nextY),
+          w: nextW,
+          h: nextH,
+          ...(sourceShape.label ? { label: 'Next Step' } : {})
+        }
+        const conn = buildFlowConnectorNode({
+          source: sourceShape,
+          sourcePort: finishedDrag.sourcePort,
+          target: spawnedShape,
+          targetPort,
+          fontFamily: settingsRef.current.font,
+          layerId: sourceShape.layerId
+        })
+        update((b) => ({ ...b, shapeNodes: [...b.shapeNodes, spawnedShape, conn] }))
+        setSelectedId(spawnedShape.id)
+        setSelectedIds([spawnedShape.id])
+        scheduleRenderRef.current()
+        addToast('success', 'Added connected shape')
+        return
+      }
+      scheduleRenderRef.current()
+    },
+    [findConnectableOnBoard, resolveConnectorLayerId, update, setSelectedId, setSelectedIds, addToast, handleExecuteConnectedCodeFlow]
+  )
+
+  const handleStartCardConnect = useCallback(
+    (sourceId: string, port: PortSide, _clientX: number, _clientY: number) => {
+      const curBoard = boardRef.current
+      const info = findConnectableOnBoard(curBoard, sourceId)
+      if (!info) return
+      const portPt = getShapePorts(info.el)[port]
+      setActiveTool('select')
+      shapeDragRef.current = {
+        kind: 'connect',
+        sourceShapeId: sourceId,
+        sourcePort: port,
+        startPinchX: portPt.x,
+        startPinchY: portPt.y,
+        currentX: portPt.x,
+        currentY: portPt.y,
+        snapTarget: null
+      }
+      scheduleRenderRef.current()
+
+      const onWinMove = (ev: PointerEvent): void => {
+        const canvasEl = committedCanvasRef.current
+        if (!canvasEl) return
+        const rect = canvasEl.getBoundingClientRect()
+        const pt = screenToCanvas(ev.clientX - rect.left, ev.clientY - rect.top, viewRef.current)
+        updateConnectDrag(pt)
+      }
+      const onWinUp = (): void => {
+        window.removeEventListener('pointermove', onWinMove)
+        window.removeEventListener('pointerup', onWinUp)
+        window.removeEventListener('pointercancel', onWinUp)
+        const drag = shapeDragRef.current
+        shapeDragRef.current = null
+        if (drag?.kind === 'connect') {
+          finishConnectDrag(drag)
+        } else {
+          scheduleRenderRef.current()
+        }
+      }
+      window.addEventListener('pointermove', onWinMove)
+      window.addEventListener('pointerup', onWinUp)
+      window.addEventListener('pointercancel', onWinUp)
+    },
+    [findConnectableOnBoard, updateConnectDrag, finishConnectDrag]
   )
 
   const getCanvasCursorClass = (): string => {
@@ -3875,6 +5191,7 @@ export default function App(): React.JSX.Element {
         createdAt: Date.now()
       }
       update((b) => ({ ...b, textNodes: [...b.textNodes, newNode] }))
+      setSelectedId(newNode.id)
       setSelectedIds([newNode.id])
       setActiveTool('select')
       return
@@ -3891,6 +5208,7 @@ export default function App(): React.JSX.Element {
         createdAt: Date.now()
       }
       update((b) => ({ ...b, equationNodes: [...b.equationNodes, newEq] }))
+      setSelectedId(newEq.id)
       setSelectedIds([newEq.id])
       setActiveTool('select')
       return
@@ -3952,9 +5270,9 @@ export default function App(): React.JSX.Element {
           const cy = s.y + s.h / 2
           const localPt = rotRad
             ? (() => {
-                const [lx, ly] = rotatePointAround(canvasPt.x, canvasPt.y, cx, cy, -rotRad)
-                return { x: lx, y: ly }
-              })()
+              const [lx, ly] = rotatePointAround(canvasPt.x, canvasPt.y, cx, cy, -rotRad)
+              return { x: lx, y: ly }
+            })()
             : canvasPt
           const localBounds = rotRad
             ? { x: s.x, y: s.y, w: s.w, h: s.h, minX: s.x, minY: s.y, maxX: s.x + s.w, maxY: s.y + s.h }
@@ -4014,9 +5332,9 @@ export default function App(): React.JSX.Element {
           const rotRad = v.rotation ? (v.rotation * Math.PI) / 180 : 0
           const localPt = rotRad
             ? (() => {
-                const [lx, ly] = rotatePointAround(canvasPt.x, canvasPt.y, cx, cy, -rotRad)
-                return { x: lx, y: ly }
-              })()
+              const [lx, ly] = rotatePointAround(canvasPt.x, canvasPt.y, cx, cy, -rotRad)
+              return { x: lx, y: ly }
+            })()
             : canvasPt
           if (Math.hypot(localPt.x - cx, localPt.y - (v.y - 26 / zoom)) <= hitTol) {
             pushHistory()
@@ -4470,6 +5788,12 @@ export default function App(): React.JSX.Element {
           for (const img of curBoard.imageNodes ?? []) {
             if (isImageInRect(img, rect)) ids.push(img.id)
           }
+          for (const s3d of curBoard.scene3dNodes ?? []) {
+            if (isScene3DInRect(s3d, rect)) ids.push(s3d.id)
+          }
+          for (const gr of curBoard.graphNodes ?? []) {
+            if (isGraphInRect(gr, rect)) ids.push(gr.id)
+          }
         }
         for (const st of curBoard.strokes) {
           if (isItemEditable(st.layerId, curLayers) && isStrokeInRect(st, rect)) ids.push(st.id)
@@ -4482,50 +5806,7 @@ export default function App(): React.JSX.Element {
         const dy = canvasPt.y - drag.startPinchY
 
         if (drag.kind === 'connect') {
-          drag.currentX = canvasPt.x
-          drag.currentY = canvasPt.y
-          const curBoard = boardRef.current
-          const curLayers = boardLayersRef.current
-          const zoom = viewRef.current.zoom
-          const portSnapTol = 28 / zoom
-          let nextSnap: { shapeId: string; port: PortSide } | null = null
-          let bestDist = Infinity
-
-          for (const target of [...curBoard.shapeNodes].reverse()) {
-            if (
-              target.id === drag.sourceShapeId ||
-              isConnectorShape(target) ||
-              !isItemEditable(target.layerId, curLayers)
-            ) {
-              continue
-            }
-            const handles = getShapePortHandles(target, zoom)
-            for (const h of handles) {
-              const dDot = Math.hypot(canvasPt.x - h.dotX, canvasPt.y - h.dotY)
-              const dAnc = Math.hypot(canvasPt.x - h.anchorX, canvasPt.y - h.anchorY)
-              const d = Math.min(dDot, dAnc)
-              if (d <= portSnapTol && d < bestDist) {
-                bestDist = d
-                nextSnap = { shapeId: target.id, port: h.port }
-              }
-            }
-            const b = getShapeBoundingRect(target)
-            if (
-              canvasPt.x >= b.x &&
-              canvasPt.x <= b.x + Math.max(20, b.w) &&
-              canvasPt.y >= b.y &&
-              canvasPt.y <= b.y + Math.max(20, b.h)
-            ) {
-              const nearPort = pickNearestPort(target, canvasPt)
-              if (!nextSnap) {
-                nextSnap = { shapeId: target.id, port: nearPort }
-              }
-              break
-            }
-          }
-
-          drag.snapTarget = nextSnap
-          scheduleRenderRef.current()
+          updateConnectDrag(canvasPt)
           return
         }
 
@@ -4678,7 +5959,8 @@ export default function App(): React.JSX.Element {
                         : {})
                     }
                     : s
-                )
+                ),
+                [...(b.codeNodes ?? []), ...(b.scene3dNodes ?? []), ...(b.graphNodes ?? [])]
               )
             }),
             { history: false }
@@ -5030,7 +6312,7 @@ export default function App(): React.JSX.Element {
         if (octx) {
           octx.fillStyle =
             settingsRef.current.backgroundColor &&
-            settingsRef.current.backgroundColor !== 'transparent'
+              settingsRef.current.backgroundColor !== 'transparent'
               ? settingsRef.current.backgroundColor
               : '#FFFDF7'
           octx.fillRect(0, 0, off.width, off.height)
@@ -5075,92 +6357,7 @@ export default function App(): React.JSX.Element {
       finishedDrag.sourceShapeId &&
       finishedDrag.sourcePort
     ) {
-      const sourceShape = boardRef.current.shapeNodes.find(
-        (s) => s.id === finishedDrag.sourceShapeId
-      )
-      if (sourceShape) {
-        const endX = finishedDrag.currentX ?? finishedDrag.startPinchX
-        const endY = finishedDrag.currentY ?? finishedDrag.startPinchY
-        const dragDist = Math.hypot(
-          endX - finishedDrag.startPinchX,
-          endY - finishedDrag.startPinchY
-        )
-
-        if (finishedDrag.snapTarget) {
-          const targetShape = boardRef.current.shapeNodes.find(
-            (s) => s.id === finishedDrag.snapTarget!.shapeId
-          )
-          if (targetShape) {
-            const conn = buildFlowConnectorNode({
-              source: sourceShape,
-              sourcePort: finishedDrag.sourcePort,
-              target: targetShape,
-              targetPort: finishedDrag.snapTarget.port,
-              fontFamily: settingsRef.current.font,
-              layerId: sourceShape.layerId
-            })
-            update((b) => ({ ...b, shapeNodes: [...b.shapeNodes, conn] }))
-            setSelectedIds([conn.id])
-            scheduleRenderRef.current()
-            addToast('success', 'Connected shapes')
-            return
-          }
-        }
-
-        if (dragDist >= 24) {
-          const conn = buildFlowConnectorNode({
-            source: sourceShape,
-            sourcePort: finishedDrag.sourcePort,
-            freeEnd: { x: Math.round(endX), y: Math.round(endY) },
-            fontFamily: settingsRef.current.font,
-            layerId: sourceShape.layerId
-          })
-          update((b) => ({ ...b, shapeNodes: [...b.shapeNodes, conn] }))
-          setSelectedIds([conn.id])
-          scheduleRenderRef.current()
-          addToast('success', 'Added flow connector')
-          return
-        }
-
-        // Quick click on a port dot -> spawn a matching connected next shape cleanly aligned
-        const [nx, ny] = portNormal(finishedDrag.sourcePort)
-        const srcBounds = getShapeBoundingRect(sourceShape)
-        const nextW = Math.max(64, Math.round(srcBounds.w))
-        const nextH = Math.max(40, Math.round(srcBounds.h))
-        const gap = 140
-        let nextX = srcBounds.x
-        let nextY = srcBounds.y
-        if (nx > 0) nextX = srcBounds.x + srcBounds.w + gap
-        else if (nx < 0) nextX = srcBounds.x - gap - nextW
-        if (ny > 0) nextY = srcBounds.y + srcBounds.h + gap
-        else if (ny < 0) nextY = srcBounds.y - gap - nextH
-
-        const targetPort = getOppositePort(finishedDrag.sourcePort)
-        const spawnedShape: ShapeNode = {
-          ...sourceShape,
-          id: `shape-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
-          x: Math.round(nextX),
-          y: Math.round(nextY),
-          w: nextW,
-          h: nextH,
-          ...(sourceShape.label ? { label: 'Next Step' } : {})
-        }
-        const conn = buildFlowConnectorNode({
-          source: sourceShape,
-          sourcePort: finishedDrag.sourcePort,
-          target: spawnedShape,
-          targetPort,
-          fontFamily: settingsRef.current.font,
-          layerId: sourceShape.layerId
-        })
-        update((b) => ({ ...b, shapeNodes: [...b.shapeNodes, spawnedShape, conn] }))
-        setSelectedId(spawnedShape.id)
-        setSelectedIds([spawnedShape.id])
-        scheduleRenderRef.current()
-        addToast('success', 'Added connected shape')
-        return
-      }
-      scheduleRenderRef.current()
+      finishConnectDrag(finishedDrag)
       return
     }
 
@@ -5319,28 +6516,143 @@ export default function App(): React.JSX.Element {
 
       // Tier 2: Shapes Mode (Instant Local Basic Shape Detection · Zero LLM API!)
       if (isShapesMode && localShape) {
-        const minSizeReq = 22
-        const minLineDiag = 30
+        const minSizeReq = 34
+        const minLineDiag = 48
+        const minArrowDiag = 34
         const minConf = 0.78
 
-        const passesSize = localShape.isConnector
-          ? sDiag >= minLineDiag
-          : Math.min(Math.abs(localShape.w), Math.abs(localShape.h)) >= minSizeReq
+        const passesSize =
+          localShape.shapeKind === 'arrow' || localShape.shapeKind === 'curved-arrow'
+            ? sDiag >= minArrowDiag
+            : localShape.isConnector
+              ? sDiag >= minLineDiag
+              : Math.min(Math.abs(localShape.w), Math.abs(localShape.h)) >= minSizeReq
 
-        if (passesSize && localShape.confidence >= minConf) {
+        // Prevent handwritten 'l', 'i', 'o' from auto-snapping in Shapes Mode
+        let isLikelyHandwritingGlyph = false
+        if (
+          (localShape.shapeKind === 'line' && sDiag < 135) ||
+          (localShape.shapeKind === 'circle' && sDiag < 110)
+        ) {
+          const sW = Math.max(1, sMaxX - sMinX)
+          const sH = Math.max(1, sMaxY - sMinY)
+          const sCx = (sMinX + sMaxX) / 2
+          const sCy = (sMinY + sMaxY) / 2
+          const curShapes = boardRef.current.shapeNodes
+          const curStrokes = boardRef.current.strokes
+
+          // 1) Dot-over-stem 'i' / 'j'
+          if (
+            localShape.shapeKind === 'line' &&
+            Math.abs(localShape.h) >= Math.abs(localShape.w) * 1.8
+          ) {
+            const hasDotAbove = curStrokes.some((other) => {
+              if (other.id === stroke.id || other.points.length === 0) return false
+              let oMinX = Infinity
+              let oMinY = Infinity
+              let oMaxX = -Infinity
+              let oMaxY = -Infinity
+              for (const [px, py] of other.points) {
+                if (px < oMinX) oMinX = px
+                if (py < oMinY) oMinY = py
+                if (px > oMaxX) oMaxX = px
+                if (py > oMaxY) oMaxY = py
+              }
+              const oW = oMaxX - oMinX
+              const oH = oMaxY - oMinY
+              const oDiag = Math.hypot(oW, oH)
+              const oCx = (oMinX + oMaxX) / 2
+              return (
+                oDiag <= 24 &&
+                oW <= 22 &&
+                oH <= 22 &&
+                oMaxY <= sMinY + 14 &&
+                oMinY >= sMinY - Math.max(48, sH * 0.78) &&
+                Math.abs(oCx - sCx) <= Math.max(28, sH * 0.48)
+              )
+            })
+            if (hasDotAbove) isLikelyHandwritingGlyph = true
+          }
+
+          // 2) Inside an existing closed ShapeNode (handwritten label inside a box)
+          if (!isLikelyHandwritingGlyph) {
+            for (const box of curShapes) {
+              if (
+                box.shape === 'line' ||
+                box.shape === 'dashed-line' ||
+                box.shape === 'arrow' ||
+                box.shape === 'arrow-bidirectional' ||
+                box.shape === 'curved-arrow' ||
+                box.shape === 'curved-line' ||
+                box.shape === 'elbow'
+              ) {
+                continue
+              }
+              const bx = Math.min(box.x, box.x + box.w)
+              const by = Math.min(box.y, box.y + box.h)
+              const bw = Math.abs(box.w)
+              const bh = Math.abs(box.h)
+              if (
+                sCx >= bx + 4 &&
+                sCx <= bx + bw - 4 &&
+                sCy >= by + 4 &&
+                sCy <= by + bh - 4 &&
+                sW < bw * 0.65 &&
+                sH < bh * 0.65
+              ) {
+                isLikelyHandwritingGlyph = true
+                break
+              }
+            }
+          }
+
+          // 3) Adjacent stroke on same horizontal baseline within word spacing
+          if (!isLikelyHandwritingGlyph) {
+            const hasBaselineNeighbor = curStrokes.some((other) => {
+              if (other.id === stroke.id || other.points.length === 0) return false
+              let oMinX = Infinity
+              let oMinY = Infinity
+              let oMaxX = -Infinity
+              let oMaxY = -Infinity
+              for (const [px, py] of other.points) {
+                if (px < oMinX) oMinX = px
+                if (py < oMinY) oMinY = py
+                if (px > oMaxX) oMaxX = px
+                if (py > oMaxY) oMaxY = py
+              }
+              const oDiag = Math.hypot(oMaxX - oMinX, oMaxY - oMinY)
+              const oCy = (oMinY + oMaxY) / 2
+              const horizGap = Math.max(0, Math.max(oMinX - sMaxX, sMinX - oMaxX))
+              return (
+                oDiag < 130 &&
+                Math.abs(oCy - sCy) <= Math.max(40, sH * 0.9) &&
+                horizGap <= Math.max(60, sH * 1.75)
+              )
+            })
+            if (hasBaselineNeighbor) isLikelyHandwritingGlyph = true
+          }
+        }
+
+        if (!isLikelyHandwritingGlyph && passesSize && localShape.confidence >= minConf) {
           let finalX = localShape.x
           let finalY = localShape.y
           let finalW = localShape.w
           let finalH = localShape.h
+          let finalControlPoint = localShape.controlPoint
 
-          if (localShape.shapeKind === 'line' || localShape.shapeKind === 'arrow') {
+          if (
+            localShape.shapeKind === 'line' ||
+            localShape.shapeKind === 'arrow' ||
+            localShape.shapeKind === 'curved-arrow'
+          ) {
             const anchored = snapConnectorToShapeAnchors(
               {
                 kind: localShape.shapeKind as HoldSnapKind,
                 x: finalX,
                 y: finalY,
                 w: finalW,
-                h: finalH
+                h: finalH,
+                ...(finalControlPoint ? { controlPoint: finalControlPoint } : {})
               },
               boardRef.current.shapeNodes
             )
@@ -5348,6 +6660,7 @@ export default function App(): React.JSX.Element {
             finalY = anchored.y
             finalW = anchored.w
             finalH = anchored.h
+            finalControlPoint = anchored.controlPoint
           }
 
           const snappedNode: ShapeNode = {
@@ -5360,6 +6673,7 @@ export default function App(): React.JSX.Element {
             y: finalY,
             w: finalW,
             h: finalH,
+            ...(finalControlPoint ? { controlPoint: finalControlPoint } : {}),
             borderRadius: localShape.shapeKind === 'rect' ? 6 : undefined,
             color: stroke.color,
             fillColor: 'transparent',
@@ -5762,27 +7076,28 @@ export default function App(): React.JSX.Element {
         if (activeToolRef.current === 'select') {
           const drag = shapeDragRef.current
           if (drag?.kind === 'connect' && drag.sourceShapeId && drag.sourcePort) {
-            const sourceShape = curBoard.shapeNodes.find((s) => s.id === drag.sourceShapeId)
-            if (sourceShape) {
-              drawShapeConnectionPorts(ctx, sourceShape, curView.zoom, {
+            const sourceInfo = findConnectableOnBoard(curBoard, drag.sourceShapeId)
+            if (sourceInfo) {
+              const sourceEl = sourceInfo.el
+              drawShapeConnectionPorts(ctx, sourceEl, curView.zoom, {
                 activeSourcePort: drag.sourcePort,
                 accentColor: themeTokens.accent
               })
-              const startPt = getShapePorts(sourceShape)[drag.sourcePort]
-              const snapShape = drag.snapTarget
-                ? curBoard.shapeNodes.find((s) => s.id === drag.snapTarget!.shapeId)
-                : undefined
+              const startPt = getShapePorts(sourceEl)[drag.sourcePort]
+              const snapInfo = drag.snapTarget
+                ? findConnectableOnBoard(curBoard, drag.snapTarget.shapeId)
+                : null
               let endPt = {
                 x: drag.currentX ?? drag.startPinchX,
                 y: drag.currentY ?? drag.startPinchY
               }
               let endPort = inferFreeEndPort(startPt, endPt, drag.sourcePort)
-              if (snapShape && drag.snapTarget) {
-                drawShapeConnectionPorts(ctx, snapShape, curView.zoom, {
+              if (snapInfo && drag.snapTarget) {
+                drawShapeConnectionPorts(ctx, snapInfo.el, curView.zoom, {
                   snapPort: drag.snapTarget.port,
                   accentColor: themeTokens.accent
                 })
-                endPt = getShapePorts(snapShape)[drag.snapTarget.port]
+                endPt = getShapePorts(snapInfo.el)[drag.snapTarget.port]
                 endPort = drag.snapTarget.port
               }
               drawLiveConnectionPreview(
@@ -5913,13 +7228,22 @@ export default function App(): React.JSX.Element {
 
   const handleUpdateCode = useCallback(
     (id: string, patch: Partial<CodeNode>, opts?: { history?: boolean }) => {
-      update(
-        (b) => ({
+      const geomChanged =
+        patch.x !== undefined ||
+        patch.y !== undefined ||
+        patch.w !== undefined ||
+        patch.h !== undefined
+      update((b) => {
+        const nextCodes = (b.codeNodes ?? []).map((c) => (c.id === id ? { ...c, ...patch } : c))
+        return {
           ...b,
-          codeNodes: (b.codeNodes ?? []).map((c) => (c.id === id ? { ...c, ...patch } : c))
-        }),
-        opts
-      )
+          codeNodes: nextCodes,
+          shapeNodes: geomChanged
+            ? syncBoundConnectors(b.shapeNodes, [...nextCodes, ...(b.scene3dNodes ?? []), ...(b.graphNodes ?? [])])
+            : b.shapeNodes
+        }
+      }, opts)
+      if (geomChanged) scheduleRenderRef.current()
     },
     [update]
   )
@@ -5950,6 +7274,54 @@ export default function App(): React.JSX.Element {
     [update]
   )
 
+  const handleUpdateScene3D = useCallback(
+    (id: string, patch: Partial<Scene3DNode>, opts?: { history?: boolean }) => {
+      const geomChanged =
+        patch.x !== undefined ||
+        patch.y !== undefined ||
+        patch.w !== undefined ||
+        patch.h !== undefined
+      update((b) => {
+        const nextScenes = (b.scene3dNodes ?? []).map((s3d) =>
+          s3d.id === id ? { ...s3d, ...patch } : s3d
+        )
+        return {
+          ...b,
+          scene3dNodes: nextScenes,
+          shapeNodes: geomChanged
+            ? syncBoundConnectors(b.shapeNodes, [...(b.codeNodes ?? []), ...nextScenes, ...(b.graphNodes ?? [])])
+            : b.shapeNodes
+        }
+      }, opts)
+      if (geomChanged) scheduleRenderRef.current()
+    },
+    [update]
+  )
+
+  const handleUpdateGraph = useCallback(
+    (id: string, patch: Partial<GraphNode>, opts?: { history?: boolean }) => {
+      const geomChanged =
+        patch.x !== undefined ||
+        patch.y !== undefined ||
+        patch.w !== undefined ||
+        patch.h !== undefined
+      update((b) => {
+        const nextGraphs = (b.graphNodes ?? []).map((gr) =>
+          gr.id === id ? { ...gr, ...patch } : gr
+        )
+        return {
+          ...b,
+          graphNodes: nextGraphs,
+          shapeNodes: geomChanged
+            ? syncBoundConnectors(b.shapeNodes, [...(b.codeNodes ?? []), ...(b.scene3dNodes ?? []), ...nextGraphs])
+            : b.shapeNodes
+        }
+      }, opts)
+      if (geomChanged) scheduleRenderRef.current()
+    },
+    [update]
+  )
+
   const handleDeleteElement = useCallback(
     (id: string) => {
       update((b) => ({
@@ -5961,7 +7333,9 @@ export default function App(): React.JSX.Element {
         diagramNodes: (b.diagramNodes ?? []).filter((d) => d.id !== id),
         codeNodes: (b.codeNodes ?? []).filter((c) => c.id !== id),
         videoNodes: (b.videoNodes ?? []).filter((v) => v.id !== id),
-        imageNodes: (b.imageNodes ?? []).filter((im) => im.id !== id)
+        imageNodes: (b.imageNodes ?? []).filter((im) => im.id !== id),
+        scene3dNodes: (b.scene3dNodes ?? []).filter((s3d) => s3d.id !== id),
+        graphNodes: (b.graphNodes ?? []).filter((gr) => gr.id !== id)
       }))
       setSelectedIds((prev) => prev.filter((item) => item !== id))
     },
@@ -5986,7 +7360,9 @@ export default function App(): React.JSX.Element {
       diagramNodes: (b.diagramNodes ?? []).filter((d) => !idsToDelete.has(d.id)),
       codeNodes: (b.codeNodes ?? []).filter((c) => !idsToDelete.has(c.id)),
       videoNodes: (b.videoNodes ?? []).filter((v) => !idsToDelete.has(v.id)),
-      imageNodes: (b.imageNodes ?? []).filter((im) => !idsToDelete.has(im.id))
+      imageNodes: (b.imageNodes ?? []).filter((im) => !idsToDelete.has(im.id)),
+      scene3dNodes: (b.scene3dNodes ?? []).filter((s3d) => !idsToDelete.has(s3d.id)),
+      graphNodes: (b.graphNodes ?? []).filter((gr) => !idsToDelete.has(gr.id))
     }))
     addToast('info', `Deleted ${selectedIds.length} element${selectedIds.length > 1 ? 's' : ''}`)
     setSelectedIds([])
@@ -6068,6 +7444,43 @@ export default function App(): React.JSX.Element {
         setSelectedId(dup.id)
         return
       }
+      const s3dNode = (curBoard.scene3dNodes ?? []).find((s) => s.id === id)
+      if (s3dNode) {
+        const dup: Scene3DNode = {
+          ...s3dNode,
+          id: `s3d-${Date.now()}`,
+          x: s3dNode.x + 30,
+          y: s3dNode.y + 30,
+          spec: { ...s3dNode.spec, elements: s3dNode.spec.elements.map((e) => ({ ...e })) },
+          createdAt: Date.now()
+        }
+        update((b) => ({ ...b, scene3dNodes: [...(b.scene3dNodes ?? []), dup] }))
+        setSelectedId(dup.id)
+        return
+      }
+      const grNode = (curBoard.graphNodes ?? []).find((g) => g.id === id)
+      if (grNode) {
+        const dup: GraphNode = {
+          ...grNode,
+          id: `graph-${Date.now()}`,
+          x: grNode.x + 30,
+          y: grNode.y + 30,
+          spec: {
+            ...grNode.spec,
+            functions: grNode.spec.functions.map((f) => ({ ...f })),
+            dataSeries: grNode.spec.dataSeries.map((d) => ({
+              ...d,
+              sliceColors: d.sliceColors ? [...d.sliceColors] : undefined
+            })),
+            ohlcData: grNode.spec.ohlcData?.map((o) => ({ ...o })),
+            zMatrix: grNode.spec.zMatrix?.map((r) => [...r])
+          },
+          createdAt: Date.now()
+        }
+        update((b) => ({ ...b, graphNodes: [...(b.graphNodes ?? []), dup] }))
+        setSelectedId(dup.id)
+        return
+      }
     },
     [update]
   )
@@ -6075,7 +7488,8 @@ export default function App(): React.JSX.Element {
   const handleApplyFont = useCallback(
     (nextFont: FontId) => {
       patchSettings({ font: nextFont })
-      const selIds = selectedIdsRef.current
+      const rawSel = selectedIdsRef.current
+      const selIds = rawSel.length > 0 ? rawSel : selectedId ? [selectedId] : []
       if (selIds.length === 0) return
       const idSet = new Set(selIds)
       const cur = boardRef.current
@@ -6095,7 +7509,7 @@ export default function App(): React.JSX.Element {
       }))
       scheduleRenderRef.current()
     },
-    [patchSettings, pushHistory, update, boardRef]
+    [patchSettings, pushHistory, update, boardRef, selectedId]
   )
 
   const handleSelectAll = useCallback(() => {
@@ -6127,6 +7541,8 @@ export default function App(): React.JSX.Element {
     for (const c of cur.codeNodes ?? []) allIds.push(c.id)
     for (const v of cur.videoNodes ?? []) allIds.push(v.id)
     for (const im of cur.imageNodes ?? []) allIds.push(im.id)
+    for (const s3d of cur.scene3dNodes ?? []) allIds.push(s3d.id)
+    for (const gr of cur.graphNodes ?? []) allIds.push(gr.id)
 
     setSelectedIds(allIds)
     setActiveTool('select')
@@ -6182,6 +7598,8 @@ export default function App(): React.JSX.Element {
         (cur.codeNodes ?? []).some((c) => c.id === single) ||
         (cur.videoNodes ?? []).some((v) => v.id === single) ||
         (cur.imageNodes ?? []).some((im) => im.id === single) ||
+        (cur.scene3dNodes ?? []).some((s3d) => s3d.id === single) ||
+        (cur.graphNodes ?? []).some((gr) => gr.id === single) ||
         (cur.vectorArtNodes ?? []).some((va) => va.id === single)
       if (isCardOrArt) {
         pushHistory()
@@ -6279,6 +7697,43 @@ export default function App(): React.JSX.Element {
           clonedIds.push(id)
           return { ...im, id, x: im.x + 30, y: im.y + 30, createdAt: now }
         })
+      const newScene3ds = (b.scene3dNodes ?? [])
+        .filter((s3d) => idSet.has(s3d.id))
+        .map((s3d) => {
+          const id = nextId('s3d')
+          clonedIds.push(id)
+          return {
+            ...s3d,
+            id,
+            x: s3d.x + 30,
+            y: s3d.y + 30,
+            spec: { ...s3d.spec, elements: s3d.spec.elements.map((e) => ({ ...e })) },
+            createdAt: now
+          }
+        })
+      const newGraphs = (b.graphNodes ?? [])
+        .filter((gr) => idSet.has(gr.id))
+        .map((gr) => {
+          const id = nextId('graph')
+          clonedIds.push(id)
+          return {
+            ...gr,
+            id,
+            x: gr.x + 30,
+            y: gr.y + 30,
+            spec: {
+              ...gr.spec,
+              functions: gr.spec.functions.map((f) => ({ ...f })),
+              dataSeries: gr.spec.dataSeries.map((d) => ({
+                ...d,
+                sliceColors: d.sliceColors ? [...d.sliceColors] : undefined
+              })),
+              ohlcData: gr.spec.ohlcData?.map((o) => ({ ...o })),
+              zMatrix: gr.spec.zMatrix?.map((r) => [...r])
+            },
+            createdAt: now
+          }
+        })
       return {
         ...b,
         shapeNodes: [...b.shapeNodes, ...syncedNewShapes],
@@ -6289,7 +7744,9 @@ export default function App(): React.JSX.Element {
         diagramNodes: [...(b.diagramNodes ?? []), ...newDiags],
         codeNodes: [...(b.codeNodes ?? []), ...newCodes],
         videoNodes: [...(b.videoNodes ?? []), ...newVideos],
-        imageNodes: [...(b.imageNodes ?? []), ...newImages]
+        imageNodes: [...(b.imageNodes ?? []), ...newImages],
+        scene3dNodes: [...(b.scene3dNodes ?? []), ...newScene3ds],
+        graphNodes: [...(b.graphNodes ?? []), ...newGraphs]
       }
     })
     if (clonedIds.length > 0) {
@@ -6325,29 +7782,29 @@ export default function App(): React.JSX.Element {
         const hitShape = hitArt
           ? null
           : [...curBoard.shapeNodes].reverse().find((s) => {
-              if (!isItemEditable(s.layerId, curLayers)) return false
-              const b = getShapeBoundingRect(s)
-              const margin = s.points?.length || Math.abs(s.w) < 16 || Math.abs(s.h) < 16 ? 10 : 0
-              return (
-                canvasPt.x >= b.x - margin &&
-                canvasPt.x <= b.x + Math.max(20, b.w) + margin &&
-                canvasPt.y >= b.y - margin &&
-                canvasPt.y <= b.y + Math.max(20, b.h) + margin
-              )
-            })
+            if (!isItemEditable(s.layerId, curLayers)) return false
+            const b = getShapeBoundingRect(s)
+            const margin = s.points?.length || Math.abs(s.w) < 16 || Math.abs(s.h) < 16 ? 10 : 0
+            return (
+              canvasPt.x >= b.x - margin &&
+              canvasPt.x <= b.x + Math.max(20, b.w) + margin &&
+              canvasPt.y >= b.y - margin &&
+              canvasPt.y <= b.y + Math.max(20, b.h) + margin
+            )
+          })
         const hitStroke =
           hitArt || hitShape
             ? null
             : [...curBoard.strokes]
-                .reverse()
-                .find(
-                  (st) =>
-                    isItemEditable(st.layerId, curLayers) &&
-                    st.points.some(
-                      ([px, py]) =>
-                        Math.hypot(canvasPt.x - px, canvasPt.y - py) <= 12 / viewRef.current.zoom
-                    )
-                )
+              .reverse()
+              .find(
+                (st) =>
+                  isItemEditable(st.layerId, curLayers) &&
+                  st.points.some(
+                    ([px, py]) =>
+                      Math.hypot(canvasPt.x - px, canvasPt.y - py) <= 12 / viewRef.current.zoom
+                  )
+              )
         const hitId = hitArt?.id ?? hitShape?.id ?? hitStroke?.id
         if (hitId && !currentSelected.includes(hitId)) {
           setSelectedIds([hitId])
@@ -6421,50 +7878,64 @@ export default function App(): React.JSX.Element {
 
         const idSet = new Set(selectedIds)
         update(
-          (b) => ({
-            ...b,
-            shapeNodes: syncBoundConnectors(
-              b.shapeNodes.map((s) =>
-                idSet.has(s.id)
-                  ? {
-                    ...s,
-                    x: s.x + dx,
-                    y: s.y + dy,
-                    ...(s.controlPoint
-                      ? {
-                        controlPoint: [s.controlPoint[0] + dx, s.controlPoint[1] + dy] as [
-                          number,
-                          number
-                        ]
-                      }
-                      : {}),
-                    ...(s.points
-                      ? {
-                        points: s.points.map(([px, py]) => [px + dx, py + dy] as [number, number])
-                      }
-                      : {})
-                  }
-                  : s
-              )
-            ),
-            textNodes: b.textNodes.map((t) => (idSet.has(t.id) ? { ...t, x: t.x + dx, y: t.y + dy } : t)),
-            vectorArtNodes: (b.vectorArtNodes ?? []).map((v) =>
-              idSet.has(v.id) ? { ...v, x: v.x + dx, y: v.y + dy } : v
-            ),
-            equationNodes: b.equationNodes.map((eq) => (idSet.has(eq.id) ? { ...eq, x: eq.x + dx, y: eq.y + dy } : eq)),
-            diagramNodes: (b.diagramNodes ?? []).map((d) => (idSet.has(d.id) ? { ...d, x: d.x + dx, y: d.y + dy } : d)),
-            codeNodes: (b.codeNodes ?? []).map((c) => (idSet.has(c.id) ? { ...c, x: c.x + dx, y: c.y + dy } : c)),
-            videoNodes: (b.videoNodes ?? []).map((v) => (idSet.has(v.id) ? { ...v, x: v.x + dx, y: v.y + dy } : v)),
-            imageNodes: (b.imageNodes ?? []).map((im) => (idSet.has(im.id) ? { ...im, x: im.x + dx, y: im.y + dy } : im)),
-            strokes: b.strokes.map((st) =>
-              idSet.has(st.id)
-                ? {
-                  ...st,
-                  points: st.points.map(([px, py, pr]) => [px + dx, py + dy, pr] as InkPoint)
-                }
-                : st
+          (b) => {
+            const nextCodes = (b.codeNodes ?? []).map((c) =>
+              idSet.has(c.id) ? { ...c, x: c.x + dx, y: c.y + dy } : c
             )
-          }),
+            const nextScene3ds = (b.scene3dNodes ?? []).map((s3d) =>
+              idSet.has(s3d.id) ? { ...s3d, x: s3d.x + dx, y: s3d.y + dy } : s3d
+            )
+            const nextGraphs = (b.graphNodes ?? []).map((gr) =>
+              idSet.has(gr.id) ? { ...gr, x: gr.x + dx, y: gr.y + dy } : gr
+            )
+            return {
+              ...b,
+              shapeNodes: syncBoundConnectors(
+                b.shapeNodes.map((s) =>
+                  idSet.has(s.id)
+                    ? {
+                      ...s,
+                      x: s.x + dx,
+                      y: s.y + dy,
+                      ...(s.controlPoint
+                        ? {
+                          controlPoint: [s.controlPoint[0] + dx, s.controlPoint[1] + dy] as [
+                            number,
+                            number
+                          ]
+                        }
+                        : {}),
+                      ...(s.points
+                        ? {
+                          points: s.points.map(([px, py]) => [px + dx, py + dy] as [number, number])
+                        }
+                        : {})
+                    }
+                    : s
+                ),
+                [...nextCodes, ...nextScene3ds, ...nextGraphs]
+              ),
+              textNodes: b.textNodes.map((t) => (idSet.has(t.id) ? { ...t, x: t.x + dx, y: t.y + dy } : t)),
+              vectorArtNodes: (b.vectorArtNodes ?? []).map((v) =>
+                idSet.has(v.id) ? { ...v, x: v.x + dx, y: v.y + dy } : v
+              ),
+              equationNodes: b.equationNodes.map((eq) => (idSet.has(eq.id) ? { ...eq, x: eq.x + dx, y: eq.y + dy } : eq)),
+              diagramNodes: (b.diagramNodes ?? []).map((d) => (idSet.has(d.id) ? { ...d, x: d.x + dx, y: d.y + dy } : d)),
+              codeNodes: nextCodes,
+              videoNodes: (b.videoNodes ?? []).map((v) => (idSet.has(v.id) ? { ...v, x: v.x + dx, y: v.y + dy } : v)),
+              imageNodes: (b.imageNodes ?? []).map((im) => (idSet.has(im.id) ? { ...im, x: im.x + dx, y: im.y + dy } : im)),
+              scene3dNodes: nextScene3ds,
+              graphNodes: nextGraphs,
+              strokes: b.strokes.map((st) =>
+                idSet.has(st.id)
+                  ? {
+                    ...st,
+                    points: st.points.map(([px, py, pr]) => [px + dx, py + dy, pr] as InkPoint)
+                  }
+                  : st
+              )
+            }
+          },
           { history: true }
         )
         return
@@ -6913,15 +8384,27 @@ export default function App(): React.JSX.Element {
             codeNodes={board.codeNodes}
             videoNodes={board.videoNodes}
             imageNodes={board.imageNodes}
+            scene3dNodes={board.scene3dNodes}
+            graphNodes={board.graphNodes}
+            shapeNodes={board.shapeNodes}
             selectedId={selectedId}
             selectedIds={selectedIds}
-            onSelect={setSelectedId}
+            onSelect={(id) => {
+              setSelectedId(id)
+              setSelectedIds(id ? [id] : [])
+            }}
             onUpdateText={handleUpdateText}
             onUpdateEquation={handleUpdateEquation}
             onUpdateDiagram={handleUpdateDiagram}
             onUpdateCode={handleUpdateCode}
             onUpdateVideo={handleUpdateVideo}
             onUpdateImage={handleUpdateImage}
+            onUpdateScene3D={handleUpdateScene3D}
+            onUpdateGraph={handleUpdateGraph}
+            onSpawnGraphFromCode={handleSpawnGraphFromCode}
+            onSpawnScene3DFromCode={handleSpawnScene3DFromCode}
+            onStartConnect={handleStartCardConnect}
+            onExecuteCodeNode={handleExecuteConnectedCodeFlow}
             onAddCodeNode={() => handleAddCodeNode()}
             onAddVideoNode={() => handleAddYouTubeToCanvas()}
             onCreateTutorialFromVideo={(topic, transcript) =>
@@ -6983,12 +8466,12 @@ export default function App(): React.JSX.Element {
               cursor: getCanvasCursor(),
               pointerEvents:
                 activeTool === 'pen' ||
-                activeTool === 'lasso' ||
-                activeTool === 'snip' ||
-                activeTool === 'eraser' ||
-                activeTool === 'pan' ||
-                isSpacePanning ||
-                partitionedLayers.cardsLayer.locked
+                  activeTool === 'lasso' ||
+                  activeTool === 'snip' ||
+                  activeTool === 'eraser' ||
+                  activeTool === 'pan' ||
+                  isSpacePanning ||
+                  partitionedLayers.cardsLayer.locked
                   ? 'auto'
                   : 'none'
             }}
@@ -7080,9 +8563,8 @@ export default function App(): React.JSX.Element {
                     <button
                       key={hex}
                       type="button"
-                      className={`shape-swatch-btn ${
-                        editingShape.labelColor?.toLowerCase() === hex.toLowerCase() ? 'active' : ''
-                      }`}
+                      className={`shape-swatch-btn ${editingShape.labelColor?.toLowerCase() === hex.toLowerCase() ? 'active' : ''
+                        }`}
                       style={{ backgroundColor: hex }}
                       onMouseDown={(ev) => ev.preventDefault()}
                       onClick={() => handlePatchSelectedShapes({ labelColor: hex })}
@@ -7150,101 +8632,101 @@ export default function App(): React.JSX.Element {
           {selectedIds.length > 0 &&
             (hasSelectedStrokes ||
               (selectedShapes.length === 0 && !selectedVectorArt && !selectedDiagramMeta)) && (
-            <div className="diagram-selection-toolbar">
-              <span className="diagram-selection-count">
-                <BoxSelect size={14} />
-                <span>{selectedIds.length} selected</span>
-              </span>
-              <button
-                type="button"
-                className="diagram-selection-vectorize-btn"
-                onClick={handleVectorizeSelected}
-                disabled={isVectorizing || isBeautifying}
-                title="Smart Vectorize & Beautify (Ctrl+B) — Local shapes & CPU OCR first, smart diagram/vector routing"
-              >
-                {isVectorizing || isBeautifying ? (
-                  <>
-                    <Loader2 size={14} className="spin-animate" />
-                    <span>Vectorizing...</span>
-                  </>
-                ) : (
-                  <>
-                    <Wand2 size={14} />
-                    <span>Vectorize</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                className="diagram-selection-agy-btn"
-                onClick={() => void handleSendSelectionToAntigravity()}
-                title="Capture selection PNG for Antigravity & copy prompt (Vectorize my current Vexelboard selection)"
-              >
-                <Sparkles size={14} />
-                <span>Antigravity</span>
-              </button>
-
-              <button
-                type="button"
-                className="diagram-selection-rot-btn"
-                onClick={() => handleRotateSelected(-90)}
-                title="Rotate selected elements 90° left"
-              >
-                <RotateCcw size={13} />
-                <span>-90°</span>
-              </button>
-              <button
-                type="button"
-                className="diagram-selection-rot-btn"
-                onClick={() => handleRotateSelected(90)}
-                title="Rotate selected elements 90° right"
-              >
-                <RotateCw size={13} />
-                <span>+90°</span>
-              </button>
-
-              {isAiConfigured && (
+              <div className="diagram-selection-toolbar">
+                <span className="diagram-selection-count">
+                  <BoxSelect size={14} />
+                  <span>{selectedIds.length} selected</span>
+                </span>
                 <button
                   type="button"
-                  className="diagram-selection-agent-btn"
-                  onClick={() =>
-                    void handleRunAgent(
-                      'Inspect the selected canvas region and draw clear overlay annotations (arrows, highlights, and brief labels) directly on layer-overlay-ink.',
-                      {
-                        mode: 'annotate',
-                        includeSelectionImage: true,
-                        openPanel: true
-                      }
-                    )
-                  }
-                  disabled={agentRunning || isBeautifying || isVectorizing}
-                  title="Ask VexelBot Agent to annotate the selected region on the top overlay layer"
+                  className="diagram-selection-vectorize-btn"
+                  onClick={handleVectorizeSelected}
+                  disabled={isVectorizing || isBeautifying}
+                  title="Smart Vectorize & Beautify (Ctrl+B) — Local shapes + AI/Local OCR, smart diagram/vector routing"
                 >
-                  <Bot size={14} />
-                  <span>{agentRunning ? 'Annotating...' : 'AI Annotate'}</span>
+                  {isVectorizing || isBeautifying ? (
+                    <>
+                      <Loader2 size={14} className="spin-animate" />
+                      <span>Vectorizing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 size={14} />
+                      <span>Vectorize</span>
+                    </>
+                  )}
                 </button>
-              )}
 
-              <button
-                type="button"
-                className="diagram-selection-del-btn"
-                onClick={deleteSelectedElements}
-                title="Delete selected elements (Delete / Backspace)"
-              >
-                <Trash2 size={14} />
-                <span>Delete</span>
-              </button>
-              <button
-                type="button"
-                className="diagram-selection-close-btn"
-                onClick={() => setSelectedIds([])}
-                title="Deselect (Escape)"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  className="diagram-selection-agy-btn"
+                  onClick={() => void handleSendSelectionToAntigravity()}
+                  title="Capture selection PNG for Antigravity & copy prompt (Vectorize my current Vexelboard selection)"
+                >
+                  <Sparkles size={14} />
+                  <span>Antigravity</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="diagram-selection-rot-btn"
+                  onClick={() => handleRotateSelected(-90)}
+                  title="Rotate selected elements 90° left"
+                >
+                  <RotateCcw size={13} />
+                  <span>-90°</span>
+                </button>
+                <button
+                  type="button"
+                  className="diagram-selection-rot-btn"
+                  onClick={() => handleRotateSelected(90)}
+                  title="Rotate selected elements 90° right"
+                >
+                  <RotateCw size={13} />
+                  <span>+90°</span>
+                </button>
+
+                {isAiConfigured && (
+                  <button
+                    type="button"
+                    className="diagram-selection-agent-btn"
+                    onClick={() =>
+                      void handleRunAgent(
+                        'Inspect the selected canvas region and draw clear overlay annotations (arrows, highlights, and brief labels) directly on layer-overlay-ink.',
+                        {
+                          mode: 'annotate',
+                          includeSelectionImage: true,
+                          openPanel: true
+                        }
+                      )
+                    }
+                    disabled={agentRunning || isBeautifying || isVectorizing}
+                    title="Ask VexelBot Agent to annotate the selected region on the top overlay layer"
+                  >
+                    <Bot size={14} />
+                    <span>{agentRunning ? 'Annotating...' : 'AI Annotate'}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="diagram-selection-del-btn"
+                  onClick={deleteSelectedElements}
+                  title="Delete selected elements (Delete / Backspace)"
+                >
+                  <Trash2 size={14} />
+                  <span>Delete</span>
+                </button>
+                <button
+                  type="button"
+                  className="diagram-selection-close-btn"
+                  onClick={() => setSelectedIds([])}
+                  title="Deselect (Escape)"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
 
           {/* Contextual Vector Art / ELK Diagram / Shape Style Mini-Toolbar */}
           <VectorActionToolbar
@@ -7284,6 +8766,8 @@ export default function App(): React.JSX.Element {
             onAddStickyNote={handleAddStickyNote}
             onAddTemplate={handleAddTemplate}
             onInsertGraph={handleInsertGraph}
+            onInsertScene3D={handleInsertScene3D}
+            onCreateLinkedCode={handleCreateLinkedCode}
             openGraphTrigger={openGraphTrigger}
             onBeautify={handleBeautifySelected}
             isBeautifying={isBeautifying}
@@ -7549,63 +9033,63 @@ export default function App(): React.JSX.Element {
 
           {/* Right AI Research & Co-Pilot Panel */}
           <Suspense fallback={null}>
-          <RightPanel
-            isOpen={isRightPanelOpen}
-            onToggle={() => setIsRightPanelOpen(!isRightPanelOpen)}
-            messages={messages}
-            threads={chatStore.threads}
-            activeThreadId={activeThread?.id || chatStore.activeThreadId}
-            onSelectThread={handleSelectChatThread}
-            onCreateThread={handleCreateChatThread}
-            onRenameThread={handleRenameChatThread}
-            onUpdateThreadColor={handleUpdateChatThreadColor}
-            onDeleteThread={handleDeleteChatThread}
-            onSendMessage={handleSendChatMessage}
-            onInsertToNotes={handleInsertToNotes}
-            onInsertDiagram={handleInsertDiagram}
-            onClearChat={() => {
-              const targetThreadId = activeThread?.id || chatStoreRef.current.activeThreadId
-              updateAndPersistChatStore(activeProjectId, (prev) => ({
-                ...prev,
-                threads: prev.threads.map((t) =>
-                  t.id === targetThreadId ? { ...t, messages: [], updatedAt: Date.now() } : t
-                )
-              }))
-            }}
-            isAiBusy={aiBusy}
-            isAiConfigured={isAiConfigured}
-            aiUnconfiguredReason={aiReadiness.reason}
-            activeModel={
-              settings.ai.provider === 'ollama'
-                ? settings.ai.ollamaModel
-                : settings.ai.byokModels[settings.ai.provider] || DEFAULT_PROVIDER_MODELS[settings.ai.provider]
-            }
-            activeProvider={settings.ai.provider.toUpperCase()}
-            projectId={activeProjectId}
-            sectionId={activeSection?.id}
-            projectTitle={activeProject?.title}
-            isDetached={isDetachedChat}
-            onOpenDetached={() => window.glassAPI?.openDetachedChat?.()}
-            onCloseDetached={() => window.glassAPI?.closeDetachedChat?.()}
-            aiSettings={settings.ai}
-            onChangeAI={(ai) => patchSettings({ ai })}
-            onToast={addToast}
-            openSettingsTrigger={settingsTrigger}
-            onOpenKnowledgeHub={() => setIsKnowledgeHubOpen(true)}
-            onOpenSkills={() => setSkillsModalOpen(true)}
-            onGenerateTutorial={(topic) => handleGenerateTutorial(topic)}
-            onAddYouTubeToCanvas={handleAddYouTubeToCanvas}
-            onRunAgent={handleRunAgent}
-            onCancelAgent={handleCancelAgent}
-            agentRunning={agentRunning}
-            agentSteps={agentSteps}
-            canUndoLastAgent={canUndoLastAgent}
-            onUndoLastAgent={() => {
-              undo()
-              setCanUndoLastAgent(false)
-              scheduleRenderRef.current()
-            }}
-          />
+            <RightPanel
+              isOpen={isRightPanelOpen}
+              onToggle={() => setIsRightPanelOpen(!isRightPanelOpen)}
+              messages={messages}
+              threads={chatStore.threads}
+              activeThreadId={activeThread?.id || chatStore.activeThreadId}
+              onSelectThread={handleSelectChatThread}
+              onCreateThread={handleCreateChatThread}
+              onRenameThread={handleRenameChatThread}
+              onUpdateThreadColor={handleUpdateChatThreadColor}
+              onDeleteThread={handleDeleteChatThread}
+              onSendMessage={handleSendChatMessage}
+              onInsertToNotes={handleInsertToNotes}
+              onInsertDiagram={handleInsertDiagram}
+              onClearChat={() => {
+                const targetThreadId = activeThread?.id || chatStoreRef.current.activeThreadId
+                updateAndPersistChatStore(activeProjectId, (prev) => ({
+                  ...prev,
+                  threads: prev.threads.map((t) =>
+                    t.id === targetThreadId ? { ...t, messages: [], updatedAt: Date.now() } : t
+                  )
+                }))
+              }}
+              isAiBusy={aiBusy}
+              isAiConfigured={isAiConfigured}
+              aiUnconfiguredReason={aiReadiness.reason}
+              activeModel={
+                settings.ai.provider === 'ollama'
+                  ? settings.ai.ollamaModel
+                  : settings.ai.byokModels[settings.ai.provider] || DEFAULT_PROVIDER_MODELS[settings.ai.provider]
+              }
+              activeProvider={settings.ai.provider.toUpperCase()}
+              projectId={activeProjectId}
+              sectionId={activeSection?.id}
+              projectTitle={activeProject?.title}
+              isDetached={isDetachedChat}
+              onOpenDetached={() => window.glassAPI?.openDetachedChat?.()}
+              onCloseDetached={() => window.glassAPI?.closeDetachedChat?.()}
+              aiSettings={settings.ai}
+              onChangeAI={(ai) => patchSettings({ ai })}
+              onToast={addToast}
+              openSettingsTrigger={settingsTrigger}
+              onOpenKnowledgeHub={() => setIsKnowledgeHubOpen(true)}
+              onOpenSkills={() => setSkillsModalOpen(true)}
+              onGenerateTutorial={(topic) => handleGenerateTutorial(topic)}
+              onAddYouTubeToCanvas={handleAddYouTubeToCanvas}
+              onRunAgent={handleRunAgent}
+              onCancelAgent={handleCancelAgent}
+              agentRunning={agentRunning}
+              agentSteps={agentSteps}
+              canUndoLastAgent={canUndoLastAgent}
+              onUndoLastAgent={() => {
+                undo()
+                setCanUndoLastAgent(false)
+                scheduleRenderRef.current()
+              }}
+            />
           </Suspense>
 
           {/* Knowledge Studio Multi-Source Study Hub (mounted only when open) */}

@@ -1,9 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import { Check, Copy } from 'lucide-react'
+import { normalizeScene3DInput } from '@shared/scene3dSchema'
+import { Inline3DViewer } from './Canvas3DScene'
 
 let mermaidInit: Promise<typeof import('mermaid').default> | null = null
 let mermaidCounter = 0
@@ -83,7 +85,7 @@ const CodeBlockWithCopy: React.FC<{
   const langMatch = /language-([\w+-]+)/i.exec(codeClassName)
   const lang = langMatch ? langMatch[1].toLowerCase() : ''
 
-  if (lang === 'mermaid') {
+  if (lang === 'mermaid' || lang === '3d' || lang === 'scene3d' || lang === 'plot3d') {
     return <>{children}</>
   }
 
@@ -98,6 +100,11 @@ const CodeBlockWithCopy: React.FC<{
       <pre {...preProps}>{children}</pre>
     </div>
   )
+}
+
+const Scene3DMarkdownBlock: React.FC<{ code: string }> = ({ code }) => {
+  const spec = useMemo(() => normalizeScene3DInput(code), [code])
+  return <Inline3DViewer spec={spec} height={220} compact />
 }
 
 const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
@@ -189,9 +196,12 @@ export const Markdown: React.FC<{ text: string }> = ({ text }) => (
         return <CodeBlockWithCopy preProps={rest}>{children}</CodeBlockWithCopy>
       },
       code({ className, children, ...rest }) {
-        const lang = /language-(\w+)/.exec(className || '')?.[1]
+        const lang = /language-([\w+-]+)/.exec(className || '')?.[1]?.toLowerCase()
         if (lang === 'mermaid') {
           return <MermaidBlock code={String(children).replace(/\n$/, '')} />
+        }
+        if (lang === '3d' || lang === 'scene3d' || lang === 'plot3d') {
+          return <Scene3DMarkdownBlock code={String(children).replace(/\n$/, '')} />
         }
         return (
           <code className={className} {...rest}>

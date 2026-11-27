@@ -7,6 +7,8 @@ import type {
   EquationNode,
   DiagramNode,
   CodeNode,
+  GraphNode,
+  Scene3DNode,
   VideoNode,
   ImageNode,
   VectorArtNode
@@ -298,6 +300,18 @@ export function isImageInRect(img: ImageNode, r: BoundsRect): boolean {
   return !(img.x + w < r.minX || img.x > r.maxX || img.y + h < r.minY || img.y > r.maxY)
 }
 
+export function isScene3DInRect(s3d: Scene3DNode, r: BoundsRect): boolean {
+  const w = Math.max(120, s3d.w || 460)
+  const h = Math.max(100, s3d.h || 360)
+  return !(s3d.x + w < r.minX || s3d.x > r.maxX || s3d.y + h < r.minY || s3d.y > r.maxY)
+}
+
+export function isGraphInRect(g: GraphNode, r: BoundsRect): boolean {
+  const w = Math.max(140, g.w || 500)
+  const h = Math.max(120, g.h || 360)
+  return !(g.x + w < r.minX || g.x > r.maxX || g.y + h < r.minY || g.y > r.maxY)
+}
+
 export function isPointInPolygon(px: number, py: number, poly: Array<[number, number]>): boolean {
   if (poly.length < 3) return false
   let inside = false
@@ -464,6 +478,16 @@ export function findElementsInLasso(
     for (const img of board.imageNodes ?? []) {
       if (isBoxSelectedByLasso(img.x, img.y, img.w || 320, img.h || 240, poly, polyBounds, strict)) {
         selected.push(img.id)
+      }
+    }
+    for (const s3d of board.scene3dNodes ?? []) {
+      if (isBoxSelectedByLasso(s3d.x, s3d.y, s3d.w || 460, s3d.h || 360, poly, polyBounds, strict)) {
+        selected.push(s3d.id)
+      }
+    }
+    for (const gr of board.graphNodes ?? []) {
+      if (isBoxSelectedByLasso(gr.x, gr.y, gr.w || 500, gr.h || 360, poly, polyBounds, strict)) {
+        selected.push(gr.id)
       }
     }
   }

@@ -305,15 +305,102 @@ export async function runCodeSnippet(req: CodeExecutionRequest): Promise<CodeExe
     if (language === 'python') {
       const filePath = join(tempDir, 'main.py')
       writeFileSync(filePath, code, 'utf8')
+      if (code.includes('__VGB_AUTO_RUNNER__')) {
+        const pyEnv: NodeJS.ProcessEnv = {
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUTF8: '1'
+        }
+        const { result, usedCommand } = await runWithFallbacks(
+          [
+            { cmd: 'python', args: ['-u', 'main.py'], env: pyEnv, label: 'python -u main.py' },
+            { cmd: 'python3', args: ['-u', 'main.py'], env: pyEnv, label: 'python3 -u main.py' },
+            { cmd: 'py', args: ['-u', 'main.py'], env: pyEnv, label: 'py -u main.py' }
+          ],
+          { cwd: tempDir, stdin: req.stdin, timeoutMs }
+        )
+        return formatResult(language, result, usedCommand, startTime, timeoutMs)
+      }
+      const pyRunnerCode = `import ast, json, sys, traceback
+
+_VGB_PLOT_KEYS = {
+    'x', 'y', 'z', 'open', 'high', 'low', 'close', 'values', 'data',
+    'series', 'labels', 'categories', 'expr', 'expr3d', 'functions',
+    'type', 'chartType', 'pie', 'bins', 'elements', 'points3d'
+}
+
+def _vgb_to_jsonable(v, depth=0):
+    if depth > 6:
+        return str(v)
+    if v is None or isinstance(v, (bool, int, float, str)):
+        return v
+    if isinstance(v, dict):
+        return {str(k): _vgb_to_jsonable(val, depth + 1) for k, val in v.items()}
+    if isinstance(v, (list, tuple, set)):
+        return [_vgb_to_jsonable(x, depth + 1) for x in v]
+    tolist = getattr(v, 'tolist', None)
+    if callable(tolist):
+        return _vgb_to_jsonable(tolist(), depth + 1)
+    isoformat = getattr(v, 'isoformat', None)
+    if callable(isoformat):
+        return isoformat()
+    try:
+        return list(v)
+    except Exception:
+        return str(v)
+
+def _vgb_is_plot_dict(obj):
+    if not isinstance(obj, dict) or len(obj) == 0:
+        return False
+    keys = {str(k) for k in obj.keys()}
+    if keys & _VGB_PLOT_KEYS:
+        return True
+    # Also treat scalar categorical dicts like {"AAPL": 120, "NVDA": 140} as plot maps
+    return all(isinstance(v, (int, float)) for v in obj.values())
+
+def _vgb_run():
+    with open('main.py', 'r', encoding='utf-8') as f:
+        src = f.read()
+    tree = ast.parse(src, filename='main.py')
+    ns = {'__name__': '__main__', '__file__': 'main.py'}
+    last_val = None
+    last_fn_name = None
+    last_assign_name = None
+    if tree.body:
+        last_stmt = tree.body[-1]
+        if isinstance(last_stmt, ast.Expr):
+            if len(tree.body) > 1:
+                prefix = ast.Module(body=tree.body[:-1], type_ignores=[])
+                exec(compile(prefix, 'main.py', 'exec'), ns)
+            expr_ast = ast.Expression(body=last_stmt.value)
+            ast.fix_missing_locations(expr_ast)
+            last_val = eval(compile(expr_ast, 'main.py', 'eval'), ns)
+        else:
+            exec(compile(tree, 'main.py', 'exec'), ns)
+            if isinstance(last_stmt, ast.FunctionDef):
+                req_args = len(last_stmt.args.args) - len(last_stmt.args.defaults)
+                if req_args <= 0:
+                    last_fn_name = last_stmt.name
+            elif isinstance(last_stmt, ast.Assign) and len(last_stmt.targets) == 1 and isinstance(last_stmt.targets[0], ast.Name):
+                last_assign_name = last_stmt.targets[0].id
+    if last_val is None and last_fn_name and callable(ns.get(last_fn_name)):
+        last_val = ns[last_fn_name]()
+    if not _vgb_is_plot_dict(last_val) and last_assign_name and _vgb_is_plot_dict(ns.get(last_assign_name)):
+        last_val = ns[last_assign_name]
+    if _vgb_is_plot_dict(last_val):
+        print(json.dumps(_vgb_to_jsonable(last_val)), flush=True)
+
+_vgb_run()
+`
+      writeFileSync(join(tempDir, '_vgb_py_runner.py'), pyRunnerCode, 'utf8')
       const pyEnv: NodeJS.ProcessEnv = {
         PYTHONIOENCODING: 'utf-8',
         PYTHONUTF8: '1'
       }
       const { result, usedCommand } = await runWithFallbacks(
         [
-          { cmd: 'python', args: ['-u', 'main.py'], env: pyEnv, label: 'python -u main.py' },
-          { cmd: 'python3', args: ['-u', 'main.py'], env: pyEnv, label: 'python3 -u main.py' },
-          { cmd: 'py', args: ['-u', 'main.py'], env: pyEnv, label: 'py -u main.py' }
+          { cmd: 'python', args: ['-u', '_vgb_py_runner.py'], env: pyEnv, label: 'python -u main.py' },
+          { cmd: 'python3', args: ['-u', '_vgb_py_runner.py'], env: pyEnv, label: 'python3 -u main.py' },
+          { cmd: 'py', args: ['-u', '_vgb_py_runner.py'], env: pyEnv, label: 'py -u main.py' }
         ],
         { cwd: tempDir, stdin: req.stdin, timeoutMs }
       )

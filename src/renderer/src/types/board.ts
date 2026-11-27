@@ -5,6 +5,8 @@ import type {
   SpatialScene,
   VectorPathLayer
 } from '@shared/beautifySchema'
+import type { Scene3DSpec } from '@shared/scene3dSchema'
+import type { GraphPlotSpec } from '../board/graphPlotBuilder'
 
 export type {
   DisplayMode,
@@ -12,7 +14,8 @@ export type {
   DiagramGraph,
   IllustrationBrief,
   SpatialScene,
-  VectorPathLayer
+  VectorPathLayer,
+  Scene3DSpec
 }
 
 /** [x, y, pressure] */
@@ -227,6 +230,10 @@ export interface CodeTabItem {
   code: string
   color?: string
   stdin?: string
+  /** Optional pipeline source: 'prev' (chain previous tab), a specific tab id, or 'card:<cardId>:<tabId>' */
+  upstreamTabId?: string | null
+  /** Output panel display mode */
+  visualMode?: 'terminal' | 'plot2d' | 'scene3d'
   output?: CodeTabExecutionOutput | null
 }
 
@@ -238,8 +245,44 @@ export interface CodeNode {
   h: number
   title?: string
   color?: string
+  /** When true, tabs can be sequentially executed as a pipeline passing stdout -> stdin */
+  pipelineMode?: boolean
+  /** Optional linked board visual elements updated automatically when code runs */
+  linkedScene3DId?: string
+  linkedGraphGroupId?: string
+  linkedGraphId?: string
   tabs: CodeTabItem[]
   activeTabId: string
+  createdAt: number
+}
+
+export interface GraphNode {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  title?: string
+  spec: GraphPlotSpec
+  linkedCodeNodeId?: string
+  layerId?: string
+  createdAt: number
+}
+
+export interface Scene3DNode {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  title?: string
+  spec: Scene3DSpec
+  /** When true (default), renders directly immersed on the board canvas with no card border/background */
+  immersed?: boolean
+  color?: string
+  linkedCodeNodeId?: string
+  linkedTabId?: string
+  layerId?: string
   createdAt: number
 }
 
@@ -350,6 +393,8 @@ export interface BoardState {
   codeNodes?: CodeNode[]
   videoNodes?: VideoNode[]
   imageNodes?: ImageNode[]
+  scene3dNodes?: Scene3DNode[]
+  graphNodes?: GraphNode[]
   /** Top-to-bottom z-order layer stack (index 0 = topmost above cards, last = bottommost base) */
   layers?: BoardLayer[]
   /** Active ink layer where new pen strokes, hold-to-snap shapes & vector art are placed */
@@ -367,6 +412,8 @@ export const EMPTY_BOARD: BoardState = {
   codeNodes: [],
   videoNodes: [],
   imageNodes: [],
+  scene3dNodes: [],
+  graphNodes: [],
   layers: [
     { id: 'layer-overlay-ink', name: 'Annotations (Top)', kind: 'ink', visible: true, locked: false, opacity: 1 },
     { id: 'layer-cards', name: 'Cards & Widgets', kind: 'elements', visible: true, locked: false, opacity: 1 },
@@ -397,6 +444,8 @@ export interface CanvasTransform {
   panY: number
 }
 
+export type HandwritingOcrMode = 'api' | 'local'
+
 export interface AISettings {
   provider: ProviderId
   ollamaHost: string
@@ -406,6 +455,8 @@ export interface AISettings {
   openaiModelProfile?: OpenAIModelProfile
   webSearch?: WebSearchSettings
   activeSkillIds?: string[]
+  /** Handwriting OCR engine preference ('api' defaults to configured Vision AI with local TrOCR fallback) */
+  handwritingOcrMode?: HandwritingOcrMode
   /** True once the user has explicitly configured/enabled an AI provider */
   configured?: boolean
 }

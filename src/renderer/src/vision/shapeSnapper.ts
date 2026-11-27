@@ -1,4 +1,5 @@
 import type { InkPoint, ShapeKind } from '../types/board'
+import { classifyClosedGeometricShape } from '../board/holdSnapClassifier'
 import { detectLocalBasicShape } from './localShapeDetector'
 
 export interface SnapResult {
@@ -8,6 +9,7 @@ export interface SnapResult {
   y: number
   w: number
   h: number
+  controlPoint?: [number, number]
 }
 
 export interface ClassifiedShape {
@@ -16,6 +18,7 @@ export interface ClassifiedShape {
   y: number
   w: number
   h: number
+  controlPoint?: [number, number]
   isConnector?: boolean
 }
 
@@ -100,7 +103,7 @@ function countCorners(resampled: Array<[number, number]>): number {
       cooldown--
       continue
     }
-    if (diff > Math.PI / 3.2) {
+    if (diff > Math.PI / 4.8) {
       corners++
       cooldown = 3
     }
@@ -147,6 +150,17 @@ export function classifyClosedPolygon(points: InkPoint[]): ClassifiedShape | nul
   if (points.length < 4) return null
   const total = pathLength(points)
   if (total < MIN_SIZE * 2) return null
+
+  const geo = classifyClosedGeometricShape(points.map(([x, y]) => ({ x, y })))
+  if (geo) {
+    return {
+      shapeId: geo.libraryId,
+      x: geo.x,
+      y: geo.y,
+      w: geo.w,
+      h: geo.h
+    }
+  }
 
   const [sx, sy] = points[0]
   const [ex, ey] = points[points.length - 1]
@@ -316,11 +330,23 @@ export function classifyClosedPolygon(points: InkPoint[]): ClassifiedShape | nul
 }
 
 /**
- * Classifies a single freehand stroke (open line/arrow or closed geometric shape)
+ * Classifies a single freehand stroke (open line/arrow/curved-arrow or closed geometric shape)
  * into a shapeLibrary.json shape ID.
  */
 export function classifyStrokeShape(points: InkPoint[]): ClassifiedShape | null {
   if (points.length < 4) return null
+  const local = detectLocalBasicShape(points)
+  if (local && local.confidence >= 0.78) {
+    return {
+      shapeId: local.libraryId,
+      x: local.x,
+      y: local.y,
+      w: local.w,
+      h: local.h,
+      ...(local.controlPoint ? { controlPoint: local.controlPoint } : {}),
+      isConnector: local.isConnector
+    }
+  }
   const total = pathLength(points)
   if (total < MIN_SIZE * 2) return null
 
@@ -364,7 +390,8 @@ export function snapShape(points: InkPoint[]): SnapResult | null {
       x: local.x,
       y: local.y,
       w: local.w,
-      h: local.h
+      h: local.h,
+      ...(local.controlPoint ? { controlPoint: local.controlPoint } : {})
     }
   }
   if (points.length < 4) return null

@@ -15,6 +15,7 @@ import { drawShape, drawVectorArt } from './render'
 import { resolveBoardPalette } from './backgroundPresets'
 import { drawLibraryShapeOnCanvas, getLibraryShape } from '../shapes/shapeLibrary'
 import { classifyStrokeShape } from '../vision/shapeSnapper'
+import { detectLocalBasicShape } from '../vision/localShapeDetector'
 
 export interface VectorizeBounds {
   minX: number
@@ -934,16 +935,24 @@ export function looksLikePureHandwriting(
     const sh = sMaxY - sMinY
     const diag = Math.hypot(sw, sh)
 
-    const snapped = classifyStrokeShape(st.points as InkPoint[])
-    if (snapped) {
-      if (
-        !snapped.isConnector &&
-        Math.min(snapped.w, snapped.h) >= 52 &&
-        snapped.w * snapped.h >= 4200
-      ) {
-        largeGeometricCount++
-      } else if (snapped.isConnector && diag >= 120) {
-        longStraightCount++
+    const det = detectLocalBasicShape(st.points as InkPoint[])
+    if (det && det.confidence >= 0.78) {
+      if (det.shapeKind === 'arrow' || det.shapeKind === 'curved-arrow') {
+        if (diag >= 44) longStraightCount++
+      } else if (det.shapeKind === 'line') {
+        if (diag >= 120) longStraightCount++
+      } else if (det.shapeKind === 'circle') {
+        const bw = Math.abs(det.w)
+        const bh = Math.abs(det.h)
+        if (Math.min(bw, bh) >= 62 && bw * bh >= 4200) {
+          largeGeometricCount++
+        }
+      } else {
+        const bw = Math.abs(det.w)
+        const bh = Math.abs(det.h)
+        if (Math.min(bw, bh) >= 48) {
+          largeGeometricCount++
+        }
       }
     }
   }
